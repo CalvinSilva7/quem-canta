@@ -1,0 +1,7 @@
+# headless evita a pergunta de e-mail que o Streamlit faz na primeira execução
+# (ela trava o início). Por isso o navegador é aberto pelo rodar.cmd.
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
