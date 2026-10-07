@@ -1,0 +1,65 @@
+QUEM CANTA - creditos de compositor nas plataformas
+====================================================
+
+O QUE E
+-------
+Voce envia o relatorio analitico do ECAD (PDF) de um compositor. O app descobre
+as gravacoes de cada obra, le o compositor que cada plataforma mostra (YouTube
+Music, Spotify, Tidal, Deezer, Apple Music e Vagalume), compara com o relatorio
+e entrega:
+  - a planilha de obras, no formato do escritorio;
+  - a lista de gravacoes sem credito ou com credito errado, por plataforma;
+  - os prints de cada uma, em PDF.
+
+INSTALAR (uma vez so)
+---------------------
+1. Extraia o .zip inteiro para uma pasta sua. Sugestao: C:\QuemCanta
+   Nao rode de dentro do .zip.
+2. De dois cliques em "Instalar.cmd". Leva de 5 a 15 minutos e precisa de
+   internet. Se o Windows perguntar se confia no arquivo, escolha "Mais
+   informacoes" e "Executar assim mesmo".
+3. Se o Python nao estiver instalado, o instalador cuida disso e pede para
+   voce rodar "Instalar.cmd" de novo.
+
+USAR
+----
+1. De dois cliques em "Abrir Quem Canta.cmd" (ou no atalho "Quem Canta" da
+   area de trabalho). Abre uma janela preta e, em seguida, o app no navegador.
+2. Deixe a janela preta aberta enquanto usa. Fechar a janela encerra o app.
+3. Envie o PDF do ECAD e clique em "Coletar e classificar".
+4. A tela mostra o tempo estimado. O computador pode ser usado normalmente
+   enquanto isso, mas precisa ficar ligado.
+5. No fim, baixe a planilha e o pacote de provas.
+
+O QUE VOCE PRECISA SABER
+------------------------
+- O resultado precisa ser conferido por um advogado antes de qualquer uso. O
+  app separa o que e firme do que e "a confirmar"; confira os prints.
+- Print automatico e prova documental unilateral: nao substitui ata notarial.
+- O navegador que o app usa fica fora da tela. Se quiser ve-lo trabalhando,
+  marque "Mostrar a janela do navegador" e nao clique dentro dela.
+- Se uma plataforma pedir captcha ou login, o app para aquela plataforma,
+  avisa e guarda o que ja leu. Ele nunca tenta contornar.
+- Para parar uma coleta no meio, feche a janela preta. O que ja foi lido fica
+  guardado; na proxima coleta ele continua de onde parou.
+
+ONDE FICAM OS DADOS
+-------------------
+Em Documentos\Quem Canta\casos, uma pasta por compositor, com o que foi lido
+e os prints. O PDF do ECAD que voce envia nao e guardado pelo app.
+Os relatorios do ECAD tem dados pessoais e contratuais: trate esta pasta e os
+arquivos baixados com o mesmo cuidado dos demais documentos do cliente.
+
+ATUALIZACOES
+------------
+Quando houver versao nova, o app avisa no topo da tela, com um botao para
+baixar e instalar. Depois de instalar, feche a janela preta e abra de novo.
+Para conferir na hora, use o botao "Procurar atualizacao", no topo da tela.
+Os casos e os prints nao sao tocados pela atualizacao.
+
+SE ALGO DER ERRADO
+------------------
+- "Instalar.cmd" parou com erro: rode de novo; ele continua de onde parou.
+- O app nao abriu no navegador: abra voce mesmo http://localhost:8502
+- A coleta parou: clique em "Coletar e classificar" de novo.
+- Outra coisa: tire uma foto da janela preta e mande para quem cuida do app.

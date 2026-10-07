@@ -9,7 +9,7 @@ Não usa IA: tudo o que aparece vem de um registro encontrado nessas bases, com 
 Precisa de Python 3.11 ou mais novo.
 
 ```powershell
-cd C:\Users\Calvin\quem-canta
+cd quem-canta
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m streamlit run app.py
@@ -51,16 +51,18 @@ dar dois cliques em `rodar.cmd`, que sobe o app e abre o navegador sozinho.
    ("Tom Jobim" = "Antônio Carlos Jobim").
 2. Lista as gravações da obra e sugere o artista da **gravação mais antiga**.
    Em empate de data, prefere quem também é compositor.
-   Só vale como data o lançamento com status Official que não seja demo: se a
-   mais antiga só existe em bootleg, promocional ou demo, o app usa a próxima
-   oficial e avisa na observação. Ao vivo oficial e coletânea oficial contam.
+   Só vale como data o lançamento que não seja demo nem esteja marcado como
+   bootleg, promocional ou pseudo-lançamento: se a mais antiga só existe assim,
+   o app usa a próxima oficial e avisa na observação. Lançamento sem status
+   cadastrado no MusicBrainz conta como oficial (`status_nao_cadastrado`). Ao vivo oficial e coletânea oficial contam.
    Isso custa uma consulta a mais por gravação conferida (até 8 por linha).
    Se a mais antiga só existe em lançamento ao vivo, ser compositor não basta
    como segundo sinal (compositores tocam a música ao vivo antes de alguém
    lançá-la): ela precisa ser de quem mais gravou ou do mais popular no Deezer.
 3. Confiança `alta` exige uma única obra compatível **e um segundo sinal** de que
    a mais antiga é mesmo a original. O artista precisa ser pelo menos um destes:
-   compositor da obra; quem mais gravou a obra (com 2 gravações ou mais); o mais
+   compositor da obra (o crédito inteiro: uma dupla ou grupo que só tem um
+   compositor dentro não dá alta, fica `media` com `obra_compositor_parcial`); quem mais gravou a obra (com 2 gravações ou mais); o mais
    popular no Deezer para o título. Sem isso fica `media`, com a observação
    "mais antiga no MusicBrainz, sem confirmação".
 4. Também cai para `media` quando há mais de uma obra compatível (as gravações
@@ -110,6 +112,42 @@ Parceiros na mesma célula ("Fulano / Parceiro") não atrapalham a detecção.
   Obras de outros autores que ele só gravou são descartadas.
 - No `avaliar.py`, `--sem-modo-relatorio` desliga a detecção.
 
+*Nomes artísticos do compositor.* O relatório costuma trazer o nome civil, e as
+bases, o nome artístico, um projeto ou um grupo. No modo relatório há um campo
+para informar esses nomes, separados por `;`.
+
+- O app sugere nomes de dois jeitos: artistas cujo nome usa só palavras do nome
+  civil (botão **Sugerir nomes artísticos**) e, depois de processar, artistas que
+  apareceram em várias linhas. Sugestão nenhuma vale sozinha: só entra quando
+  você marca e confirma.
+- Um nome confirmado vale como o próprio compositor em todas as regras (ou seja,
+  não é evidência de quem gravou, só desempate), e as obras dele no MusicBrainz
+  entram na lista de obras do relatório.
+- A discografia de cada nome confirmado é listada de uma vez no Deezer (álbuns e
+  faixas) e no MusicBrainz, se o artista existir lá, e fica em cache. Quando a
+  linha não tem obra confirmada, o título é procurado nessa discografia **antes**
+  da busca por título, que fica de reserva (regra `discografia`):
+  um nome confirmado com o título, em uma base só, é `media`; se Deezer e
+  MusicBrainz listam os dois o título na discografia dele, `alta`; se o título
+  está na discografia de mais de um nome confirmado, `baixa` (`varios_nomes`).
+- Quando a obra existe mas a gravação mais antiga ligada a ela não tem segundo
+  sinal, o app também olha a discografia: se um nome confirmado lançou o título
+  **antes** dessa gravação, ela não é a original e o nome confirmado é sugerido,
+  com `media` (regra `obra_discografia`). Se a obra não tem nenhuma gravação
+  datada e o título está na discografia dele, ele é sugerido com `baixa`.
+- Se a linha cai na busca por título, há vários artistas e o escolhido não tem
+  relação com o compositor, a regra é `palpite_titulo` e a observação diz
+  "provável homônimo, conferir".
+- No `avaliar.py`: `--nomes-artisticos "Nome Um; Projeto Dois"`.
+
+**Data de cadastro da obra** (coluna "Data de cadastro", como no relatório da UBC)
+
+Se a gravação mais antiga encontrada é de mais de 3 anos depois do cadastro, a
+original provavelmente não está na base: a confiança fica no máximo `media` e a
+observação diz "possível original ausente na base" (sufixo `cadastro_anterior`).
+A data é usada só dentro do app: não vai para nenhuma API nem para o cache, e
+não é repetida na observação.
+
 **Linha com ISWC** (código da obra)
 
 A coluna é reconhecida por nomes como "ISWC" ou "Código da obra". Os formatos
@@ -147,6 +185,7 @@ de cada regra com o `avaliar.py` antes de mexer em qualquer nível de confiança
 | --- | --- |
 | `correcao_manual` | Correção salva por você |
 | `obra_compositor` | Obra confirmada; a gravação mais antiga é de um compositor |
+| `obra_compositor_parcial` | ... é de uma dupla, grupo ou parceria em que um compositor só participa |
 | `obra_mais_gravado` | ... é de quem mais gravou a obra |
 | `obra_popular_deezer` | ... é do artista mais popular no Deezer para o título |
 | `obra_sem_confirmacao` | ... sem nenhum segundo sinal |
@@ -156,13 +195,18 @@ de cada regra com o `avaliar.py` antes de mexer em qualquer nível de confiança
 | `sem_obra_palpite` | Compositor não confirmado por obra; melhor candidato pelo título |
 | `so_titulo_unico` | Linha só com título; um único artista |
 | `so_titulo_varios` | Linha só com título; vários artistas |
+| `discografia` | Modo relatório: título na discografia de um nome artístico confirmado |
+| `obra_discografia` | Modo relatório: obra sem segundo sinal; o nome artístico confirmado lançou o título antes |
+| `palpite_titulo` | Modo relatório: vários artistas e o escolhido não tem relação com o compositor |
 | `nao_encontrado`, `sem_titulo`, `erro_de_rede` | Linha sem sugestão |
 
 Sufixos, separados por `+`: `varias_obras`, `truncada` (obra com mais gravações do
 que as analisadas), `relatorio`, `catalogo`, `catalogo_sem_autor` (ver modo
 relatório), `ao_vivo` (a mais antiga só existe em lançamento ao vivo oficial),
 `nao_oficial_ignorada` (havia gravação mais antiga só em bootleg, promocional
-ou demo), `oficial_nao_verificado` (o limite de 8
+ou demo), `varios_nomes` (título na discografia de mais de um nome artístico confirmado),
+`status_nao_cadastrado` (os lançamentos da mais antiga estão sem status no MusicBrainz),
+`cadastro_anterior` (obra cadastrada mais de 3 anos antes da gravação mais antiga encontrada), `oficial_nao_verificado` (o limite de 8
 verificações acabou antes), `empate`, `empate_compositor` (empate resolvido a favor do
 compositor), `mb` / `deezer` / `mb_deezer` (de onde veio o candidato na busca por
 título), os de ISWC acima, `fontes_concordam` / `fontes_discordam` e
@@ -177,6 +221,61 @@ título), os de ISWC acima, `fontes_concordam` / `fontes_discordam` e
 
 Nos dois casos o resultado **não** entra no cache (processe de novo para
 completar) e o erro fica registrado em `dados/quem_canta.log`.
+
+## Créditos nas plataformas (em construção, por etapas)
+
+Fluxo novo, para o escritório: em vez de apontar o intérprete original, verificar
+se cada gravação das obras de um titular está com o compositor creditado em cada
+plataforma. Fica no pacote `creditos/`, separado do motor acima, que continua
+valendo como módulo. Nada aqui usa IA: são regras fixas.
+
+Etapa 1 (pronta): importar o relatório e classificar créditos.
+
+```powershell
+.venv\Scripts\python -m streamlit run creditos_app.py
+.venv\Scripts\python -m creditos.ecad relatorio.pdf --output obras.json
+```
+
+- `creditos/ecad.py` lê o "Relatório analítico de titular autoral e suas obras"
+  do ECAD (PDF): obra, ISWC, situação, data de inclusão e, por titular, nome,
+  pseudônimo, CAE, associação, categoria e percentual. Confere a contagem com o
+  total que o próprio relatório declara; o que não bate vira aviso na tela.
+  `creditos/ubc.py` lê o relatório de obras em planilha. O arquivo é sempre
+  enviado à mão: o app não acessa o ECADNET nem portal de associação.
+- Os pseudônimos do titular e dos coautores entram como nomes artísticos, e a
+  tela mostra a lista para confirmar ou remover. Títulos iguais ou parecidos e
+  situações DU/HO são sinalizados como possível duplicidade.
+- `creditos/classificador.py` compara o crédito exibido em uma gravação com
+  todos os autores de todos os registros do título e devolve o status da
+  metodologia do escritório (SEM CRÉDITOS, VIOLAÇÃO - crédito errado, OK...),
+  o fundamento e se precisa de revisão. Erro técnico nunca vira SEM CRÉDITOS, e
+  título só aproximado nunca sustenta um resultado negativo.
+- `creditos/filtro.py` barra percentuais, CAE/IPI, códigos do cadastro, datas
+  de contrato e de inclusão, editoras e CPF em qualquer texto que vá para fora.
+
+### Instalar no Windows e atualizar
+
+`python empacotar.py` monta `quem-canta-<versão>-windows.zip`. Quem recebe o zip
+extrai, dá dois cliques em `Instalar.cmd` uma vez e passa a abrir o app por
+`Abrir Quem Canta.cmd`. Os casos e os prints ficam em `Documentos\Quem Canta`,
+fora da pasta do programa.
+
+O app instalado consulta `versao-publicada.json` na branch `main` deste
+repositório, ao abrir e pelo botão **Procurar atualização**. Se a versão
+publicada for maior que a instalada, aparece o botão para baixar e instalar: o
+zip só é instalado se o SHA-256 conferir com o publicado.
+
+Para publicar uma versão:
+
+1. Aumente `VERSAO` em `creditos/versao.py`.
+2. Rode os testes e `python empacotar.py . "o que mudou"`. Isso gera o zip e
+   regrava `versao-publicada.json` com o hash dele.
+3. Crie a release `v<versão>` no GitHub com o zip anexado.
+4. Só depois suba o `versao-publicada.json` para a `main`. Nessa ordem, nenhum
+   app instalado é avisado de uma versão cujo zip ainda não existe.
+
+`QUEMCANTA_ATUALIZACAO=desligada` desliga a consulta; outro endereço pode ser
+dado na mesma variável ou em `atualizacao.json`.
 
 ## Dados salvos
 

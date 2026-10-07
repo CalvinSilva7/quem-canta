@@ -1,0 +1,357 @@
+"""Créditos nas plataformas: etapa 1, importar o relatório do titular.
+
+Rode com: streamlit run creditos_app.py
+(tela separada do app.py enquanto o fluxo novo é construído por etapas)
+"""
+
+import io
+import json
+import os
+import time
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+from cantor import planilha
+from cantor.matching import normalizar
+from creditos import atualizacao, ecad, ubc
+from creditos.versao import VERSAO
+from creditos.captura import slug
+from creditos.modelo import SITUACOES, Relatorio
+
+# Onde ficam os casos (o que já foi lido e os prints): fora da pasta do programa, para uma atualização nunca tocar neles.
+PASTA_DE_DADOS = Path(os.environ.get("QUEMCANTA_DADOS") or Path.home() / "Documents" / "Quem Canta")
+
+st.set_page_config(page_title="Créditos nas plataformas", layout="wide")
+st.title("Créditos nas plataformas")
+
+if "atualizacao" not in st.session_state:  # consulta sozinho uma vez por sessão; o botão consulta de novo
+    st.session_state.atualizacao = atualizacao.consultar()
+nova = st.session_state.atualizacao
+if nova:
+    with st.container(border=True):
+        st.markdown(
+            f"**Há uma versão nova do app: {nova['versao']}** (a instalada é a {VERSAO})."
+            + (f" O que mudou: {nova['notas']}" if nova["notas"] else "")
+        )
+        if st.button("Baixar e instalar a versão nova"):
+            try:
+                escritos = atualizacao.instalar(nova)
+            except atualizacao.FalhaNaAtualizacao as e:
+                st.error(f"A atualização não foi instalada: {e}. O app continua na versão {VERSAO}.")
+            else:
+                st.session_state.atualizacao = None
+                st.success(
+                    f"Versão {nova['versao']} instalada ({len(escritos)} arquivos). **Feche a janela preta do programa e abra "
+                    "o app de novo** para ela valer. Os casos e os prints não foram tocados."
+                )
+                if "requirements.txt" in escritos:
+                    st.warning(
+                        "Esta versão usa componentes novos. Antes de abrir o app de novo, dê dois cliques em "
+                        "**Instalar.cmd**, na pasta do programa, e espere terminar."
+                    )
+                st.stop()
+else:
+    lado_da_versao, lado_do_botao = st.columns([5, 1])
+    lado_da_versao.caption(f"Versão instalada: {VERSAO}")
+    if lado_do_botao.button("Procurar atualização", help="Consulta se já saiu uma versão mais nova do app."):
+        estado, publicada = atualizacao.verificar()
+        if estado == atualizacao.NOVA:
+            st.session_state.atualizacao = publicada
+            st.rerun()
+        elif estado == atualizacao.EM_DIA:
+            st.success(f"Você já está na versão mais recente ({VERSAO}).")
+        else:
+            st.warning("Não consegui consultar agora. Confira a internet e tente de novo; o app funciona normalmente sem isso.")
+st.caption(
+    "Do relatório do titular à planilha, à lista da petição e às provas. O arquivo é lido só neste computador; "
+    "o app nunca acessa o ECADNET nem o portal de associação nenhuma."
+)
+
+arquivo = st.file_uploader(
+    "Relatório analítico do ECAD (PDF) ou relatório de obras em planilha (.xlsx ou .csv)", type=["pdf", "xlsx", "csv"]
+)
+if arquivo is not None and st.session_state.get("arquivo_id") != arquivo.file_id:
+    try:
+        if arquivo.name.lower().endswith(".pdf"):
+            relatorio = ecad.ler_pdf(io.BytesIO(arquivo.getvalue()))
+        else:
+            relatorio = ubc.ler_planilha(planilha.ler_planilha(arquivo.getvalue(), arquivo.name))
+    except Exception as e:  # arquivo de outro formato, PDF escaneado etc.
+        st.error(f"Não consegui ler o relatório: {e}")
+        st.stop()
+    st.session_state.arquivo_id = arquivo.file_id
+    st.session_state.relatorio = relatorio
+
+relatorio: Relatorio | None = st.session_state.get("relatorio")
+if relatorio is None:
+    st.info("Envie o relatório para começar.")
+    st.stop()
+
+# --- resumo e conferência ---------------------------------------------------
+
+st.subheader(relatorio.nome_titular or "Titular não identificado")
+if relatorio.pseudonimo_titular:
+    st.caption(f"Pseudônimo no relatório: {relatorio.pseudonimo_titular}")
+com_coautoria = sum(len(o.autores) > 1 for o in relatorio.obras)
+blocos = st.columns(4)
+blocos[0].metric("Obras lidas", len(relatorio.obras))
+blocos[1].metric("Obras declaradas no relatório", relatorio.total_declarado if relatorio.total_declarado is not None else "não informa")
+blocos[2].metric("Com coautoria", com_coautoria)
+blocos[3].metric("Origem", relatorio.origem, relatorio.emitido_em or None, delta_color="off")
+if relatorio.total_declarado is not None and relatorio.total_declarado == len(relatorio.obras) and not relatorio.avisos:
+    st.success("Contagem conferida: todas as obras declaradas no relatório foram lidas.")
+for aviso in relatorio.avisos:
+    st.warning(aviso)
+
+# --- conferir e ajustar (recolhido: quase nunca precisa mexer) ----------------
+
+area_da_coleta = st.container()  # a coleta aparece aqui em cima, mas usa os ajustes definidos abaixo
+st.divider()
+st.subheader("Conferir e ajustar (opcional)")
+st.caption("O app já usa tudo isto sozinho. Abra só se quiser conferir o que foi lido ou corrigir um nome.")
+with st.expander(f"Nomes artísticos e intérpretes ({len(relatorio.nomes_artisticos())} pseudônimos no relatório)"):
+    st.markdown(
+        "As plataformas mostram o **nome artístico**, não o nome civil. Os pseudônimos abaixo vieram do próprio relatório "
+        "e já entram como nomes pelos quais o titular e os coautores podem aparecer. **Desmarque** o que não for nome "
+        "de pessoa usado em público (por exemplo, o nome de uma banda cadastrado como pseudônimo)."
+    )
+    nomes = relatorio.nomes_artisticos()
+    if nomes:
+        tabela = pd.DataFrame([
+            {"usar": True, "nome artístico": n["nome"], "de quem": n["de"],
+             "quem é": "titular" if n["titular"] else "coautor", "obras": n["obras"]}
+            for n in nomes
+        ])
+        editada = st.data_editor(
+            tabela, hide_index=True, disabled=["nome artístico", "de quem", "quem é", "obras"], key="nomes_do_relatorio",
+            column_config={"usar": st.column_config.CheckboxColumn("usar", help="Desmarque para remover")},
+        )
+        usados = editada[editada["usar"]]
+    else:
+        st.caption("O relatório não traz pseudônimo nenhum.")
+        usados = pd.DataFrame(columns=["nome artístico", "quem é"])
+    extras = planilha.dividir_nomes_artisticos(st.text_input(
+        "Outros nomes artísticos do titular (opcional)", placeholder="Ex.: Nome Artístico; Outro Nome",
+        help="Nomes que o titular usa e que não estão no relatório. Separe com ponto e vírgula.",
+    ))
+    interpretes = planilha.dividir_nomes_artisticos(st.text_input(
+        "Bandas e intérpretes que gravam o titular (opcional)", placeholder="Ex.: Nome da Banda; Nome do Cantor",
+        key="interpretes_informados",
+        help="Informados pelo compositor. Servem para ligar uma gravação ao titular quando a plataforma não mostra crédito.",
+    ))
+    do_titular = list(usados.loc[usados["quem é"] == "titular", "nome artístico"]) + extras
+    st.session_state.config = {
+        "nomes_confirmados": do_titular,
+        "nomes_dos_coautores": list(usados.loc[usados["quem é"] == "coautor", "nome artístico"]),
+        "interpretes": interpretes,
+    }
+
+
+grupos = relatorio.duplicidades()
+with st.expander(f"Possíveis duplicidades ({len(grupos)})"):
+    if grupos:
+        st.markdown(
+            "Obras com título igual ou parecido, ou que o próprio cadastro marca como duplicidade (DU) ou homônima (HO). "
+            "Podem ser a mesma música cadastrada duas vezes. Na verificação, todos os registros de um título são "
+            "considerados juntos, inclusive quando os coautores diferem."
+        )
+        st.dataframe(pd.DataFrame([
+            {"grupo": i, "motivo": "título igual ou parecido" if g["motivo"] == "titulo" else "situação DU/HO no cadastro",
+             "código": o.codigo, "título": o.titulo, "situação": o.situacao,
+             "autores": "; ".join(a.pseudonimo or a.nome for a in o.autores)}
+            for i, g in enumerate(grupos, start=1) for o in g["obras"]
+        ]), hide_index=True)
+    else:
+        st.caption("Nenhuma.")
+
+
+with st.expander(f"Obras lidas do relatório ({len(relatorio.obras)})"):
+    contratuais = st.checkbox(
+        "Mostrar dados contratuais (percentuais, CAE/IPI, editoras)",
+        help="Esses dados ficam só neste computador: o filtro de saída impede que entrem em qualquer busca externa.",
+    )
+    linhas = []
+    for o in relatorio.obras:
+        linha = {
+            "código": o.codigo, "ISWC": o.iswc, "título": o.titulo,
+            "situação": " / ".join(f"{s} ({SITUACOES.get(s, '?')})" for s in o.situacoes) or o.situacao,
+            "incluída em": o.inclusao,
+            "autores": "; ".join(a.nome + (f" ({a.pseudonimo})" if a.pseudonimo and normalizar(a.pseudonimo) != normalizar(a.nome) else "") for a in o.autores),
+        }
+        if contratuais:
+            linha["titulares e percentuais"] = "; ".join(
+                f"{t.nome} [{t.categoria}] {'' if t.percentual is None else f'{t.percentual:g}%'} {t.cae}".strip() for t in o.titulares
+            )
+        linhas.append(linha)
+    st.dataframe(pd.DataFrame(linhas), hide_index=True)
+    st.download_button(
+        "Baixar o relatório lido (JSON)",
+        json.dumps({"relatorio": relatorio.para_dict(), "config": st.session_state.config}, ensure_ascii=False, indent=1),
+        "relatorio_lido.json", "application/json",
+        help="Contém os dados contratuais do relatório. Guarde só no escritório.",
+    )
+
+# --- coleta (aparece logo abaixo do resumo) -----------------------------------
+
+with area_da_coleta:
+    st.subheader("Verificar os créditos nas plataformas")
+    st.caption(
+        "O app descobre as gravações de cada obra, lê o compositor que cada plataforma mostra, compara com o relatório e "
+        "tira o print das gravações sem crédito ou com crédito errado. Leva alguns minutos por plataforma; as que usam "
+        "navegador vão devagar de propósito, para não serem bloqueadas. O que já foi lido fica guardado: se parar, é só "
+        "coletar de novo."
+    )
+    st.caption(
+        "Nomes usados nas buscas: **" + ", ".join(dict.fromkeys([relatorio.nome_titular, *do_titular])) + "**"
+        + (f" + {len(st.session_state.config['nomes_dos_coautores'])} pseudônimos de coautores"
+           if 0 < len(st.session_state.config["nomes_dos_coautores"]) <= 10 else "")
+        + (f" + intérpretes informados: {', '.join(interpretes)}" if interpretes else "")
+    )
+    def confirmar_interpretes():
+        """Passa os intérpretes marcados para o campo de intérpretes informados; a próxima coleta já os trata como confirmados."""
+        atuais = planilha.dividir_nomes_artisticos(st.session_state.get("interpretes_informados", ""))
+        st.session_state.interpretes_informados = "; ".join(atuais + st.session_state.get("presumidos_marcados", []))
+        st.session_state.presumidos_marcados = []
+        st.session_state.pop("coletas", None)
+        st.session_state.pop("saidas", None)
+        st.session_state.aviso_de_confirmacao = True
+
+    if st.session_state.pop("aviso_de_confirmacao", False):
+        st.success("Intérpretes confirmados. Clique em **Coletar e classificar** de novo: como tudo já foi lido, sai em instantes.")
+    NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
+                             "apple": "Apple Music (controle)", "vagalume": "Vagalume"}
+    from creditos import pipeline as _pipeline
+
+    escolhidas = st.multiselect(
+        "Plataformas", list(NOMES_DAS_PLATAFORMAS), default=list(NOMES_DAS_PLATAFORMAS), format_func=NOMES_DAS_PLATAFORMAS.get,
+        help="A Deezer roda sempre: é ela que mostra às outras quem grava o titular.",
+    )
+    mostrar_navegador = st.checkbox(
+        "Mostrar a janela do navegador enquanto coleta", value=False,
+        help="Desmarcado, o navegador que o app usa fica fora da tela e você pode trabalhar normalmente. Marque para "
+        "acompanhar o robô (em uma demonstração, por exemplo); aí não clique dentro da janela, que um clique fecha o "
+        "menu que o app abriu.",
+    )
+    titulos_do_relatorio = len({o.titulo for o in relatorio.obras})
+    limite = None
+    if os.environ.get("QUEMCANTA_DEV"):
+        # Só para quem desenvolve e demonstra o app (variável QUEMCANTA_DEV). No pacote instalado isto não aparece:
+        # quem envia um relatório quer todas as obras verificadas.
+        dev = st.columns([1, 1, 3])
+        quantas = dev[0].number_input("Obras a verificar (só para teste)", min_value=0, max_value=titulos_do_relatorio,
+                                      value=min(10, titulos_do_relatorio), step=5, help="0 = todas.")
+        do_fim = dev[1].radio("Quais", ["as primeiras", "as últimas"], horizontal=True) == "as últimas"
+        if quantas and quantas < titulos_do_relatorio:
+            limite = -int(quantas) if do_fim else int(quantas)
+            titulos_do_relatorio = int(quantas)
+    st.info(
+        f"**Tempo estimado: {_pipeline.texto_da_estimativa(_pipeline.estimar_minutos(titulos_do_relatorio, escolhidas))}** "
+        f"para as {titulos_do_relatorio} obras nas plataformas marcadas, se for a primeira coleta deste relatório. "
+        "O computador pode ser usado normalmente enquanto isso, mas precisa ficar ligado. O que já foi lido fica "
+        "guardado: se parar no meio ou coletar de novo, continua de onde estava."
+    )
+    pasta_do_caso = PASTA_DE_DADOS / "casos" / slug(relatorio.pseudonimo_titular or relatorio.nome_titular or "caso")
+
+    if st.button("Coletar e classificar", type="primary"):
+        from concurrent.futures import ThreadPoolExecutor
+
+        from creditos import pipeline
+        from creditos.classificador import Config
+
+        config = Config(nomes_confirmados=do_titular, interpretes=interpretes)
+        andamento = ["Iniciando…"]
+        aviso = st.empty()
+        # A coleta roda em outra linha de execução: o navegador automatizado não pode rodar na da tela.
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            # Com muitos coautores, percorrer a discografia de cada um multiplicaria a coleta sem ajudar: os
+            # intérpretes aparecem pela busca por título e pelos créditos que as plataformas mostram.
+            coautores = st.session_state.config["nomes_dos_coautores"]
+            tarefa = executor.submit(
+                pipeline.executar, relatorio, config, pasta_do_caso, coautores if len(coautores) <= 10 else [],
+                ao_avancar=lambda texto: andamento.__setitem__(0, texto), limite_youtube=limite,
+                plataformas=tuple(escolhidas), mostrar_navegador=mostrar_navegador,
+            )
+            while not tarefa.done():
+                aviso.info(andamento[0])
+                time.sleep(0.5)
+        aviso.empty()
+        try:
+            st.session_state.coletas = tarefa.result()
+        except Exception as e:  # navegador que não abriu, rede fora do ar: mostra e deixa tentar de novo
+            st.error(f"A coleta não terminou: {type(e).__name__}: {e}")
+            st.stop()
+        st.session_state.pasta_do_caso = str(pasta_do_caso)
+        st.session_state.pop("saidas", None)
+
+    coletas = st.session_state.get("coletas")
+    if coletas:
+        from creditos import provas, saida
+
+        # O que parou no meio aparece em destaque; o resto dos avisos fica recolhido no fim.
+        for coleta in coletas:
+            if coleta.interrompida:
+                st.error(f"{coleta.plataforma}: {coleta.avisos[-1]}")
+        parciais = [a for coleta in coletas for a in coleta.avisos if a.startswith("COLETA PARCIAL")]
+        if parciais:
+            st.caption("Coleta parcial: " + parciais[0].split(": ", 1)[1].rsplit(" foram buscadas", 1)[0] + " foram verificadas.")
+        if "saidas" not in st.session_state:
+            planilha_pronta = saida.planilha(relatorio, coletas)
+            pacote, resumo, avisos = provas.pacote(relatorio, coletas, st.session_state.pasta_do_caso, planilha_pronta)
+            st.session_state.saidas = {"planilha": planilha_pronta, "pacote": pacote, "resumo": resumo, "avisos": avisos}
+        saidas = st.session_state.saidas
+        nome_do_caso = relatorio.pseudonimo_titular or relatorio.nome_titular
+        st.subheader("Resultado")
+        botoes = st.columns(3)
+        botoes[0].download_button(
+            "Planilha de obras (.xlsx)", saidas["planilha"], f"Planilha de Obras - {nome_do_caso}.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary",
+        )
+        botoes[1].download_button(
+            "Listas da petição e provas (.zip)", saidas["pacote"], f"Provas - {nome_do_caso}.zip", "application/zip",
+            help="Para cada plataforma com gravação sem crédito ou com crédito errado: a lista da petição em Word e o PDF "
+            "com um print por página. A planilha também vai dentro.",
+        )
+        lidas = {provas.NOMES.get(k.plataforma, k.plataforma): sum(g.classificacao.status != "REVISAR - possível obra homônima de terceiro" for g in k.gravacoes) for k in coletas}
+        st.dataframe(
+            pd.DataFrame([
+                {"Plataforma": r["plataforma"], "Gravações lidas": lidas.get(r["plataforma"], 0),
+                 "Sem crédito ou crédito errado": r["firmes"], "A confirmar (fora da contagem)": r["a_confirmar"]}
+                for r in saidas["resumo"]
+            ]),
+            hide_index=True,
+        )
+        ja_informados = {normalizar(n) for n in interpretes}
+        presumidos = [i for i in {i["nome"]: i for coleta in coletas for i in coleta.interpretes_inferidos}.values()
+                      if normalizar(i["nome"]) not in ja_informados]
+        if presumidos:
+            with st.container(border=True):
+                st.markdown(
+                    "**Estes artistas gravam o compositor?** O app notou que eles gravam várias obras do relatório, mas isso "
+                    "é só um indício: um artista conhecido grava músicas de muitos autores, inclusive com o mesmo título. "
+                    "Enquanto ninguém confirmar, as gravações deles sem crédito ficam em **A confirmar**, fora da contagem. "
+                    "Marque só quem o compositor ou o escritório sabe que grava as obras dele."
+                )
+                st.multiselect(
+                    "Intérpretes a confirmar", [i["nome"] for i in presumidos], key="presumidos_marcados",
+                    format_func=lambda nome: next(f"{nome} ({i['obras']} títulos do relatório)" for i in presumidos if i["nome"] == nome),
+                    placeholder="Marque os que de fato gravam o compositor",
+                )
+                st.button("Confirmar os marcados", on_click=confirmar_interpretes)
+        tecnicos = [f"{coleta.plataforma}: {a}" for coleta in coletas for a in coleta.avisos
+                    if not a.startswith("COLETA PARCIAL") and not coleta.interrompida] + [f"Provas: {a}" for a in saidas["avisos"]]
+        erros = [f"{coleta.plataforma}: não foi possível ler {link} ({erro})" for coleta in coletas for link, erro in coleta.albuns_com_erro]
+        with st.expander(f"Avisos e detalhes da execução ({len(tecnicos) + len(erros)} avisos)"):
+            for texto in tecnicos + erros:
+                st.warning(texto)
+            st.dataframe(
+                pd.DataFrame([(r, str(v)) for r, v in saida.contagens(relatorio, coletas)], columns=["", "valor"]), hide_index=True
+            )
+            st.caption(
+                f"Os prints, com o HTML e a ficha de cada um, ficam em `{Path(st.session_state.pasta_do_caso).resolve()}`, uma "
+                "pasta por plataforma. São prova documental unilateral: não substituem ata notarial."
+            )
+
+
+st.caption(f"Versão {VERSAO} · casos e prints em `{PASTA_DE_DADOS}`")
