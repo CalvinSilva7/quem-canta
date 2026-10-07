@@ -1,6 +1,6 @@
 {
-  "versao": "0.4.3",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.4.3/quem-canta-0.4.3-windows.zip",
-  "sha256": "8cdda0d57aa1d5e84d216e59705c9195a347f744df6c0cae8d53e73e0515bb25",
-  "notas": "Barra de progresso, botao Parar coleta e print de tela inteira (opcional). Depois de instalar, rode o Instalar.cmd."
+  "versao": "0.4.4",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.4.4/quem-canta-0.4.4-windows.zip",
+  "sha256": "c654789021901aa242d38646f9eb951255666a2370b784861bde7afed1a0f8c7",
+  "notas": "Print de tela inteira: a pagina ocupa a janela toda (sem espaco em branco) e o app reabre a janela se ela for minimizada."
 }
