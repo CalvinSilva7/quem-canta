@@ -8,14 +8,14 @@ import streamlit as st
 from cantor import planilha
 from cantor.banco import Banco
 from cantor.busca import ATRIBUICAO_CREDITS, COLUNAS_SAIDA, Buscador, ClienteHTTP, configurar_log
-from cantor.matching import chave_consulta
+from cantor.matching import chave_consulta, normalizar
 
 NENHUMA = "(nenhuma)"
 CORES = {"baixa": "rgba(255, 193, 7, 0.25)", "nao_encontrado": "rgba(220, 53, 69, 0.25)"}
 ROTULOS = {"alta": "Alta", "media": "Média", "baixa": "Baixa", "nao_encontrado": "Não encontrado"}
 
-st.set_page_config(page_title="Quem canta?", page_icon="🎤", layout="wide")
-st.title("🎤 Quem canta?")
+st.set_page_config(page_title="Quem canta?", layout="wide")
+st.title("Quem canta?")
 st.caption("Preenche o intérprete das músicas de uma planilha usando MusicBrainz e Deezer.")
 
 banco = Banco()
@@ -87,7 +87,7 @@ def escolher(rotulo, papel, obrigatoria=False):
 with st.expander("Colunas da planilha", expanded=detectadas["titulo"] is None):
     if detectadas["titulo"] is None:
         st.warning("Não identifiquei a coluna do título. Escolha abaixo.")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         col_titulo = escolher("Título (obrigatória)", "titulo", obrigatoria=True)
     with c2:
@@ -96,9 +96,19 @@ with st.expander("Colunas da planilha", expanded=detectadas["titulo"] is None):
         col_creditos = escolher("Créditos", "creditos")
     with c4:
         col_iswc = escolher("ISWC (código da obra)", "iswc")
+    with c5:
+        col_cadastro = escolher("Data de cadastro", "data_cadastro")
+        st.caption(
+            "Opcional. Use se o relatório tiver a data em que a obra foi cadastrada (como o da UBC). "
+            "Se a gravação mais antiga achada for de mais de 3 anos depois, o app avisa que a original "
+            "pode estar faltando. A data fica só aqui: não é enviada a nenhum serviço."
+        )
     st.dataframe(df.head(5), hide_index=True)
 
-mapa = {"titulo": col_titulo, "compositor": col_compositor, "creditos": col_creditos, "iswc": col_iswc}
+mapa = {
+    "titulo": col_titulo, "compositor": col_compositor, "creditos": col_creditos, "iswc": col_iswc,
+    "data_cadastro": col_cadastro,
+}
 if col_titulo is None:
     st.stop()
 if mapa != st.session_state.get("mapa"):
@@ -112,17 +122,104 @@ dono = planilha.compositor_do_relatorio(df, mapa)
 modo_relatorio = False
 if dono:
     st.info(
-        f"**Modo relatório ativo:** {dono} aparece como compositor em pelo menos 90% das linhas. "
-        "Nesse modo, ser o compositor não conta como evidência de quem gravou a música, "
-        "e as obras dele são listadas de uma vez no MusicBrainz antes de processar."
+        f"**Modo relatório ativo.** Esta planilha parece ser o relatório de um compositor só: **{dono}**, "
+        "que aparece como compositor em pelo menos 90% das linhas. Nesse modo o app "
+        "busca as obras dele de uma vez no MusicBrainz e não usa \"ele é o compositor\" como pista de quem gravou "
+        "(ele é o autor de todas as linhas, isso não diferencia nada)."
     )
     modo_relatorio = st.checkbox(
         "Usar o modo relatório", value=True, help="Desmarque se a planilha não for o catálogo de um compositor só."
     )
-if modo_relatorio != st.session_state.get("modo_relatorio"):
-    # Ligou ou desligou o modo: o resultado anterior não vale mais.
-    st.session_state.modo_relatorio = modo_relatorio
+
+
+def nomes_confirmados() -> list[str]:
+    return planilha.dividir_nomes_artisticos(st.session_state.get("nomes_artisticos", ""))
+
+
+def adicionar_nomes(chave):
+    """Passa as sugestões marcadas pelo usuário para o campo de nomes artísticos."""
+    st.session_state.nomes_artisticos = "; ".join(nomes_confirmados() + st.session_state.get(chave, []))
+    st.session_state[chave] = []
+    st.session_state.nomes_mudaram = True
+
+
+def confirmar_sugestoes(rotulo, sugestoes, chave):
+    """Sugestões nunca valem sozinhas: só entram depois que o usuário marca e confirma."""
+    ja = {normalizar(n) for n in nomes_confirmados()}
+    pendentes = [s for s in sugestoes if normalizar(s) not in ja]
+    if pendentes:
+        st.multiselect(rotulo, pendentes, key=chave, placeholder="Marque só os que são o próprio compositor")
+        st.button("Adicionar aos nomes artísticos", key=f"{chave}_botao", on_click=adicionar_nomes, args=(chave,))
+    return pendentes
+
+
+if modo_relatorio:
+    with st.container(border=True):
+        st.markdown("#### O compositor também canta? Informe o nome artístico dele")
+        st.markdown(
+            f"O relatório traz o nome civil (**{dono}**), mas o Deezer e o MusicBrainz só conhecem o "
+            "**nome artístico**. Sem essa ligação, o app não percebe quando é o próprio compositor cantando "
+            "e acaba chutando o artista mais famoso que tem uma música com o mesmo título."
+        )
+        quando, como = st.columns(2)
+        quando.markdown(
+            "**Quando preencher**\n"
+            "- O compositor grava as próprias músicas com um nome diferente do que está na planilha.\n"
+            "- Ele faz ou fez parte de uma banda, dupla ou projeto.\n"
+            "- Você processou e quase tudo saiu com confiança **baixa** ou com artistas sem relação com ele.\n\n"
+            "**Quando deixar vazio**\n"
+            "- Ele é só autor (letrista) e não costuma gravar.\n"
+            "- Você não tem certeza do nome: um nome errado traz a discografia de outra pessoa."
+        )
+        como.markdown(
+            "**Como usar**\n"
+            "1. Digite abaixo o nome artístico, exatamente como aparece nas plataformas de música. "
+            "Mais de um? Separe com ponto e vírgula.\n"
+            "2. Não sabe o nome? Clique em **Sugerir nomes artísticos**, ou processe a planilha uma vez: "
+            "abaixo da prévia o app mostra os artistas que mais se repetiram.\n"
+            "3. Clique em **Processar**. Sempre que mudar os nomes, processe de novo.\n\n"
+            "**O que muda no resultado**\n"
+            "- As músicas que ele mesmo lançou passam a ser reconhecidas pela discografia dele.\n"
+            "- Regravações recentes de outros artistas deixam de passar por \"gravação original\"."
+        )
+        st.text_input(
+            "Nomes artísticos, projetos e grupos do compositor",
+            key="nomes_artisticos",
+            placeholder="Ex.: Nome Artístico; Nome da Banda",
+            help="Um ou mais nomes, separados por ponto e vírgula. Valem como o próprio compositor, e a discografia "
+            "de cada um (Deezer e MusicBrainz) é comparada com os títulos da planilha.",
+        )
+        if nomes_confirmados():
+            st.success(
+                "O app vai tratar **" + "**, **".join(nomes_confirmados()) + f"** como o próprio {dono} "
+                "e procurar os títulos da planilha na discografia " + ("deles." if len(nomes_confirmados()) > 1 else "dele.")
+            )
+        else:
+            st.warning(f"Nenhum nome artístico informado: o app vai procurar só por \"{dono}\".")
+        if st.button(
+            "Sugerir nomes artísticos",
+            help="Procura no Deezer e no MusicBrainz artistas cujo nome é formado só por palavras do nome do "
+            "compositor. Não acha apelidos nem nomes de banda: para esses, processe uma vez e veja a lista "
+            "abaixo da prévia.",
+        ):
+            st.session_state.sugestoes_do_nome = buscador.sugerir_nomes_artisticos(dono)
+            if not st.session_state.sugestoes_do_nome:
+                st.caption(
+                    "Não achei nenhum artista com nome formado só por palavras do nome do compositor. "
+                    "Se ele usa um apelido ou nome de banda, digite acima, ou processe uma vez e veja as sugestões "
+                    "abaixo da prévia."
+                )
+        confirmar_sugestoes(
+            "Artistas com nome formado por palavras do nome do compositor (marque só se for ele mesmo)",
+            st.session_state.get("sugestoes_do_nome", []), "sugestoes_marcadas",
+        )
+artisticos = nomes_confirmados() if modo_relatorio else []
+if (modo_relatorio, artisticos) != st.session_state.get("modo_relatorio"):
+    # Ligou ou desligou o modo, ou mudaram os nomes artísticos: o resultado anterior não vale mais.
+    st.session_state.modo_relatorio = (modo_relatorio, artisticos)
     st.session_state.pop("resultado", None)
+if st.session_state.pop("nomes_mudaram", False):
+    st.warning("Nomes artísticos atualizados. Clique em **Processar** de novo para o resultado levar isso em conta.")
 
 # --- 3. processamento -------------------------------------------------------
 
@@ -134,15 +231,19 @@ if st.button("Processar", type="primary"):
     barra = st.progress(0.0, text="Iniciando…")
     if modo_relatorio:
         barra.progress(0.0, text=f"Listando as obras de {dono} no MusicBrainz…")
-        catalogo = buscador.preparar_relatorio(dono)
+        catalogo = buscador.preparar_relatorio(dono, artisticos)
         if catalogo["erro"]:
-            st.warning(f"Não consegui listar as obras de {dono} ({catalogo['erro']}); cada título será buscado sozinho.")
+            st.warning(
+                f"Não consegui listar as obras e a discografia de {dono} ({catalogo['erro']}); "
+                "cada título será buscado sozinho."
+            )
     linhas = []
     for i, (_, linha) in enumerate(df.iterrows(), start=1):
         titulo = str(linha[col_titulo]).strip()
         barra.progress(i / len(df), text=f"{i}/{len(df)} — {titulo}")
         resultado_linha = buscador.resolver(
-            titulo, planilha.texto_compositor(linha, mapa), planilha.texto_iswc(linha, mapa)
+            titulo, planilha.texto_compositor(linha, mapa), planilha.texto_iswc(linha, mapa),
+            data_cadastro=planilha.texto_data_cadastro(linha, mapa),
         )
         linhas.append(resultado_linha.para_linha())
     barra.empty()
@@ -202,6 +303,22 @@ if not alteradas.empty:
     st.rerun()
 if "aviso" in st.session_state:
     st.toast(st.session_state.pop("aviso"))
+
+if modo_relatorio and [
+    r for r in planilha.artistas_recorrentes(resultado) if normalizar(r) not in {normalizar(n) for n in artisticos}
+]:
+    with st.container(border=True):
+        st.markdown("#### Algum destes artistas é o próprio compositor?")
+        st.markdown(
+            f"Estes nomes apareceram em várias linhas do resultado. Em um relatório de um compositor só, quem se "
+            f"repete muitas vezes costuma ser ele mesmo com o nome artístico, ou a banda dele. Se algum for "
+            f"**{dono}**, marque, clique em **Adicionar** e depois em **Processar** de novo. "
+            "Não marque intérpretes que apenas gravaram músicas dele."
+        )
+        confirmar_sugestoes(
+            "Artistas que apareceram em várias linhas (podem ser nomes artísticos do compositor)",
+            planilha.artistas_recorrentes(resultado), "recorrentes_marcados",
+        )
 
 # --- 5. download ------------------------------------------------------------
 

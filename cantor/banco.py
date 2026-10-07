@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS cache_obras_compositor (
     obras_json TEXT NOT NULL,
     criado_em  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS cache_discografias (
+    nome_norm   TEXT PRIMARY KEY,
+    faixas_json TEXT NOT NULL,
+    criado_em   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS correcoes (
     titulo_norm     TEXT NOT NULL,
     compositor_norm TEXT NOT NULL,
@@ -79,6 +84,7 @@ class Banco:
         self._executar("DELETE FROM cache_consultas")
         self._executar("DELETE FROM cache_artistas")
         self._executar("DELETE FROM cache_obras_compositor")
+        self._executar("DELETE FROM cache_discografias")
 
     def contar_cache(self) -> int:
         return self._executar("SELECT COUNT(*) FROM cache_consultas")[0][0]
@@ -104,6 +110,18 @@ class Banco:
     def salvar_obras(self, nome_norm, dados: dict):
         self._executar(
             "INSERT OR REPLACE INTO cache_obras_compositor (nome_norm, obras_json) VALUES (?, ?)",
+            (nome_norm, json.dumps(dados, ensure_ascii=False)),
+        )
+
+    # --- cache da discografia de um nome artístico (modo relatório) --------
+
+    def obter_discografia(self, nome_norm):
+        linhas = self._executar("SELECT faixas_json FROM cache_discografias WHERE nome_norm = ?", (nome_norm,))
+        return json.loads(linhas[0][0]) if linhas else None
+
+    def salvar_discografia(self, nome_norm, dados: dict):
+        self._executar(
+            "INSERT OR REPLACE INTO cache_discografias (nome_norm, faixas_json) VALUES (?, ?)",
             (nome_norm, json.dumps(dados, ensure_ascii=False)),
         )
 

@@ -1,5 +1,6 @@
 """Consulta ao MusicBrainz (ws/2) e ao Deezer para descobrir quem canta uma música."""
 
+import itertools
 import logging
 import os
 import re
@@ -21,10 +22,11 @@ from .matching import (
 
 VERSAO = "0.2"
 # Muda quando a lógica muda: respostas em cache de versões anteriores são refeitas.
-VERSAO_CACHE = 8
+VERSAO_CACHE = 12
 MB_API = "https://musicbrainz.org/ws/2/"
 MB_SITE = "https://musicbrainz.org"
 DEEZER_API = "https://api.deezer.com/search"
+DEEZER_BASE = "https://api.deezer.com/"
 DEEZER_FAIXA_POR_ISRC = "https://api.deezer.com/track/isrc:"
 DEEZER_SEM_DADOS = 800  # código de "não encontrado" no corpo da resposta
 CREDITS_API = "https://api.credits.fm/v1/"
@@ -44,8 +46,18 @@ MAX_COMPOSITORES_DEEZER = 3  # compositores da linha pesquisados no Deezer
 # (bootleg e promocional ficam de fora) cujo grupo não seja demo. Ao vivo oficial
 # conta: no Brasil vários lançamentos originais são acústicos ao vivo.
 TIPOS_QUE_NAO_DATAM = {"demo"}
+# Lançamento sem status cadastrado no MusicBrainz não é bootleg: só fica de fora o que está marcado assim.
+STATUS_NAO_OFICIAIS = {"bootleg", "promotion", "pseudo-release", "withdrawn", "cancelled"}
+# Data de cadastro da obra (vem da planilha e só é usada aqui dentro, nunca vai para as APIs): se a
+# gravação mais antiga encontrada é de mais de ANOS_APOS_CADASTRO anos depois, a original deve estar faltando.
+ANOS_APOS_CADASTRO = 3
 MAX_PAGINAS_CATALOGO = 30  # 100 obras por página ao listar as obras de um compositor
 MAX_VERIFICACOES = 8  # gravações conferidas por linha (1 consulta cada)
+# Discografia de um nome artístico do compositor (modo relatório), listada uma vez e guardada em cache.
+MAX_ARTISTAS_DISCOGRAFIA = 3  # artistas com esse nome no Deezer (e ids no MusicBrainz)
+MAX_ALBUNS_DISCOGRAFIA = 300
+MAX_PAGINAS_DISCOGRAFIA = 10  # 100 gravações por página no MusicBrainz
+MAX_CONSULTAS_SUGESTAO = 12  # combinações de palavras do nome civil pesquisadas ao sugerir nomes artísticos
 LANCAMENTOS_POR_CONSULTA = 100
 MAX_FAIXAS_DEEZER = 25  # faixas com o título pedido aproveitadas por consulta
 
@@ -68,6 +80,7 @@ TIPOS_AUTORIA = {"composer", "lyricist", "writer", "librettist"}
 ARTISTAS_IGNORADOS = {"various artists", "various", "unknown", "no artist"}
 NIVEIS = ["nao_encontrado", "baixa", "media", "alta"]
 FONTE_MANUAL = "correção manual"
+SEM_DATA = (9999, 99, 99)  # depois de qualquer data de verdade (ver _chave_data)
 COLUNAS_SAIDA = [
     "cantor_sugerido", "confianca", "alternativas", "fonte_link", "observacao", "regra",
     "iswc_normalizado", "iswc_encontrado_em",
@@ -79,6 +92,7 @@ COLUNAS_SAIDA = [
 #
 #   correcao_manual          correção salva pelo usuário
 #   obra_compositor          obra confirmada; a gravação mais antiga é de um compositor
+#   obra_compositor_parcial  ... é de uma dupla, grupo ou parceria em que um compositor só participa
 #   obra_mais_gravado        ... é de quem mais gravou a obra (2 gravações ou mais)
 #   obra_popular_deezer      ... é do artista mais popular no Deezer para o título
 #   obra_sem_confirmacao     ... sem nenhum segundo sinal
@@ -88,6 +102,10 @@ COLUNAS_SAIDA = [
 #   sem_obra_palpite         compositor não confirmado por obra; melhor candidato pelo título
 #   so_titulo_unico          linha só com título; um único artista
 #   so_titulo_varios         linha só com título; vários artistas, escolhido pela pontuação
+#   discografia              modo relatório: título achado na discografia de um nome artístico confirmado
+#   obra_discografia         modo relatório: obra confirmada sem segundo sinal; sugerido o nome artístico
+#                            confirmado, que tem o título na discografia antes da gravação mais antiga vinculada
+#   palpite_titulo           modo relatório: vários artistas e o escolhido não tem relação com o compositor
 #   nao_encontrado, sem_titulo, erro_de_rede, apagado_manualmente
 #
 # Sufixos, separados por "+":
@@ -98,7 +116,10 @@ COLUNAS_SAIDA = [
 #   catalogo_sem_autor obra achada nessa lista, ligada a ele só por gravação (sem autor cadastrado)
 #   ao_vivo            a gravação mais antiga só existe em lançamento ao vivo oficial
 #   nao_oficial_ignorada  havia gravação mais antiga só em bootleg, promocional ou demo
+#   status_nao_cadastrado  a gravação mais antiga só tem lançamentos sem status no MusicBrainz (contam como válidos)
+#   cadastro_anterior  a obra foi cadastrada mais de 3 anos antes da gravação mais antiga encontrada (teto: média)
 #   oficial_nao_verificado  o limite de verificações acabou antes de conferir todas as mais antigas
+#   varios_nomes       o título está na discografia de mais de um nome artístico confirmado
 #   empate             data mais antiga empatada com outro artista
 #   empate_compositor  empate resolvido a favor de quem também é compositor
 #   mb, deezer, mb_deezer  de onde veio o candidato na busca por título
@@ -143,6 +164,7 @@ class Resultado:
     regra: str = ""
     iswc_normalizado: str = ""
     iswc_encontrado_em: str = ""  # MB, Credits.fm, ambos, nenhum (vazio se a linha não tem ISWC)
+    ano_gravacao: int = 0  # ano da gravação mais antiga em que a sugestão se baseou (0 = desconhecido); não vai para a planilha
 
     def para_linha(self) -> dict:
         linha = asdict(self)
@@ -170,6 +192,10 @@ class ClienteHTTP:
 
     def deezer(self, **parametros) -> dict:
         return self._get(DEEZER_API, parametros, limitar=False)
+
+    def deezer_api(self, caminho: str, **parametros) -> dict:
+        """GET em outro recurso do Deezer (busca de artista, álbuns do artista, faixas do álbum)."""
+        return self._get(DEEZER_BASE + caminho, parametros, limitar=False)
 
     def deezer_isrc(self, isrc: str):
         """Faixa do Deezer com esse ISRC, ou None se o Deezer não tiver."""
@@ -284,14 +310,14 @@ def _agrupar_por_artista(gravacoes: list[dict]) -> list[dict]:
         grupo = grupos.setdefault(
             chave,
             {"nome": nome, "gravacoes": 0, "data": None, "data_txt": "", "ids": ids, "ao_vivo": False,
-             "link": f"{MB_SITE}/recording/{g['id']}"},
+             "sem_status": False, "link": f"{MB_SITE}/recording/{g['id']}"},
         )
         grupo["gravacoes"] += 1
         data = _chave_data(g.get("first-release-date"))
         if data and (grupo["data"] is None or data < grupo["data"]):
             grupo.update(
                 data=data, data_txt=g["first-release-date"], link=f"{MB_SITE}/recording/{g['id']}",
-                ao_vivo=bool(g.get("so_ao_vivo")),
+                ao_vivo=bool(g.get("so_ao_vivo")), sem_status=bool(g.get("sem_status")),
             )
     return list(grupos.values())
 
@@ -309,12 +335,33 @@ class Buscador:
         self.consultas_oficiais = 0
         self.tempo_oficiais = 0.0
         self.tempo_iswc = 0.0
-        # Modo relatório (ver preparar_relatorio): None ou {"nome", "ids", "nomes", "obras", "erro"}.
+        # Modo relatório (ver preparar_relatorio): None ou
+        # {"nome", "ids", "nomes", "obras", "artisticos", "discografia", "erro"}.
         self.relatorio = None
 
     # --- API pública --------------------------------------------------------
 
-    def resolver(self, titulo, compositor="", iswc="") -> Resultado:
+    def resolver(self, titulo, compositor="", iswc="", data_cadastro="") -> Resultado:
+        """`data_cadastro` (da planilha) só entra na conferência local do fim: não vai para as APIs nem para o cache."""
+        return self._conferir_cadastro(self._resolver(titulo, compositor, iswc), data_cadastro)
+
+    @staticmethod
+    def _conferir_cadastro(resultado: Resultado, data_cadastro) -> Resultado:
+        """Obra cadastrada muito antes da gravação mais antiga encontrada: a original deve estar faltando na base."""
+        cadastro = re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)", str(data_cadastro or ""))
+        if not cadastro or not resultado.ano_gravacao or resultado.regra == "correcao_manual":
+            return resultado
+        if resultado.ano_gravacao - int(cadastro.group()) <= ANOS_APOS_CADASTRO:
+            return resultado
+        resultado.confianca = _limitar(resultado.confianca, "media")
+        resultado.regra += "+cadastro_anterior"
+        resultado.observacao += (
+            f"; possível original ausente na base: a obra foi cadastrada mais de {ANOS_APOS_CADASTRO} anos "
+            f"antes da gravação mais antiga encontrada ({resultado.ano_gravacao})"
+        )
+        return resultado
+
+    def _resolver(self, titulo, compositor="", iswc="") -> Resultado:
         chave = chave_consulta(titulo, compositor)
         if not chave[0]:
             return Resultado(observacao="linha sem título", regra="sem_titulo")
@@ -325,7 +372,8 @@ class Buscador:
         codigo, erro_iswc = normalizar_iswc(iswc)
         if self.relatorio:
             # No modo relatório a mesma linha pode ter outra resposta: cache separado.
-            chave = (chave[0], f"{chave[1]} |relatorio")
+            artisticos = ",".join(sorted(normalizar(n) for n in self.relatorio.get("artisticos", [])))
+            chave = (chave[0], f"{chave[1]} |relatorio" + (f" |artisticos={artisticos}" if artisticos else ""))
         if codigo or erro_iswc:
             chave = (chave[0], f"{chave[1]} |iswc={codigo or 'invalido'}")
         if self.usar_cache:
@@ -362,19 +410,32 @@ class Buscador:
         self.banco.salvar_correcao(*chave, cantor)
         return self._resultado_manual(cantor)
 
-    def preparar_relatorio(self, nome: str) -> dict:
+    def preparar_relatorio(self, nome: str, nomes_artisticos=()) -> dict:
         """Liga o modo relatório: todas as linhas são obras do compositor `nome`.
 
         Nesse modo "o artista é o compositor" deixa de ser evidência (seria um
         empurrão automático para o dono do relatório) e as obras dele são
         listadas de uma vez no MusicBrainz, para achar cada título nessa lista.
+
+        `nomes_artisticos` são os nomes, projetos e grupos com que ele aparece
+        nas bases, confirmados pelo usuário: valem como o próprio compositor em
+        todas as regras, e a discografia de cada um é listada de uma vez.
         """
-        self.relatorio = {"nome": nome, "ids": set(), "nomes": [], "obras": [], "erro": "", "segundos": 0.0}
+        artisticos = list({normalizar(n): str(n).strip() for n in nomes_artisticos if normalizar(n)}.values())
+        self.relatorio = {
+            "nome": nome, "ids": set(), "nomes": list(artisticos), "obras": [], "erro": "", "segundos": 0.0,
+            "artisticos": artisticos, "discografia": [],
+        }
         inicio = time.monotonic()
         try:
-            conhecidos = self._artistas_conhecidos(nome)
-            self.relatorio.update(ids=set(conhecidos), nomes=[n for ns in conhecidos.values() for n in ns])
-            self.relatorio["obras"] = self._obras_do_artista(nome, list(conhecidos))
+            obras = {}
+            for n in [nome] + artisticos:
+                conhecidos = self._artistas_conhecidos(n)
+                self.relatorio["ids"] |= set(conhecidos)
+                self.relatorio["nomes"] += [x for ns in conhecidos.values() for x in ns]
+                obras.update((o["id"], o) for o in self._obras_do_artista(n, list(conhecidos)))
+                self.relatorio["obras"] = list(obras.values())
+            self.relatorio["discografia"] = [{"nome": n, "faixas": self._discografia(n)} for n in artisticos]
         except ErroDeRede as e:
             log.error("não foi possível listar as obras de %r: %s", nome, e)
             self.relatorio["erro"] = str(e)
@@ -415,8 +476,75 @@ class Buscador:
         self.banco.salvar_obras(chave, {"v": VERSAO_CACHE, "obras": list(obras.values())})
         return list(obras.values())
 
+    def _discografia(self, nome: str) -> list[dict]:
+        """Faixas lançadas com esse nome artístico: [{"titulo", "artista", "link", "data", "fonte"}].
+
+        Vem do Deezer (álbuns do artista e as faixas de cada um) e do
+        MusicBrainz, se o artista existir lá. É listada uma vez só e fica em cache.
+        """
+        chave = normalizar(nome)
+        salvo = self.banco.obter_discografia(chave)
+        if salvo and salvo.get("v") == VERSAO_CACHE:
+            return salvo["faixas"]
+        faixas = []
+        achados = self.cliente.deezer_api("search/artist", q=nome, limit=25).get("data", [])
+        for artista in [a for a in achados if nomes_parecidos(nome, a.get("name"), parcial=False)][:MAX_ARTISTAS_DISCOGRAFIA]:
+            for album in self._paginas_deezer(f"artist/{artista['id']}/albums", MAX_ALBUNS_DISCOGRAFIA):
+                for f in self._paginas_deezer(f"album/{album['id']}/tracks", 500):
+                    faixas.append({
+                        "titulo": f.get("title", ""), "artista": (f.get("artist") or {}).get("name") or artista["name"],
+                        "link": f.get("link", ""), "data": album.get("release_date") or "", "fonte": "Deezer",
+                    })
+        for mbid, nomes in list(self._artistas_conhecidos(nome).items())[:MAX_ARTISTAS_DISCOGRAFIA]:
+            for pagina in range(MAX_PAGINAS_DISCOGRAFIA):
+                dados = self.cliente.mb("recording", artist=mbid, limit=100, offset=pagina * 100)
+                lote = dados.get("recordings", [])
+                for g in lote:
+                    faixas.append({
+                        "titulo": g.get("title", ""), "artista": nomes[0], "link": f"{MB_SITE}/recording/{g['id']}",
+                        "data": g.get("first-release-date") or "", "fonte": "MusicBrainz",
+                    })
+                if not lote or (pagina + 1) * 100 >= dados.get("recording-count", 0):
+                    break
+        self.banco.salvar_discografia(chave, {"v": VERSAO_CACHE, "faixas": faixas})
+        return faixas
+
+    def _paginas_deezer(self, caminho: str, maximo: int) -> list[dict]:
+        itens = []
+        while len(itens) < maximo:
+            dados = self.cliente.deezer_api(caminho, limit=100, index=len(itens))
+            lote = dados.get("data", [])
+            itens += lote
+            if not lote or not dados.get("next"):
+                break
+        return itens
+
+    def sugerir_nomes_artisticos(self, nome_civil: str) -> list[str]:
+        """Artistas do Deezer e do MusicBrainz cujo nome usa só palavras do nome civil.
+
+        "Fulano Souza" para "José Fulano de Souza Lima", por exemplo. São só
+        sugestões: quem decide se o artista é mesmo o compositor é o usuário.
+        """
+        palavras = str(nome_civil).split()
+        permitidas = set(normalizar(nome_civil).split())
+        combinacoes = [" ".join(c) for tamanho in (2, 3) for c in itertools.combinations(palavras, tamanho)]
+        achados = {}
+        for consulta in combinacoes[:MAX_CONSULTAS_SUGESTAO]:
+            nomes = []
+            try:
+                nomes += [a.get("name") for a in self.cliente.deezer_api("search/artist", q=consulta, limit=10).get("data", [])]
+                dados = self.cliente.mb("artist", query=f'artist:"{_frase(consulta)}"', limit=10)
+                nomes += [a.get("name") for a in dados.get("artists", [])]
+            except ErroDeRede as e:
+                log.error("sugestão de nomes artísticos falhou para %r: %s", consulta, e)
+            for nome in nomes:
+                do_nome = normalizar(nome).split()
+                if len(do_nome) >= 2 and set(do_nome) < permitidas:
+                    achados.setdefault(normalizar(nome), nome)
+        return list(achados.values())
+
     def _nome_do_cliente(self, nome: str) -> bool:
-        """`nome` é o compositor do relatório (pelo nome ou por um alias)?"""
+        """`nome` é o compositor do relatório (pelo nome, por um alias ou por um nome artístico confirmado)?"""
         r = self.relatorio
         return bool(r) and (
             nomes_parecidos(nome, r["nome"]) or any(nomes_parecidos(nome, n, parcial=False) for n in r["nomes"])
@@ -455,10 +583,67 @@ class Buscador:
         return self._sem_iswc(titulo, nomes)
 
     def _sem_iswc(self, titulo: str, nomes: list[str]) -> Resultado:
-        if not nomes:
-            return self._por_titulo(titulo, nomes, avisos=[])
-        resultado, aviso = self._por_obra(titulo, nomes)
-        return resultado or self._por_titulo(titulo, nomes, avisos=[aviso])
+        avisos = []
+        if nomes:
+            resultado, aviso = self._por_obra(titulo, nomes)
+            if resultado:
+                return resultado
+            avisos = [aviso]
+        # A discografia dos nomes artísticos confirmados vem antes; a busca por título fica de reserva.
+        return self._por_discografia(titulo, avisos) or self._por_titulo(titulo, nomes, avisos=avisos)
+
+    # --- modo relatório: título na discografia de um nome artístico confirmado ---
+
+    def _por_discografia(self, titulo: str, avisos: list[str]):
+        """Resultado se o título está na discografia de um nome artístico confirmado; senão None.
+
+        Um nome só com o título: média. Alta só quando Deezer e MusicBrainz
+        listam, os dois, o título na discografia dele. Mais de um nome
+        confirmado com o título: baixa, porque não dá para saber qual deles vale.
+        """
+        fortes = self._na_discografia(titulo)
+        if not fortes:
+            return None
+        escolhido = fortes[0]
+        fontes = escolhido["fontes_txt"]
+        obs = avisos + [
+            f'título na discografia de "{escolhido["confirmado"]}" (nome artístico confirmado do compositor) '
+            f'no {fontes}' + (f', lançado em {escolhido["data_txt"]}' if escolhido["data_txt"] else "")
+        ]
+        sufixos = [SIGLA_FONTE[fontes]]
+        if len(fortes) > 1:
+            confianca = "baixa"
+            sufixos.append("varios_nomes")
+            obs.append(f"o título também está na discografia de {fortes[1]['confirmado']}; conferir qual deles vale")
+        elif len(escolhido["fontes"]) > 1:
+            confianca = "alta"
+            obs.append("confirmação: as duas bases listam o título na discografia dele")
+        else:
+            confianca = "media"
+            obs.append("uma base só, sem outra fonte que confirme")
+        return Resultado(
+            escolhido["nome"], confianca, [f["nome"] for f in fortes[1:3]], escolhido["link"], "; ".join(obs),
+            "+".join(["discografia"] + sufixos), ano_gravacao=0 if escolhido["data"] == SEM_DATA else escolhido["data"][0],
+        )
+
+    def _na_discografia(self, titulo: str) -> list[dict]:
+        """Nomes artísticos confirmados que têm o título na discografia, do lançamento mais antigo para o mais novo."""
+        fortes = []
+        for discografia in (self.relatorio or {}).get("discografia", []):
+            iguais = [
+                f for f in discografia["faixas"]
+                if titulos_parecidos(f["titulo"], titulo) and not _versao_derivada(titulo, f["titulo"])
+            ]
+            if not iguais:
+                continue
+            primeira = min(iguais, key=lambda f: _chave_data(f["data"]) or SEM_DATA)
+            fontes = {f["fonte"] for f in iguais}
+            fortes.append({
+                "nome": primeira["artista"] or discografia["nome"], "confirmado": discografia["nome"],
+                "fontes": fontes, "fontes_txt": "MusicBrainz e Deezer" if len(fontes) > 1 else next(iter(fontes)),
+                "data": _chave_data(primeira["data"]) or SEM_DATA, "data_txt": primeira["data"], "link": primeira["link"],
+            })
+        return sorted(fortes, key=lambda f: f["data"])
 
     # --- com ISWC: a obra fica definida pelo código ------------------------
 
@@ -506,13 +691,21 @@ class Buscador:
         return None, sufixo, encontrado_em, aviso
 
     def _credits_iswc(self, iswc: str):
-        """Obra no Credits.fm com as gravações (ISRC); None se não existe ou se a API falhou."""
+        """Obra no Credits.fm com as gravações (ISRC); None se não existe lá ou se a API falhou."""
         try:
-            return self.cliente.credits(f"iswc/{iswc}", include="recordings", depth=2, limit=-1, contribute="false")
+            credits = self.cliente.credits(f"iswc/{iswc}", include="recordings", depth=2, limit=-1, contribute="false")
         except ErroDeRede as e:
             log.error("Credits.fm falhou para %s: %s", iswc, e)
             self._falhas.append("Credits.fm indisponível nesta consulta (ver log); ISWC conferido só no MusicBrainz")
             return None
+        # Para um ISWC que não conhece, o Credits.fm responde HTTP 200 com um registro
+        # vazio (sem título e sem gravações) em vez de 404: isso é "não encontrado".
+        if credits is not None and not (
+            credits.get("title") or credits.get("song_title") or credits.get("alternative_titles")
+            or credits.get("recordings")
+        ):
+            return None
+        return credits
 
     def _original_por_isrc(self, credits: dict) -> list[dict]:
         """Intérpretes das gravações do ISWC no Credits.fm, da mais antiga para a mais nova.
@@ -607,7 +800,15 @@ class Buscador:
         return conhecidos
 
     def _e_compositor(self, artista: dict, nomes_da_linha: list[str], autores: dict) -> bool:
-        """O artista é um dos compositores? `autores` = {id: nome} vindos da obra.
+        """O artista é um dos compositores, ou tem um deles no crédito? `autores` = {id: nome} vindos da obra."""
+        return self._grau_de_compositor(artista, nomes_da_linha, autores) > 0
+
+    def _grau_de_compositor(self, artista: dict, nomes_da_linha: list[str], autores: dict) -> int:
+        """0: não é compositor. 1: um compositor só participa do crédito. 2: o crédito é o compositor.
+
+        O grau 1 é a dupla, o grupo ou a parceria que tem um compositor dentro
+        ("Fulana e Beltrano" para o autor "Beltrano"): ele pode ter regravado a
+        música anos depois, então isso não confirma que a gravação é a original.
 
         No modo relatório o dono do relatório não conta: ele é compositor de
         todas as linhas, então isso não diz nada sobre quem gravou primeiro.
@@ -615,21 +816,31 @@ class Buscador:
         """
         if self.relatorio:
             if self._e_cliente(artista):
-                return False
+                return 0
             nomes_da_linha = [n for n in nomes_da_linha if not self._nome_do_cliente(n)]
             autores = {i: n for i, n in autores.items() if i not in self.relatorio["ids"]}
-        if artista["ids"] & autores.keys():
-            return True
-        if any(nomes_parecidos(artista["nome"], n) for n in list(autores.values()) + nomes_da_linha):
-            return True
+        ids, nome = artista["ids"], artista["nome"]
+        palavras = set(normalizar(nome).split())
+
+        def e_ele(outro):  # o mesmo nome, ou um nome mais curto da mesma pessoa ("Vinicius" ~ "Vinicius de Moraes")
+            return nomes_parecidos(nome, outro, parcial=False) or (
+                nomes_parecidos(nome, outro) and palavras <= set(normalizar(outro).split())
+            )
+
+        ids_dos_autores = set(autores)
+        declarados = list(autores.values()) + nomes_da_linha
+        if (ids and ids <= ids_dos_autores) or any(e_ele(n) for n in declarados):
+            return 2
+        participa = bool(ids & ids_dos_autores) or any(nomes_parecidos(nome, n) for n in declarados)
         # "Tom Jobim" não se parece com "Antônio Carlos Jobim": resolve pelos aliases.
-        for nome in nomes_da_linha:
-            conhecidos = self._artistas_conhecidos(nome)
-            if artista["ids"] & conhecidos.keys():
-                return True
-            if any(nomes_parecidos(artista["nome"], n, parcial=False) for ns in conhecidos.values() for n in ns):
-                return True
-        return False
+        for declarado in nomes_da_linha:
+            conhecidos = self._artistas_conhecidos(declarado)
+            ids_dos_autores |= conhecidos.keys()
+            if any(nomes_parecidos(nome, n, parcial=False) for ns in conhecidos.values() for n in ns):
+                return 2
+        if ids & ids_dos_autores:
+            return 2 if ids <= ids_dos_autores else 1
+        return 1 if participa else 0
 
     # --- com compositor: obra -> gravações ---------------------------------
 
@@ -683,7 +894,7 @@ class Buscador:
         """
         datadas = [g for g in gravacoes if _chave_data(g.get("first-release-date"))]
         datadas.sort(key=lambda g: _chave_data(g["first-release-date"]))
-        novas_datas, ao_vivo, ignoradas, melhor, incompleto = {}, set(), [], None, False
+        novas_datas, ao_vivo, sem_status, ignoradas, melhor, incompleto = {}, set(), set(), [], None, False
         for g in datadas:
             if g["id"] in novas_datas:
                 continue  # mesma gravação vinculada a duas obras
@@ -692,48 +903,59 @@ class Buscador:
             if len(novas_datas) == MAX_VERIFICACOES:
                 incompleto = True
                 break
-            oficial, data, so_ao_vivo = self._data_oficial(g)
+            oficial, data, so_ao_vivo, so_sem_status = self._data_oficial(g)
             novas_datas[g["id"]] = data
             if so_ao_vivo:
                 ao_vivo.add(g["id"])
+            if so_sem_status:
+                sem_status.add(g["id"])
             if not oficial:
                 ignoradas.append(g)
             elif _chave_data(data) and (melhor is None or _chave_data(data) < melhor):
                 melhor = _chave_data(data)
         ajustadas = [
-            {**g, "first-release-date": novas_datas[g["id"]], "so_ao_vivo": g["id"] in ao_vivo}
+            {**g, "first-release-date": novas_datas[g["id"]], "so_ao_vivo": g["id"] in ao_vivo,
+             "sem_status": g["id"] in sem_status}
             if g["id"] in novas_datas else g
             for g in gravacoes
         ]
         return ajustadas, ignoradas, incompleto
 
-    def _data_oficial(self, gravacao: dict) -> tuple[bool, str, bool]:
-        """(tem lançamento oficial que não seja demo?, data do mais antigo, todos eles são ao vivo?)."""
+    def _data_oficial(self, gravacao: dict) -> tuple[bool, str, bool, bool]:
+        """(tem lançamento válido?, data do mais antigo, todos são ao vivo?, nenhum tem status cadastrado?).
+
+        Válido é o lançamento que não é demo nem está marcado como bootleg,
+        promocional ou pseudo-lançamento. Status em branco conta como válido:
+        muito disco antigo está no MusicBrainz sem esse campo preenchido.
+        """
         inicio = time.monotonic()
         try:
             dados = self.cliente.mb(
-                "release", recording=gravacao["id"], status="official", inc="release-groups",
-                limit=LANCAMENTOS_POR_CONSULTA,
+                "release", recording=gravacao["id"], inc="release-groups", limit=LANCAMENTOS_POR_CONSULTA,
             )
         finally:
             self.consultas_oficiais += 1
             self.tempo_oficiais += time.monotonic() - inicio
         lancamentos = dados.get("releases", [])
         if dados.get("release-count", len(lancamentos)) > len(lancamentos):
-            # Mais de 100 lançamentos oficiais: é gravação de catálogo. Não dá para
-            # ver todos em uma consulta, então mantém a data que o MusicBrainz informa.
-            return True, gravacao["first-release-date"], False
+            # Mais de 100 lançamentos: é gravação de catálogo. Não dá para ver
+            # todos em uma consulta, então mantém a data que o MusicBrainz informa.
+            return True, gravacao["first-release-date"], False, False
 
         def tipos(lancamento):
             return {t.lower() for t in (lancamento.get("release-group") or {}).get("secondary-types") or []}
 
-        validos = [r for r in lancamentos if not tipos(r) & TIPOS_QUE_NAO_DATAM]
+        validos = [
+            r for r in lancamentos
+            if (r.get("status") or "").lower() not in STATUS_NAO_OFICIAIS and not tipos(r) & TIPOS_QUE_NAO_DATAM
+        ]
+        so_sem_status = bool(validos) and not any(r.get("status") for r in validos)
         so_ao_vivo = bool(validos) and all("live" in tipos(r) for r in validos)
         datas = [r["date"] for r in validos if _chave_data(r.get("date"))]
         # Um lançamento só com o ano ("2010") pode ser anterior a um "2010-11-29":
         # fica valendo a data menos precisa, e o empate é tratado adiante.
         data = min(datas, key=lambda d: tuple(int(p) for p in d.split("-") if p.isdigit())) if datas else ""
-        return bool(validos), data, so_ao_vivo
+        return bool(validos), data, so_ao_vivo, so_sem_status
 
     def _obras_compativeis(self, titulo: str, nomes: list[str]) -> list[tuple]:
         """[(nº de compositores que batem, obra, autores)], da melhor para a pior."""
@@ -790,7 +1012,8 @@ class Buscador:
         origem="",
     ) -> Resultado:
         for a in artistas:
-            a["compositor"] = self._e_compositor(a, nomes, autores)
+            grau = self._grau_de_compositor(a, nomes, autores)
+            a["compositor"], a["compositor_inteiro"] = grau > 0, grau == 2
             a["cliente"] = self._e_cliente(a)
         # Ser o dono do relatório só serve como último critério de desempate.
         datados = sorted(
@@ -834,6 +1057,17 @@ class Buscador:
             obs.append(f"só as {MAX_VERIFICACOES} gravações mais antigas foram conferidas quanto a lançamento oficial")
         if not datados:
             obs.append("nenhuma gravação com data de lançamento oficial; não dá para saber qual é a original")
+            forte = next(iter(self._na_discografia(titulo)), None)
+            if forte:
+                # Sem data nenhuma para comparar, o título na discografia dele é a melhor pista; continua baixa.
+                obs.append(
+                    f'sugerido "{forte["confirmado"]}" (nome artístico confirmado do compositor), '
+                    f'que tem o título na discografia no {forte["fontes_txt"]}'
+                )
+                return Resultado(
+                    forte["nome"], "baixa", [a["nome"] for a in sem_data[:2]], forte["link"], "; ".join(obs),
+                    "+".join(["obra_discografia"] + sufixos), ano_gravacao=0 if forte["data"] == SEM_DATA else forte["data"][0],
+                )
             return Resultado(
                 sem_data[0]["nome"], "baixa", [a["nome"] for a in sem_data[1:3]], sem_data[0]["link"], "; ".join(obs),
                 "+".join(["obra_sem_data"] + sufixos),
@@ -857,6 +1091,10 @@ class Buscador:
         if primeiro["ao_vivo"]:
             sufixos.append("ao_vivo")
             obs.append("a gravação mais antiga só existe em lançamento ao vivo oficial")
+        if primeiro["sem_status"]:
+            sufixos.append("status_nao_cadastrado")
+            obs.append("os lançamentos da gravação mais antiga estão sem status no MusicBrainz; contados como oficiais")
+        ano = primeiro["data"][0]
 
         # A mais antiga sozinha não basta: a original pode não estar vinculada à
         # obra, e aí a "mais antiga" é um cover. Exige um segundo sinal.
@@ -864,7 +1102,7 @@ class Buscador:
         popular = None
         # Compositores costumam tocar a música ao vivo antes de alguém lançá-la:
         # numa gravação ao vivo, ser compositor não confirma que é a original.
-        if primeiro["compositor"] and not primeiro["ao_vivo"]:
+        if primeiro["compositor_inteiro"] and not primeiro["ao_vivo"]:
             sinal, regra = "também é compositor", "obra_compositor"
         elif primeiro["gravacoes"] >= 2 and primeiro["gravacoes"] == mais_gravado:
             sinal, regra = "é quem mais gravou a obra", "obra_mais_gravado"
@@ -873,11 +1111,16 @@ class Buscador:
             popular = max(self._faixas_deezer(titulo), key=lambda f: f["rank"], default=None)
             if popular and nomes_parecidos(popular["artista"], primeiro["nome"]):
                 sinal, regra = "é o mais popular no Deezer para esse título", "obra_popular_deezer"
+        if not sinal and primeiro["compositor"] and not primeiro["compositor_inteiro"] and not primeiro["ao_vivo"]:
+            # Dupla, grupo ou parceria com um compositor dentro: ele pode ter regravado a
+            # música depois de outra pessoa lançá-la. Vale como sinal, mas não dá alta.
+            sinal, regra = "um dos compositores participa da gravação (o crédito não é só dele)", "obra_compositor_parcial"
+            confianca = _limitar(confianca, "media")
         if sinal:
             obs.append(f"confirmação: {sinal}")
             return Resultado(
                 primeiro["nome"], confianca, [a["nome"] for a in outros[:2]], primeiro["link"], "; ".join(obs),
-                "+".join([regra] + sufixos),
+                "+".join([regra] + sufixos), ano_gravacao=ano,
             )
 
         if popular and self._e_compositor({"nome": popular["artista"], "ids": set()}, nomes, autores):
@@ -887,7 +1130,26 @@ class Buscador:
             alternativas = [primeiro["nome"]] + [a["nome"] for a in outros[:1]]
             return Resultado(
                 popular["artista"], "media", alternativas, popular["link"], "; ".join(obs),
-                "+".join(["obra_compositor_popular"] + sufixos),
+                "+".join(["obra_compositor_popular"] + sufixos), ano_gravacao=ano,
+            )
+
+        forte = next(
+            (f for f in self._na_discografia(titulo)
+             if f["data"] < primeiro["data"] and not nomes_parecidos(f["nome"], primeiro["nome"])),
+            None,
+        )
+        if forte:
+            # A gravação "mais antiga" vinculada à obra não é a original: o próprio
+            # compositor lançou o título antes dela, com um nome artístico confirmado.
+            obs[posicao_da_data] = f"gravação mais antiga vinculada: {primeiro['nome']} ({primeiro['data_txt']}), sem confirmação"
+            obs.append(
+                f'sugerido "{forte["confirmado"]}" (nome artístico confirmado do compositor): a discografia dele '
+                f'no {forte["fontes_txt"]} tem o título em {forte["data_txt"]}, antes dessa gravação'
+            )
+            alternativas = [primeiro["nome"]] + [a["nome"] for a in outros[:1]]
+            return Resultado(
+                forte["nome"], _limitar(confianca, "media"), alternativas, forte["link"], "; ".join(obs),
+                "+".join(["obra_discografia"] + sufixos), ano_gravacao=forte["data"][0],
             )
 
         obs.append(
@@ -899,7 +1161,7 @@ class Buscador:
             alternativas.insert(0, popular["artista"])
         return Resultado(
             primeiro["nome"], _limitar(confianca, "media"), alternativas[:2], primeiro["link"], "; ".join(obs),
-            "+".join([regra] + sufixos),
+            "+".join([regra] + sufixos), ano_gravacao=ano,
         )
 
     # --- sem obra: candidatos pelo título, no MusicBrainz e no Deezer ------
@@ -965,6 +1227,10 @@ class Buscador:
             regra = "sem_obra_compositor" if vencedor["compositor"] else "sem_obra_palpite"
         else:
             regra = "so_titulo_unico" if len(candidatos) == 1 else "so_titulo_varios"
+        if self.relatorio and len(candidatos) > 1 and not vencedor["compositor"] and not vencedor["cliente"]:
+            # Título comum, e a única evidência é a popularidade de alguém sem relação com o compositor.
+            regra = "palpite_titulo"
+            obs.append("provável homônimo, conferir")
         obs.append(f"fonte: {vencedor['fontes']}")
         return Resultado(
             vencedor["nome"], confianca, [c["nome"] for c in candidatos[1:3]], vencedor["link"], "; ".join(obs),

@@ -52,7 +52,10 @@ def avaliar(df: pd.DataFrame, mapa: dict, buscador: Buscador, ao_avancar=None) -
         aceitos = [esperado] + [a.strip() for a in re.split(r"[;|]", str(linha.get(ACEITOS, ""))) if a.strip()]
         inicio, oficiais_antes = time.monotonic(), (buscador.consultas_oficiais, buscador.tempo_oficiais)
         iswc_antes = buscador.tempo_iswc
-        r = buscador.resolver(titulo, planilha.texto_compositor(linha, mapa), planilha.texto_iswc(linha, mapa))
+        r = buscador.resolver(
+            titulo, planilha.texto_compositor(linha, mapa), planilha.texto_iswc(linha, mapa),
+            data_cadastro=planilha.texto_data_cadastro(linha, mapa),
+        )
         linhas.append(
             {
                 "titulo": titulo,
@@ -186,13 +189,17 @@ def main():
     ap.add_argument("--sem-cache", action="store_true", help="consulta tudo de novo nas APIs")
     ap.add_argument("--sem-iswc", action="store_true", help="ignora a coluna de ISWC (para medir o ganho dela)")
     ap.add_argument("--sem-modo-relatorio", action="store_true", help="não trata a planilha como catálogo de um compositor só")
+    ap.add_argument(
+        "--nomes-artisticos", default="",
+        help='nomes artísticos, projetos e grupos do compositor do relatório, separados por ";"',
+    )
     ap.add_argument("--limite", type=int, help="avalia só as N primeiras linhas")
     ap.add_argument("--erros", type=Path, help="salva em CSV as linhas em que o sistema errou")
     ap.add_argument("--detalhe", type=Path, help="salva em CSV todas as linhas avaliadas")
     args = ap.parse_args()
 
     df = planilha.ler_planilha(args.arquivo.read_bytes(), args.arquivo.name)
-    mapa = planilha.detectar_colunas(df, papeis=("compositor", "creditos", "cantor", "iswc", "titulo"))
+    mapa = planilha.detectar_colunas(df, papeis=("compositor", "creditos", "cantor", "iswc", "data_cadastro", "titulo"))
     if args.sem_iswc:
         mapa["iswc"] = None
     if args.gabarito:
@@ -224,10 +231,12 @@ def main():
     buscador = Buscador(Banco(), ClienteHTTP(), usar_cache=not args.sem_cache, usar_correcoes=False)
     dono = None if args.sem_modo_relatorio else planilha.compositor_do_relatorio(df, mapa)
     if dono:
-        catalogo = buscador.preparar_relatorio(dono)
+        catalogo = buscador.preparar_relatorio(dono, planilha.dividir_nomes_artisticos(args.nomes_artisticos))
+        faixas = sum(len(d["faixas"]) for d in catalogo.get("discografia", []))
         print(
             f"Modo relatório: {dono} é compositor de pelo menos 90% das linhas; "
-            f"{len(catalogo['obras'])} obras listadas no MusicBrainz em {catalogo['segundos']:.1f} s"
+            f"{len(catalogo['obras'])} obras listadas no MusicBrainz e {faixas} faixas na discografia "
+            f"dos nomes artísticos em {catalogo['segundos']:.1f} s"
             + (f" (falhou: {catalogo['erro']})" if catalogo["erro"] else "")
         )
     detalhe = avaliar(df, mapa, buscador, lambda i, n, t: print(f"  [{i}/{n}] {t}", file=sys.stderr))

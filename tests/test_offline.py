@@ -29,9 +29,8 @@ def obra(id_, titulo, *autores, score=100):
     }
 
 
-def lancamento(data, *tipos_secundarios):
-    """O cliente só pede lançamentos com status Official, então todos aqui são oficiais."""
-    return {"date": data, "status": "Official", "release-group": {"secondary-types": list(tipos_secundarios)}}
+def lancamento(data, *tipos_secundarios, status="Official"):
+    return {"date": data, "status": status, "release-group": {"secondary-types": list(tipos_secundarios)}}
 
 
 def faixa(titulo, artista, rank=100):
@@ -43,7 +42,10 @@ class ClienteFalso:
 
     def __init__(self, obras=(), artistas=(), da_obra=(), por_titulo=(), deezer=(), falhar=False, deezer_falha=False,
                  lancamentos=None, catalogo=(), obras_iswc=(), credits=None, faixas_isrc=None,
-                 credits_falha=False, isrc_falha=False):
+                 credits_falha=False, isrc_falha=False, discografia=None, discografia_mb=(), artistas_deezer=None):
+        self.discografia = discografia or {}  # {nome do artista no Deezer: [títulos das faixas]}
+        self.discografia_mb = list(discografia_mb)  # gravações devolvidas ao listar as de um artista
+        self.artistas_deezer = artistas_deezer  # nomes devolvidos pela busca de artista (padrão: os da discografia)
         self.obras_iswc = list(obras_iswc)  # resposta da busca de obra por ISWC no MusicBrainz
         self.credits_resposta = credits  # None = ISWC inexistente no Credits.fm
         self.faixas_isrc = faixas_isrc or {}  # {isrc: faixa do Deezer}
@@ -78,6 +80,9 @@ class ClienteFalso:
         if recurso == "work" and str(parametros.get("query", "")).startswith("iswc:"):
             self.chamadas.append(("iswc_mb", parametros["query"]))
             return {"works": self.obras_iswc}
+        if recurso == "recording" and "artist" in parametros:
+            self.chamadas.append(("discografia_mb", parametros["artist"]))
+            return {"recordings": self.discografia_mb, "recording-count": len(self.discografia_mb)}
         tipo = "browse" if "work" in parametros else recurso
         self.chamadas.append((tipo, parametros.get("query") or parametros.get("work", "")))
         return self.respostas[tipo]
@@ -89,6 +94,22 @@ class ClienteFalso:
         if isinstance(self.faixas, dict):
             return {"data": list(self.faixas.get(parametros["q"], []))}
         return {"data": list(self.faixas)}
+
+    def deezer_api(self, caminho, **parametros):
+        self.chamadas.append(("deezer_api", caminho))
+        if self.deezer_falha:
+            raise ErroDeRede("Timeout após 4 tentativas")
+        if caminho == "search/artist":
+            nomes = self.discografia if self.artistas_deezer is None else self.artistas_deezer
+            return {"data": [{"id": normalizar(n).replace(" ", "-"), "name": n} for n in nomes]}
+        id_artista = caminho.split("/")[1]
+        if caminho.endswith("/albums"):
+            return {"data": [{"id": id_artista, "release_date": "2020-01-01"}]}
+        nome = next(n for n in self.discografia if normalizar(n).replace(" ", "-") == id_artista)
+        return {"data": [
+            {"title": t, "artist": {"name": nome}, "link": f"https://deezer.com/track/{normalizar(t)}"}
+            for t in self.discografia[nome]
+        ]}
 
     def credits(self, caminho, **parametros):
         self.chamadas.append(("credits", caminho))
@@ -291,6 +312,97 @@ def test_gravacao_so_em_demo_ou_lancamento_nao_oficial_nao_e_a_original(banco, d
     assert [g for tipo, g in cliente.chamadas if tipo == "release"] == ["r1", "r2"]
 
 
+def test_lancamento_sem_status_cadastrado_conta_como_oficial(banco):
+    # Disco antigo sem o campo "status" preenchido no MusicBrainz não é bootleg.
+    cliente = _obra_com_gravacao_antiga_do_compositor(r1=[lancamento("2014-07-07", status=None)])
+    r = Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim")
+    assert (r.cantor_sugerido, r.confianca, r.regra) == ("Dupla Compositora", "alta", "obra_compositor+status_nao_cadastrado")
+    assert "sem status no MusicBrainz" in r.observacao
+
+
+@pytest.mark.parametrize("status", ["Bootleg", "Promotion", "Pseudo-Release"])
+def test_lancamento_marcado_como_nao_oficial_continua_de_fora(banco, status):
+    cliente = _obra_com_gravacao_antiga_do_compositor(r1=[lancamento("2014-07-07", status=status)])
+    r = Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim")
+    assert (r.cantor_sugerido, r.regra) == ("Banda Original", "obra_mais_gravado+nao_oficial_ignorada")
+
+
+def _credito_duplo(id_, data, *artistas):
+    """Gravação creditada a vários artistas: [(nome, id), ...] vira "A e B"."""
+    credito = [{"name": n, "joinphrase": " e ", "artist": {"id": i}} for n, i in artistas]
+    credito[-1]["joinphrase"] = ""
+    return {"id": id_, "title": "Wave", "first-release-date": data, "artist-credit": credito}
+
+
+def test_dupla_com_um_compositor_dentro_nao_da_alta(banco):
+    # O coautor regravou em dupla anos depois; a gravação original não está ligada à obra.
+    dupla = _credito_duplo("r1", "1985", ("Fulana", "id-fulana"), ("Antônio Carlos Jobim", "id-jobim"))
+    r = Buscador(banco, ClienteFalso(obras=[obra("w1", "Wave", JOBIM)], da_obra=[dupla])).resolver("Wave", "Antônio Carlos Jobim")
+    assert (r.cantor_sugerido, r.confianca, r.regra) == ("Fulana e Antônio Carlos Jobim", "media", "obra_compositor_parcial")
+    assert "o crédito não é só dele" in r.observacao
+    # O mesmo vale quando a dupla é um artista só no MusicBrainz e o compositor aparece apenas no nome dela.
+    grupo = gravacao("r1", "Onda", "Fulana e Vinicius de Moraes", "1985")
+    r = Buscador(banco, ClienteFalso(obras=[obra("w2", "Onda", VINICIUS)], da_obra=[grupo])).resolver("Onda", "Vinicius de Moraes")
+    assert (r.confianca, r.regra) == ("media", "obra_compositor_parcial")
+
+
+def test_dupla_dos_dois_compositores_continua_dando_alta(banco):
+    dupla = _credito_duplo("r1", "1967", ("Antônio Carlos Jobim", "id-jobim"), ("Vinicius de Moraes", "id-vinicius"))
+    cliente = ClienteFalso(obras=[obra("w1", "Wave", JOBIM, VINICIUS)], da_obra=[dupla])
+    r = Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim / Vinicius de Moraes")
+    assert (r.confianca, r.regra) == ("alta", "obra_compositor")
+
+
+def test_dupla_com_compositor_e_outro_sinal_da_alta_pelo_outro_sinal(banco):
+    dupla = _credito_duplo("r1", "1985", ("Fulana", "id-fulana"), ("Antônio Carlos Jobim", "id-jobim"))
+    cliente = ClienteFalso(
+        obras=[obra("w1", "Wave", JOBIM)], da_obra=[dupla], deezer=[faixa("Wave", "Fulana e Antônio Carlos Jobim", 900)]
+    )
+    r = Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim")
+    assert (r.confianca, r.regra) == ("alta", "obra_popular_deezer")
+
+
+# --- data de cadastro da obra (só local) -----------------------------------
+
+
+def _obra_com_gravacao_do_compositor_em(ano):
+    return ClienteFalso(
+        obras=[obra("w1", "Wave", JOBIM)], da_obra=[gravacao("r1", "Wave", "Antônio Carlos Jobim", ano, id_artista="id-jobim")]
+    )
+
+
+@pytest.mark.parametrize("cadastro", ["1990-05-17", "17/05/1990", "1990-05-17 00:00:00", "1990"])
+def test_gravacao_muito_posterior_ao_cadastro_nao_da_alta(banco, cadastro):
+    cliente = _obra_com_gravacao_do_compositor_em("1999")
+    r = Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim", data_cadastro=cadastro)
+    assert (r.cantor_sugerido, r.confianca, r.regra) == ("Antônio Carlos Jobim", "media", "obra_compositor+cadastro_anterior")
+    assert "possível original ausente na base" in r.observacao and "1990" not in r.observacao
+    # A data é só da planilha: não aparece em nenhuma consulta, e a resposta sem ela (do cache) continua alta.
+    assert "1990" not in str(cliente.chamadas)
+    assert Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim").confianca == "alta"
+
+
+@pytest.mark.parametrize("cadastro", ["1996", "2005-01-01", "", "sem data", None])
+def test_cadastro_proximo_posterior_ou_ausente_nao_muda_nada(banco, cadastro):
+    cliente = _obra_com_gravacao_do_compositor_em("1999")
+    r = Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim", data_cadastro=cadastro)
+    assert (r.confianca, r.regra) == ("alta", "obra_compositor")
+
+
+def test_cadastro_anterior_tambem_e_anotado_quando_a_confianca_ja_nao_era_alta(banco):
+    cliente = ClienteFalso(obras=[obra("w1", "Wave", JOBIM)], da_obra=[gravacao("r1", "Wave", "Outra Cantora", "1999")])
+    r = Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim", data_cadastro="1990")
+    assert (r.confianca, r.regra) == ("media", "obra_sem_confirmacao+cadastro_anterior")
+
+
+def test_detecta_a_coluna_de_data_de_cadastro():
+    df = pd.DataFrame(columns=["Título", "Compositor", "Data de Cadastro", "data_lancamento"])
+    assert planilha.detectar_colunas(df)["data_cadastro"] == "Data de Cadastro"
+    linha = {"Data de Cadastro": " 1990-05-17 "}
+    assert planilha.texto_data_cadastro(linha, {"data_cadastro": "Data de Cadastro"}) == "1990-05-17"
+    assert planilha.texto_data_cadastro(linha, {"data_cadastro": None}) == ""
+
+
 def test_ao_vivo_oficial_conta_para_a_data_mas_ser_compositor_nao_confirma(banco):
     cliente = _obra_com_gravacao_antiga_do_compositor(r1=[lancamento("2014-07-07", "Live")])
     r = Buscador(banco, cliente).resolver("Wave", "Antônio Carlos Jobim")
@@ -418,7 +530,8 @@ def test_relatorio_compositor_nao_soma_pontos_na_busca_por_titulo(banco):
     cliente = ClienteFalso(**respostas)
     r = _em_modo_relatorio(banco, cliente).resolver("Wave", "Antônio Carlos Jobim")
     assert (r.cantor_sugerido, r.confianca) == ("Cantora Original", "baixa")
-    assert r.regra == "sem_obra_palpite+mb_deezer+relatorio" and r.alternativas == ["Tom Jobim"]
+    assert r.regra == "palpite_titulo+mb_deezer+relatorio" and r.alternativas == ["Tom Jobim"]
+    assert r.observacao.endswith("provável homônimo, conferir; fonte: MusicBrainz e Deezer")
     assert ("deezer", "Antônio Carlos Jobim Wave") not in cliente.chamadas  # sem busca dirigida pelo dono do relatório
 
 
@@ -476,6 +589,139 @@ def test_lista_de_obras_do_compositor_fica_em_cache(banco):
 def test_falha_ao_listar_as_obras_nao_impede_o_modo_relatorio(banco):
     buscador = _em_modo_relatorio(banco, ClienteFalso(falhar=True))
     assert buscador.relatorio["erro"] and buscador.relatorio["obras"] == []
+
+
+# --- modo relatório: nomes artísticos e discografia ---------------------------
+
+CIVIL = "José Carlos Souza Lima"  # nome civil, como vem no relatório
+PROJETO = "Banda Arco"  # nome com que ele aparece nas bases
+
+
+def _com_nomes_artisticos(banco, cliente, *nomes):
+    buscador = Buscador(banco, cliente)
+    buscador.preparar_relatorio(CIVIL, nomes)
+    return buscador
+
+
+def test_nome_artistico_confirmado_conta_como_o_compositor(banco):
+    respostas = dict(por_titulo=[gravacao("r1", "Wave", "Outra Cantora"), gravacao("r2", "Wave", PROJETO)])
+    sem = _com_nomes_artisticos(banco, ClienteFalso(**respostas)).resolver("Wave", CIVIL)
+    assert (sem.cantor_sugerido, sem.regra) == ("Outra Cantora", "palpite_titulo+mb+relatorio")
+    # Mesmo banco: a resposta sem os nomes artísticos não pode ser reaproveitada.
+    com = _com_nomes_artisticos(banco, ClienteFalso(**respostas), PROJETO).resolver("Wave", CIVIL)
+    # Como o dono do relatório, o nome confirmado não soma pontos: só desempata, e a confiança continua baixa.
+    assert (com.cantor_sugerido, com.confianca, com.regra) == (PROJETO, "baixa", "sem_obra_palpite+mb+relatorio")
+
+
+def test_titulo_na_discografia_do_nome_confirmado_vem_antes_da_busca_por_titulo(banco):
+    cliente = ClienteFalso(
+        discografia={PROJETO: ["Outra Faixa", "Wave (Ao Vivo)"], "Banda Arco Íris": ["Wave"]},
+        por_titulo=[gravacao("r1", "Wave", "Cantor Famoso")], deezer=[faixa("Wave", "Cantor Famoso", 900)],
+    )
+    r = _com_nomes_artisticos(banco, cliente, PROJETO).resolver("Wave", CIVIL)
+    assert (r.cantor_sugerido, r.confianca, r.regra) == (PROJETO, "media", "discografia+deezer+relatorio")
+    assert "nome artístico confirmado" in r.observacao and "2020-01-01" in r.observacao
+    assert "recording" not in cliente.tipos() and "deezer" not in cliente.tipos()  # a busca por título nem roda
+
+
+def test_discografia_nas_duas_bases_da_alta(banco):
+    cliente = ClienteFalso(
+        discografia={PROJETO: ["Wave"]}, artistas=[{"id": "id-arco", "name": PROJETO}],
+        discografia_mb=[gravacao("r1", "Wave", PROJETO, "2019", id_artista="id-arco")],
+    )
+    r = _com_nomes_artisticos(banco, cliente, PROJETO).resolver("Wave", CIVIL)
+    assert (r.cantor_sugerido, r.confianca, r.regra) == (PROJETO, "alta", "discografia+mb_deezer+relatorio")
+    assert ("discografia_mb", "id-arco") in cliente.chamadas
+
+
+def test_titulo_na_discografia_de_dois_nomes_confirmados_fica_baixa(banco):
+    cliente = ClienteFalso(discografia={PROJETO: ["Wave"], "Carlos Lima": ["Wave"]})
+    r = _com_nomes_artisticos(banco, cliente, PROJETO, "Carlos Lima").resolver("Wave", CIVIL)
+    assert r.confianca == "baixa" and r.regra == "discografia+deezer+varios_nomes+relatorio"
+    assert {r.cantor_sugerido, *r.alternativas} == {PROJETO, "Carlos Lima"}
+
+
+def test_titulo_fora_da_discografia_cai_na_busca_por_titulo_como_palpite(banco):
+    cliente = ClienteFalso(
+        discografia={PROJETO: ["Outra Faixa"]},
+        por_titulo=[gravacao("r1", "Wave", "Cantor Famoso"), gravacao("r2", "Wave", "Outro Cantor")],
+    )
+    r = _com_nomes_artisticos(banco, cliente, PROJETO).resolver("Wave", CIVIL)
+    assert (r.cantor_sugerido, r.confianca, r.regra) == ("Cantor Famoso", "baixa", "palpite_titulo+mb+relatorio")
+    assert "provável homônimo, conferir" in r.observacao
+    # Um artista só com o título não é "título comum": a regra antiga continua valendo.
+    unico = _com_nomes_artisticos(banco, ClienteFalso(por_titulo=[gravacao("r1", "Onda", "Cantor Famoso")]), PROJETO)
+    assert unico.resolver("Onda", CIVIL).regra == "sem_obra_palpite+mb+relatorio"
+
+
+def _obra_do_compositor_com_cover(data_do_cover, **extras):
+    """Obra confirmada cuja única gravação vinculada é de outra artista; a discografia do Deezer é de 2020-01-01."""
+    return ClienteFalso(
+        obras=[obra("w1", "Wave", {"id": "id-civil", "name": CIVIL})], discografia={PROJETO: ["Wave"]},
+        da_obra=[gravacao("r1", "Wave", "Outra Cantora", data_do_cover)], **extras,
+    )
+
+
+def test_obra_sem_segundo_sinal_perde_para_a_discografia_anterior_do_nome_confirmado(banco):
+    r = _com_nomes_artisticos(banco, _obra_do_compositor_com_cover("2023"), PROJETO).resolver("Wave", CIVIL)
+    assert (r.cantor_sugerido, r.confianca, r.regra) == (PROJETO, "media", "obra_discografia+relatorio")
+    assert r.alternativas == ["Outra Cantora"] and "antes dessa gravação" in r.observacao
+    # Sem o nome confirmado, vale a gravação mais antiga vinculada, como antes.
+    sem = _com_nomes_artisticos(banco, _obra_do_compositor_com_cover("2023")).resolver("Wave", CIVIL)
+    assert (sem.cantor_sugerido, sem.regra) == ("Outra Cantora", "obra_sem_confirmacao+relatorio")
+
+
+def test_discografia_posterior_nao_derruba_a_gravacao_mais_antiga(banco):
+    r = _com_nomes_artisticos(banco, _obra_do_compositor_com_cover("2010"), PROJETO).resolver("Wave", CIVIL)
+    assert (r.cantor_sugerido, r.regra) == ("Outra Cantora", "obra_sem_confirmacao+relatorio")
+
+
+def test_discografia_nao_mexe_na_obra_que_ja_tem_segundo_sinal(banco):
+    cliente = _obra_do_compositor_com_cover("2023", deezer=[faixa("Wave", "Outra Cantora", 900)])
+    r = _com_nomes_artisticos(banco, cliente, PROJETO).resolver("Wave", CIVIL)
+    assert (r.cantor_sugerido, r.confianca, r.regra) == ("Outra Cantora", "alta", "obra_popular_deezer+relatorio")
+
+
+def test_obra_sem_data_sugere_o_nome_confirmado_que_tem_o_titulo_na_discografia(banco):
+    r = _com_nomes_artisticos(banco, _obra_do_compositor_com_cover(""), PROJETO).resolver("Wave", CIVIL)
+    assert (r.cantor_sugerido, r.confianca, r.regra) == (PROJETO, "baixa", "obra_discografia+relatorio")
+    assert r.alternativas == ["Outra Cantora"]
+
+
+def test_discografia_e_listada_uma_vez_so(banco):
+    respostas = dict(discografia={PROJETO: ["Wave", "Onda"]})
+    primeiro = ClienteFalso(**respostas)
+    buscador = _com_nomes_artisticos(banco, primeiro, PROJETO)
+    buscador.resolver("Wave", CIVIL), buscador.resolver("Onda", CIVIL)
+    assert primeiro.tipos().count("deezer_api") == 3  # busca do artista, álbuns e faixas do álbum
+    segundo = ClienteFalso(**respostas)
+    r = _com_nomes_artisticos(banco, segundo, PROJETO).resolver("Wave", CIVIL)
+    assert r.cantor_sugerido == PROJETO and "deezer_api" not in segundo.tipos()
+
+
+def test_falha_ao_listar_a_discografia_nao_impede_o_modo_relatorio(banco):
+    cliente = ClienteFalso(deezer_falha=True, por_titulo=[gravacao("r1", "Wave", "Fulano")])
+    buscador = _com_nomes_artisticos(banco, cliente, PROJETO)
+    assert buscador.relatorio["erro"] and buscador.relatorio["discografia"] == []
+    assert buscador.resolver("Wave", CIVIL).cantor_sugerido == "Fulano"
+
+
+def test_sugere_como_nome_artistico_quem_usa_so_palavras_do_nome_civil(banco):
+    cliente = ClienteFalso(
+        artistas_deezer=["Carlos Lima", "Carlos Gomes", CIVIL, "Lima"],
+        artistas=[{"id": "a1", "name": "José Lima"}, {"id": "a2", "name": "Lima Barreto"}],
+    )
+    assert Buscador(banco, cliente).sugerir_nomes_artisticos(CIVIL) == ["Carlos Lima", "José Lima"]
+
+
+def test_sugere_como_nome_artistico_quem_aparece_em_varias_linhas():
+    resultado = pd.DataFrame({
+        "cantor_sugerido": [PROJETO, "Cantor Famoso", "", "banda arco"],
+        "alternativas": ["Carlos Lima", "Banda Arco; Carlos Lima", "", ""],
+    })
+    assert planilha.artistas_recorrentes(resultado) == [PROJETO, "Carlos Lima"]
+    assert planilha.artistas_recorrentes(resultado, ignorar=["BANDA ARCO"]) == ["Carlos Lima"]
+    assert planilha.dividir_nomes_artisticos(" Banda Arco ; carlos lima;;banda arco") == ["Banda Arco", "carlos lima"]
 
 
 def test_gabarito_com_coluna_arquivo_usa_so_as_linhas_da_planilha():
@@ -655,6 +901,7 @@ def test_detecta_colunas_com_nomes_variados():
         "compositor": "Autor(es)",
         "creditos": "Créditos",
         "iswc": None,
+        "data_cadastro": None,
         "titulo": "Nome da Música",
     }
     # "Código da obra" é ISWC, não título (apesar de conter "obra").
@@ -792,6 +1039,24 @@ def test_iswc_nao_encontrado_segue_a_logica_atual(banco):
     r = Buscador(banco, cliente).resolver("Wave", "", ISWC_OK)
     assert r.cantor_sugerido == "Fulano" and r.regra == "so_titulo_unico+mb+iswc_nao_encontrado"
     assert r.iswc_encontrado_em == "nenhum"
+
+
+def test_registro_vazio_do_credits_e_iswc_nao_encontrado(banco):
+    # O Credits.fm responde HTTP 200 com título nulo e zero gravações para ISWC que não tem.
+    vazio = {"title": None, "song_title": None, "alternative_titles": [], "recordings": []}
+    cliente = ClienteFalso(credits=vazio, por_titulo=[gravacao("r1", "Wave", "Fulano")])
+    r = Buscador(banco, cliente).resolver("Wave", "", ISWC_OK)
+    assert r.cantor_sugerido == "Fulano" and r.regra == "so_titulo_unico+mb+iswc_nao_encontrado"
+    assert r.iswc_encontrado_em == "nenhum" and "não conferem" not in r.observacao
+
+
+def test_registro_vazio_do_credits_nao_conta_como_fonte_quando_o_musicbrainz_tem_a_obra(banco):
+    cliente = ClienteFalso(
+        obras_iswc=[obra_iswc()], credits={"title": None, "alternative_titles": [], "recordings": []},
+        da_obra=[gravacao("r1", "Wave", "Cantora Original", "1970"), gravacao("r2", "Wave", "Cantora Original", "1980")],
+    )
+    r = Buscador(banco, cliente).resolver("Wave", "", ISWC_OK)
+    assert (r.cantor_sugerido, r.iswc_encontrado_em) == ("Cantora Original", "MB") and r.regra.endswith("+iswc_mb")
 
 
 def test_mb_e_credits_concordam_da_alta(banco):
