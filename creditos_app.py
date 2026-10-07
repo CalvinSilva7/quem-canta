@@ -7,7 +7,6 @@ Rode com: streamlit run creditos_app.py
 import io
 import json
 import os
-import time
 from pathlib import Path
 
 import pandas as pd
@@ -15,7 +14,7 @@ import streamlit as st
 
 from cantor import planilha
 from cantor.matching import normalizar
-from creditos import atualizacao, ecad, ubc
+from creditos import andamento, atualizacao, ecad, ubc
 from creditos.versao import VERSAO
 from creditos.captura import slug
 from creditos.modelo import SITUACOES, Relatorio
@@ -84,6 +83,10 @@ if arquivo is not None and st.session_state.get("arquivo_id") != arquivo.file_id
     st.session_state.arquivo_id = arquivo.file_id
     st.session_state.relatorio = relatorio
 
+em_curso = andamento.atual()
+if em_curso is not None and em_curso.viva and st.session_state.get("relatorio") is None:
+    # A página foi recarregada no meio de uma coleta: a coleta continua, e a tela volta a acompanhá-la.
+    st.session_state.relatorio = em_curso.dados["relatorio"]
 relatorio: Relatorio | None = st.session_state.get("relatorio")
 if relatorio is None:
     st.info("Envie o relatório para começar.")
@@ -234,6 +237,16 @@ with area_da_coleta:
         "acompanhar o robô (em uma demonstração, por exemplo); aí não clique dentro da janela, que um clique fecha o "
         "menu que o app abriu.",
     )
+    tela_inteira = st.checkbox(
+        "Print de tela inteira, com a barra de endereço e o relógio", value=False,
+        help="O app fotografa o monitor inteiro onde a janela do navegador está, como num print feito à mão.",
+    )
+    if tela_inteira:
+        st.warning(
+            "Com esta opção, o navegador do app abre **visível**. Assim que ele abrir, **arraste a janela para um monitor "
+            "que vai ficar livre** e trabalhe no outro. Não cubra nem minimize essa janela, e deixe-a inteira dentro do "
+            "monitor. Tudo o que estiver nesse monitor sai no print: feche ali o que não pode aparecer."
+        )
     titulos_do_relatorio = len({o.titulo for o in relatorio.obras})
     limite = None
     if os.environ.get("QUEMCANTA_DEV"):
@@ -254,36 +267,67 @@ with area_da_coleta:
     )
     pasta_do_caso = PASTA_DE_DADOS / "casos" / slug(relatorio.pseudonimo_titular or relatorio.nome_titular or "caso")
 
-    if st.button("Coletar e classificar", type="primary"):
-        from concurrent.futures import ThreadPoolExecutor
+    @st.fragment(run_every=1)
+    def painel_da_coleta():
+        """A barra de progresso e o botão de parar. Atualiza sozinho a cada segundo, sem recarregar o resto da tela."""
+        tarefa = andamento.atual()
+        if tarefa is None or not tarefa.viva:
+            st.rerun()  # terminou: a tela inteira é refeita, agora com o resultado
+        retrato = tarefa.andamento.retrato()
+        st.progress(retrato["fracao"], text=f"**Coleta: {round(retrato['fracao'] * 100)}%** · {retrato['restante']}")
+        st.caption(f"Etapa {retrato['etapa']} de {retrato['etapas']}: {retrato['nome']} · {retrato['detalhe']}")
+        st.caption(" · ".join(f"{nome}: {situacao}" for nome, situacao in retrato["situacoes"]))
+        parando = retrato["parando"]
+        if not parando and st.button("Parar coleta", help="O que já foi lido fica guardado: ao coletar de novo, continua de onde parou."):
+            tarefa.pedir_parada()
+            parando = True
+        if parando:
+            st.warning("Parando… o app termina a página que está aberta e para. O que já foi lido fica guardado.")
 
+    def recolher(tarefa):
+        """Pega o resultado da coleta que terminou (ou diz por que não terminou) e libera o botão de coletar."""
+        andamento.encerrar()
+        if tarefa.erro is not None:  # navegador que não abriu, rede fora do ar: mostra e deixa tentar de novo
+            st.error(f"A coleta não terminou: {type(tarefa.erro).__name__}: {tarefa.erro}")
+        elif tarefa.interrompida:
+            st.warning(
+                "Coleta interrompida. O que já foi lido ficou guardado: clique em **Coletar e classificar** para "
+                "continuar de onde parou."
+            )
+        else:
+            st.session_state.relatorio = tarefa.dados["relatorio"]
+            st.session_state.coletas = tarefa.resultado
+            st.session_state.pasta_do_caso = tarefa.dados["pasta"]
+            st.session_state.pop("saidas", None)
+
+    tarefa = andamento.atual()
+    if tarefa is not None and not tarefa.viva:
+        recolher(tarefa)
+        tarefa = None
+    if tarefa is None and st.button("Coletar e classificar", type="primary"):
         from creditos import pipeline
         from creditos.classificador import Config
 
         config = Config(nomes_confirmados=do_titular, interpretes=interpretes)
-        andamento = ["Iniciando…"]
-        aviso = st.empty()
+        # Com muitos coautores, percorrer a discografia de cada um multiplicaria a coleta sem ajudar: os
+        # intérpretes aparecem pela busca por título e pelos créditos que as plataformas mostram.
+        coautores = st.session_state.config["nomes_dos_coautores"]
         # A coleta roda em outra linha de execução: o navegador automatizado não pode rodar na da tela.
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            # Com muitos coautores, percorrer a discografia de cada um multiplicaria a coleta sem ajudar: os
-            # intérpretes aparecem pela busca por título e pelos créditos que as plataformas mostram.
-            coautores = st.session_state.config["nomes_dos_coautores"]
-            tarefa = executor.submit(
-                pipeline.executar, relatorio, config, pasta_do_caso, coautores if len(coautores) <= 10 else [],
-                ao_avancar=lambda texto: andamento.__setitem__(0, texto), limite_youtube=limite,
-                plataformas=tuple(escolhidas), mostrar_navegador=mostrar_navegador,
-            )
-            while not tarefa.done():
-                aviso.info(andamento[0])
-                time.sleep(0.5)
-        aviso.empty()
-        try:
-            st.session_state.coletas = tarefa.result()
-        except Exception as e:  # navegador que não abriu, rede fora do ar: mostra e deixa tentar de novo
-            st.error(f"A coleta não terminou: {type(e).__name__}: {e}")
-            st.stop()
-        st.session_state.pasta_do_caso = str(pasta_do_caso)
-        st.session_state.pop("saidas", None)
+        tarefa = andamento.iniciar(
+            lambda avisar: pipeline.executar(
+                relatorio, config, pasta_do_caso, coautores if len(coautores) <= 10 else [], ao_avancar=avisar,
+                limite_youtube=limite, plataformas=tuple(escolhidas), mostrar_navegador=mostrar_navegador,
+                tela_inteira=tela_inteira,
+            ),
+            andamento.Andamento(titulos_do_relatorio, escolhidas), relatorio=relatorio, pasta=str(pasta_do_caso),
+        )
+        tarefa.linha.join(0.3)  # o que já estava todo lido termina na hora, sem passar pela barra
+        if tarefa.viva:
+            st.rerun()  # refaz a tela já sem o botão de coletar, só com a barra
+        recolher(tarefa)
+        tarefa = None
+    if tarefa is not None:
+        painel_da_coleta()
 
     coletas = st.session_state.get("coletas")
     if coletas:

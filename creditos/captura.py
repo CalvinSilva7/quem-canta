@@ -11,7 +11,10 @@ Cada captura gera três arquivos com o mesmo nome-base:
   .json  URL, título e intérprete exibidos, datas, versão do app e o SHA-256 do
          PNG e do HTML.
 A faixa substitui a barra de endereço e o relógio do sistema, que não aparecem
-em captura de página. É prova documental unilateral: não substitui ata notarial.
+em captura de página. Com o print de tela inteira ligado (TELA_INTEIRA), a captura
+ganha um quarto arquivo, <nome>_tela.png: a foto do monitor onde a janela está,
+com a barra de endereço e o relógio (ver tela.py).
+É prova documental unilateral: não substitui ata notarial.
 """
 
 import hashlib
@@ -25,6 +28,7 @@ from zoneinfo import ZoneInfo
 from .versao import VERSAO
 
 VERSAO_DO_APP = f"quem-canta/creditos {VERSAO}"
+TELA_INTEIRA = False  # ligado pela coleta quando a pessoa pede o print de tela inteira
 FUSO = "America/Sao_Paulo"
 
 _CARIMBAR = """(texto) => {
@@ -121,6 +125,7 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
     pagina.evaluate(_CARIMBAR, texto_do_carimbo(pagina.url, quando, base, data_do_servidor))
     html = pagina.content().encode("utf-8")
     imagem = pagina.screenshot(type="png")
+    tela, da_tela = _tela_inteira(pagina, imagem) if TELA_INTEIRA else (None, None)
     pagina.evaluate("() => document.getElementById('__carimbo_de_captura')?.remove()")
     (pasta / f"{base}.png").write_bytes(imagem)
     (pasta / f"{base}.html").write_bytes(html)
@@ -131,5 +136,32 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
         "arquivos": {"png": f"{base}.png", "html": f"{base}.html"},
         "sha256": {"png": sha256(imagem), "html": sha256(html)},
     }
+    if da_tela is not None:
+        registro["tela_inteira"] = da_tela  # o monitor fotografado, ou o motivo de não ter sido possível
+    if tela is not None:
+        (pasta / f"{base}_tela.png").write_bytes(tela)
+        registro["arquivos"]["tela"], registro["sha256"]["tela"] = f"{base}_tela.png", sha256(tela)
     (pasta / f"{base}.json").write_text(json.dumps(registro, ensure_ascii=False, indent=1), encoding="utf-8")
     return registro
+
+
+def _tela_inteira(pagina, imagem: bytes) -> tuple[bytes | None, dict]:
+    """Fotografa o monitor em que a página está à vista, com a faixa de carimbo ainda na tela.
+
+    Se a janela estiver coberta, tenta uma vez trazê-la para a frente. Falha aqui nunca derruba a captura:
+    a captura de página continua valendo, e o motivo fica na ficha.
+    """
+    from . import tela
+
+    try:
+        pagina.wait_for_timeout(250)  # dá tempo de o sistema desenhar a faixa na janela
+        foto, dados = tela.fotografar(imagem)
+        if foto is None:
+            pagina.bring_to_front()
+            pagina.wait_for_timeout(1000)
+            foto, dados = tela.fotografar(pagina.screenshot(type="png"))
+        return foto, dados
+    except tela.SemComponente as e:
+        return None, {"erro": str(e)}
+    except Exception as e:  # sistema sem permissão de gravar a tela, monitor desligado no meio etc.
+        return None, {"erro": f"não foi possível fotografar a tela ({type(e).__name__}: {e})"}

@@ -81,14 +81,18 @@ def docx_da_lista(relatorio, coletas, plataforma: str, nome_da_plataforma: str =
 
 
 def registro_da_captura(pasta, nome_base: str) -> dict:
-    """O JSON da captura, com "integra": o PNG em disco ainda tem o hash registrado na hora?"""
+    """O JSON da captura, com "integra": a imagem em disco ainda tem o hash registrado na hora?
+
+    "imagem" diz qual arquivo vai para o PDF: o print de tela inteira, quando existe, ou a captura de página.
+    """
     pasta = Path(pasta)
     arquivo = pasta / f"{nome_base}.json"
     if not arquivo.exists():
         return {}
     registro = json.loads(arquivo.read_text(encoding="utf-8"))
-    imagem = pasta / registro["arquivos"]["png"]
-    registro["integra"] = imagem.exists() and sha256(imagem.read_bytes()) == registro["sha256"]["png"]
+    registro["imagem"] = "tela" if "tela" in registro["arquivos"] else "png"
+    imagem = pasta / registro["arquivos"][registro["imagem"]]
+    registro["integra"] = imagem.exists() and sha256(imagem.read_bytes()) == registro["sha256"][registro["imagem"]]
     return registro
 
 
@@ -117,7 +121,8 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
         Paragraph(titular, estilos["Heading3"]),
         Paragraph(
             "Cada captura traz, na própria imagem, a URL, a data e a hora da captura (fuso de Brasília) e a data "
-            "informada pelo servidor da plataforma. O SHA-256 de cada imagem está no índice abaixo e no arquivo "
+            "informada pelo servidor da plataforma. Os prints de tela inteira são a foto do monitor no momento da "
+            "captura, sem montagem. O SHA-256 de cada imagem está no índice abaixo e no arquivo "
             ".json que acompanha a captura. É prova documental unilateral: não substitui ata notarial.", pequeno),
         Spacer(1, 0.3 * cm),
     ]
@@ -131,9 +136,12 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
             registro = {}
         linhas.append([str(item["n"]), Paragraph(item["obra"], pequeno), Paragraph(item["interprete"], pequeno),
                        Paragraph(item["link"], pequeno), registro.get("capturado_em", "SEM CAPTURA"),
-                       Paragraph(registro.get("sha256", {}).get("png", "-"), pequeno)])
+                       Paragraph(registro.get("sha256", {}).get(registro.get("imagem", "png"), "-"), pequeno)])
         if registro:
             paginas.append((item, registro))
+            if registro.get("tela_inteira", {}).get("erro"):
+                avisos.append(f"{item['n']} ({item['obra']} / {item['interprete']}): sem print de tela inteira, porque "
+                              f"{registro['tela_inteira']['erro']}; o PDF traz a captura de página")
     tabela = Table(linhas, colWidths=[1 * cm, 5.5 * cm, 4 * cm, 7.2 * cm, 3.6 * cm, 5.9 * cm], repeatRows=1)
     tabela.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1B3A6B")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -145,9 +153,9 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
         fluxo.append(Paragraph(f"{item['n']} - Música: {item['obra']} - Interpretada por: {item['interprete']}", estilos["Heading3"]))
         fluxo.append(Paragraph(
             f"{item['link']}<br/>Capturado em {registro['capturado_em']} ({registro['fuso']}) · Data do servidor: "
-            f"{registro.get('data_do_servidor') or 'não informada'}<br/>SHA-256: {registro['sha256']['png']} · "
-            f"Arquivo: {registro['arquivos']['png']}", pequeno))
-        imagem = Image(str(pasta / registro["arquivos"]["png"]))
+            f"{registro.get('data_do_servidor') or 'não informada'}<br/>SHA-256: {registro['sha256'][registro['imagem']]} · "
+            f"Arquivo: {registro['arquivos'][registro['imagem']]}", pequeno))
+        imagem = Image(str(pasta / registro["arquivos"][registro["imagem"]]))
         escala = min((largura - 2.4 * cm) / imagem.imageWidth, (altura - 5.2 * cm) / imagem.imageHeight)
         imagem.drawWidth, imagem.drawHeight = imagem.imageWidth * escala, imagem.imageHeight * escala
         fluxo += [Spacer(1, 0.2 * cm), imagem]

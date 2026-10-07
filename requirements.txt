@@ -9,3 +9,5 @@ playwright>=1.47
 reportlab>=4.0
 python-docx>=1.1
 tzdata>=2024.1
+mss>=9
+pillow>=10

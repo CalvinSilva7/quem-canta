@@ -1058,3 +1058,208 @@ def test_limite_negativo_pega_as_ultimas_obras(rel):
     assert [t for _, t in pipeline._titulos(rel, 2, coleta, "X")] == ["LIGUE O RADIO", "COISA FEITA"]
     assert [t for _, t in pipeline._titulos(rel, -2, coleta, "X")] == ["A DANCA DA PANELA", "DANCA DA PANELLA"]
     assert len(pipeline._titulos(rel, None, coleta, "X")) == 5 and "últimas obras de 5" in coleta.avisos[-1]
+
+
+# --- andamento da coleta: barra de progresso e parada ---------------------------
+
+from creditos import andamento as _andamento
+
+
+def test_andamento_avanca_por_etapa_e_nunca_volta():
+    relogio = [0.0]
+    a = _andamento.Andamento(10, ("deezer", "spotify"), agora=lambda: relogio[0])
+    assert a.etapas == ["deezer", "spotify", "prints"] and a.retrato()["fracao"] == 0
+    vistas = []
+    for texto in ["Deezer: discografia de ZECA LIMA", "Deezer: busca por título 1/10", "Deezer: busca por título 10/10",
+                  "Deezer: lendo álbum 1/4", "Deezer: lendo álbum 4/4", "Spotify: buscando 1/10", "Spotify: lendo faixa 1/20",
+                  "Deezer: lendo álbum 1/4",  # aviso atrasado de etapa que já passou: não faz a barra voltar
+                  "Spotify: lendo faixa 20/20", "Deezer: print 1/2", "Deezer: print 2/2"]:
+        a(texto)
+        vistas.append(a.retrato()["fracao"])
+    assert vistas == sorted(vistas) and vistas[0] > 0 and 0.9 < vistas[-1] <= 0.99  # só chega a 100% quando termina
+    retrato = a.retrato()
+    assert (retrato["etapa"], retrato["etapas"], retrato["nome"]) == (3, 3, "Prints das provas")
+    assert retrato["detalhe"] == "Deezer: print 2 de 2"
+    assert retrato["situacoes"] == [("Deezer", "concluída"), ("Spotify", "concluída"), ("Prints das provas", "em andamento")]
+
+
+def test_andamento_estima_o_tempo_que_falta_pelo_ritmo_real():
+    relogio = [0.0]
+    a = _andamento.Andamento(10, ("deezer",), agora=lambda: relogio[0])
+    assert a.texto_do_restante().startswith("falta")  # no começo, vale a estimativa do tamanho do relatório
+    a("Deezer: lendo álbum 3/4")
+    feito = a.fracao
+    relogio[0] = 600.0
+    assert a.segundos_restantes() == pytest.approx(600 * (1 - feito) / feito)
+    relogio[0] = 16.0
+    a.fracao = 0.99
+    assert a.texto_do_restante() == "falta menos de 1 minuto"
+    a("Abrindo o navegador")  # aviso sem plataforma: só muda o texto
+    assert a.retrato()["detalhe"] == "Abrindo o navegador" and a.fracao == 0.99
+
+
+def test_pedido_de_parada_interrompe_no_proximo_aviso_e_nao_vira_erro():
+    def coleta(avisar):
+        for i in range(1, 1000):
+            avisar(f"Deezer: lendo álbum {i}/1000")
+            try:
+                time.sleep(0.005)
+            except Exception:  # um `except Exception` da coleta não pode engolir a parada
+                pass
+        return "terminou"
+
+    import time
+    tarefa = _andamento.Tarefa(coleta, _andamento.Andamento(5, ("deezer",)))
+    assert tarefa.viva
+    tarefa.pedir_parada()
+    tarefa.linha.join(5)
+    assert not tarefa.viva and tarefa.interrompida and tarefa.erro is None and tarefa.resultado is None
+    assert not issubclass(_andamento.Interrompida, Exception)
+
+    def quebra(avisar):
+        raise RuntimeError("navegador não abriu")
+    com_erro = _andamento.Tarefa(quebra, _andamento.Andamento(5, ("deezer",)))
+    com_erro.linha.join(5)
+    assert isinstance(com_erro.erro, RuntimeError) and not com_erro.interrompida
+
+
+def test_so_uma_coleta_por_vez(monkeypatch):
+    import threading
+    monkeypatch.setattr(_andamento, "_ATUAL", None)
+    solta = threading.Event()
+    primeira = _andamento.iniciar(lambda avisar: solta.wait(5), _andamento.Andamento(1, ()))
+    assert _andamento.iniciar(lambda avisar: "outra", _andamento.Andamento(1, ())) is primeira  # não abre uma segunda
+    _andamento.encerrar()
+    assert _andamento.atual() is primeira  # em curso: não é esquecida
+    solta.set()
+    primeira.linha.join(5)
+    _andamento.encerrar()
+    assert _andamento.atual() is None
+
+
+# --- print de tela inteira ------------------------------------------------------
+
+from creditos import tela as _tela
+
+
+def _pagina_falsa(largura=800, altura=500):
+    """Uma "captura de página": faixa branca de carimbo, a linha vermelha e um conteúdo com desenho próprio."""
+    import numpy as np
+    pagina = np.zeros((altura, largura, 3), dtype=np.uint8)
+    pagina[:40] = 255
+    pagina[40:42] = _tela.VERMELHO
+    y, x = np.mgrid[42:altura, 0:largura]
+    pagina[42:, :, 0], pagina[42:, :, 1], pagina[42:, :, 2] = (x // 7 * 13) % 256, (y // 5 * 29) % 256, ((x + y) // 11 * 17) % 256
+    return pagina
+
+
+def _monitor_com(pagina, x=300, y=180, largura=1920, altura=1080, escala=1):
+    """Um monitor cinza com a janela (barra de endereço de 90 px + página) na posição dada."""
+    import numpy as np
+    from PIL import Image
+    monitor = np.full((altura, largura, 3), 60, dtype=np.uint8)
+    if escala != 1:
+        pagina = np.asarray(Image.fromarray(pagina).resize((round(pagina.shape[1] * escala), round(pagina.shape[0] * escala)), Image.NEAREST))
+    alto, largo = min(pagina.shape[0], altura - y), min(pagina.shape[1], largura - x)
+    monitor[max(0, y - 90):y, x:x + largo] = 230  # a moldura do navegador
+    monitor[y:y + alto, x:x + largo] = pagina[:alto, :largo]
+    return monitor
+
+
+def _png(matriz) -> bytes:
+    from PIL import Image
+    saida = io.BytesIO()
+    Image.fromarray(matriz).save(saida, "PNG")
+    return saida.getvalue()
+
+
+def test_tela_inteira_acha_a_janela_e_recusa_coberta_cortada_ou_ausente():
+    pagina = _pagina_falsa()
+    assert _tela.achar_faixa(pagina) == (40, 0, 800)
+    assert _tela.conferir(_monitor_com(pagina), pagina) == (True, "")
+    assert _tela.conferir(_monitor_com(pagina, escala=2, largura=3840, altura=2160), pagina) == (True, "")  # monitor de alta densidade
+    # Monitor sem a janela (a pessoa está trabalhando nele, ou a janela foi minimizada).
+    vazio = _monitor_com(pagina)[:, :250]
+    assert _tela.conferir(vazio, pagina) == (False, "a janela do navegador não está à vista neste monitor")
+    # Outra janela por cima de boa parte da página.
+    coberta = _monitor_com(pagina)
+    coberta[260:600, 300:1100] = 255
+    assert _tela.conferir(coberta, pagina) == (False, "a janela do navegador está coberta por outra janela")
+    # Janela arrastada para fora da borda: metade da página não aparece.
+    cortada = _monitor_com(pagina, x=1500)
+    assert _tela.conferir(cortada, pagina) == (False, "a janela do navegador não cabe inteira no monitor")
+    # Um detalhe pequeno que se mexe (a barra de reprodução, o cursor) não reprova a foto.
+    com_cursor = _monitor_com(pagina)
+    com_cursor[400:412, 500:512] = 255
+    assert _tela.conferir(com_cursor, pagina)[0]
+
+
+def test_tela_inteira_fotografa_so_o_monitor_onde_a_pagina_esta(monkeypatch):
+    pagina = _pagina_falsa()
+    de_trabalho, livre = _monitor_com(pagina)[:, :250], _monitor_com(pagina)
+    monitores = lambda: iter([(1, de_trabalho, b"png do monitor de trabalho"), (2, livre, b"png do monitor livre")])
+    assert _tela.fotografar(_png(pagina), monitores) == (b"png do monitor livre", {"monitor": 2})
+    monkeypatch.setattr(_tela.sys, "platform", "win32")
+    foto, dados = _tela.fotografar(_png(pagina), lambda: iter([(1, de_trabalho, b"x")]))
+    assert foto is None and dados == {"erro": "a janela do navegador não está à vista neste monitor"}
+
+
+class _PaginaDeCaptura:
+    """O mínimo de uma página do navegador para a captura: devolve uma imagem com a faixa de carimbo."""
+    url = "https://exemplo/faixa/1"
+
+    def __init__(self):
+        self.trazida_para_frente = 0
+
+    def evaluate(self, script, *args):
+        return "" if "favicon" in script else False if "translated" in script else None
+
+    def content(self):
+        return "<html></html>"
+
+    def screenshot(self, type="png"):
+        return _png(_pagina_falsa())
+
+    def wait_for_timeout(self, ms):
+        pass
+
+    def bring_to_front(self):
+        self.trazida_para_frente += 1
+
+
+def test_captura_guarda_a_tela_inteira_com_hash_e_mostra_no_pdf(tmp_path, monkeypatch, rel):
+    monkeypatch.setattr(captura, "TELA_INTEIRA", True)
+    foto = _png(_monitor_com(_pagina_falsa()))
+    monkeypatch.setattr(_tela, "fotografar", lambda imagem: (foto, {"monitor": 2}))
+    registro = captura.capturar(_PaginaDeCaptura(), tmp_path, "LIGUE O RADIO", "Banda do Baile", "spotify", {}, "creditos")
+    assert registro["tela_inteira"] == {"monitor": 2}
+    assert (tmp_path / registro["arquivos"]["tela"]).read_bytes() == foto and registro["sha256"]["tela"] == captura.sha256(foto)
+    assert registro["arquivos"]["tela"].endswith("_creditos_tela.png")
+    # No PDF de provas, vale a foto de tela inteira, com o hash dela; se for alterada, deixa de valer como prova.
+    guardado = provas.registro_da_captura(tmp_path, registro["captura"])
+    assert guardado["imagem"] == "tela" and guardado["integra"]
+    (tmp_path / registro["arquivos"]["tela"]).write_bytes(foto + b"alterada")
+    assert not provas.registro_da_captura(tmp_path, registro["captura"])["integra"]
+
+
+def test_captura_sem_tela_inteira_continua_valendo_e_registra_o_motivo(tmp_path, monkeypatch):
+    monkeypatch.setattr(captura, "TELA_INTEIRA", True)
+    monkeypatch.setattr(_tela, "fotografar", lambda imagem: (None, {"erro": "a janela do navegador está coberta por outra janela"}))
+    pagina = _PaginaDeCaptura()
+    registro = captura.capturar(pagina, tmp_path, "LIGUE O RADIO", "Banda do Baile", "spotify", {}, "creditos")
+    assert pagina.trazida_para_frente == 1  # tentou uma vez trazer a janela para a frente
+    assert registro["tela_inteira"] == {"erro": "a janela do navegador está coberta por outra janela"}
+    assert "tela" not in registro["arquivos"] and (tmp_path / registro["arquivos"]["png"]).is_file()
+    assert provas.registro_da_captura(tmp_path, registro["captura"])["imagem"] == "png"
+    # Desligado (o padrão), nada de tela inteira nem de chave nova na ficha.
+    monkeypatch.setattr(captura, "TELA_INTEIRA", False)
+    monkeypatch.setattr(_tela, "fotografar", lambda imagem: pytest.fail("não podia fotografar a tela"))
+    assert "tela_inteira" not in captura.capturar(_PaginaDeCaptura(), tmp_path / "outra", "LIGUE O RADIO", "Banda do Baile", "spotify", {})
+
+
+def test_executar_liga_a_tela_inteira_so_durante_a_coleta_e_deixa_o_navegador_visivel(monkeypatch, rel, tmp_path):
+    vistos = []
+    monkeypatch.setattr(pipeline, "_executar", lambda *a: vistos.append((captura.TELA_INTEIRA, a[-1])) or [])
+    pipeline.executar(rel, Config(), tmp_path, mostrar_navegador=False, tela_inteira=True)
+    pipeline.executar(rel, Config(), tmp_path, mostrar_navegador=False)
+    assert vistos == [(True, True), (False, False)] and captura.TELA_INTEIRA is False

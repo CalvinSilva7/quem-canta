@@ -27,8 +27,8 @@ USAR
    area de trabalho). Abre uma janela preta e, em seguida, o app no navegador.
 2. Deixe a janela preta aberta enquanto usa. Fechar a janela encerra o app.
 3. Envie o PDF do ECAD e clique em "Coletar e classificar".
-4. A tela mostra o tempo estimado. O computador pode ser usado normalmente
-   enquanto isso, mas precisa ficar ligado.
+4. A tela mostra uma barra com o andamento e o tempo que falta. O computador
+   pode ser usado normalmente enquanto isso, mas precisa ficar ligado.
 5. No fim, baixe a planilha e o pacote de provas.
 
 O QUE VOCE PRECISA SABER
@@ -40,8 +40,12 @@ O QUE VOCE PRECISA SABER
   marque "Mostrar a janela do navegador" e nao clique dentro dela.
 - Se uma plataforma pedir captcha ou login, o app para aquela plataforma,
   avisa e guarda o que ja leu. Ele nunca tenta contornar.
-- Para parar uma coleta no meio, feche a janela preta. O que ja foi lido fica
-  guardado; na proxima coleta ele continua de onde parou.
+- Para parar uma coleta no meio, clique em "Parar coleta". O que ja foi lido
+  fica guardado; na proxima coleta ele continua de onde parou.
+- Print de tela inteira (opcional): marque "Print de tela inteira, com a barra
+  de endereco e o relogio". O navegador do app abre visivel; arraste a janela
+  para um monitor que vai ficar livre e trabalhe no outro. Nao cubra nem
+  minimize essa janela. Tudo o que estiver nesse monitor sai no print.
 
 ONDE FICAM OS DADOS
 -------------------

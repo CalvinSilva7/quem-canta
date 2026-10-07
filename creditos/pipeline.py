@@ -733,14 +733,27 @@ ORDEM = ["YOUTUBE", "SPOTIFY", "TIDAL", "DEEZER", "VAGALUME", "APPLE MUSIC"]  # 
 
 def executar(relatorio: Relatorio, config: Config, pasta, nomes_dos_coautores=(), youtube=False, limite_youtube=None,
              por_obra=12, ao_avancar=None, so_o_que_ja_foi_lido=False, plataformas=None, prints=True,
-             mostrar_navegador=True) -> list[Coleta]:
+             mostrar_navegador=True, tela_inteira=False) -> list[Coleta]:
     """O fluxo inteiro, do relatório às coletas de cada plataforma, com as capturas de tela.
 
     `pasta` é a pasta do caso: cada plataforma guarda ali o que já leu e os seus prints (pasta/<plataforma>).
     `plataformas`: nomes de TODAS; sem isso, vale Deezer e, com `youtube`, o YouTube Music. `limite_youtube` é o
     número de obras buscadas em cada plataforma (a discografia da Deezer é sempre percorrida inteira).
     A Deezer vem primeiro porque ensina às outras quem grava o titular. As coletas saem na ordem da planilha.
+    `tela_inteira`: cada print ganha também a foto do monitor inteiro; a janela do navegador fica visível.
     """
+    from . import captura
+
+    captura.TELA_INTEIRA, antes = bool(tela_inteira), captura.TELA_INTEIRA
+    try:
+        return _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_youtube, por_obra, ao_avancar,
+                         so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador or tela_inteira)
+    finally:
+        captura.TELA_INTEIRA = antes
+
+
+def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_youtube, por_obra, ao_avancar,
+              so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador) -> list[Coleta]:
     from .navegador import Navegador
 
     pasta, limite = Path(pasta), limite_youtube

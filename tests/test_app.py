@@ -14,6 +14,7 @@ def _isolado(tmp_path, monkeypatch):
     monkeypatch.setenv("QUEMCANTA_DADOS", str(tmp_path / "dados-do-teste"))
     monkeypatch.setenv("QUEMCANTA_ATUALIZACAO", "")
     monkeypatch.setattr("creditos.atualizacao.endereco_de_consulta", lambda pasta=None: "")
+    monkeypatch.setattr("creditos.andamento._ATUAL", None)  # nenhuma coleta de outro teste em curso
 
 
 def test_modo_relatorio_aparece_na_tela_e_pode_ser_desligado(tmp_path, monkeypatch):
@@ -256,3 +257,57 @@ def test_atualizacao_que_falha_avisa_e_mantem_a_versao(monkeypatch):
     at = _tela_de_creditos().run()  # a consulta automática, ao abrir, já mostra o aviso
     _botao(at, "Baixar e instalar a versão nova").click().run()
     assert any("não foi instalada" in e.value and "não confere" in e.value for e in at.error)
+
+
+def test_coleta_mostra_barra_de_progresso_e_pode_ser_parada(tmp_path, monkeypatch):
+    import time
+    from creditos import andamento, pipeline
+    from tests.test_creditos import relatorio_de_teste
+
+    monkeypatch.chdir(tmp_path)
+
+    def executar_lento(relatorio, config, pasta, coautores=(), ao_avancar=None, **_):
+        for i in range(1, 2000):
+            ao_avancar(f"Deezer: lendo álbum {i}/2000")
+            time.sleep(0.01)
+        return [pipeline.Coleta("DEEZER")]
+
+    monkeypatch.setattr(pipeline, "executar", executar_lento)
+    at = _tela_de_creditos()
+    at.session_state["relatorio"] = relatorio_de_teste()
+    at.run()
+    _botao(at, "Coletar e classificar").click().run()
+    assert not at.exception
+    tarefa = andamento.atual()
+    assert tarefa is not None and tarefa.viva
+    # Em curso: a barra, a etapa e o botão de parar; o botão de coletar some, para não abrir duas coletas.
+    assert any(texto.startswith("Etapa 1 de") and "Deezer: lendo álbum" in texto for texto in (c.value for c in at.caption))
+    assert any("Deezer: em andamento" in c.value for c in at.caption)
+    assert "Coletar e classificar" not in [b.label for b in at.button]
+    # Recarregar a página (sessão nova, sem relatório) reencontra a coleta em curso.
+    outra = _tela_de_creditos().run()
+    assert not outra.exception and "Parar coleta" in [b.label for b in outra.button]
+    _botao(at, "Parar coleta").click().run()
+    assert any("Parando" in w.value for w in at.warning)
+    tarefa.linha.join(5)
+    assert tarefa.interrompida
+    at.run()
+    assert any("Coleta interrompida" in w.value for w in at.warning) and "coletas" not in at.session_state
+    assert "Coletar e classificar" in [b.label for b in at.button] and andamento.atual() is None
+
+
+def test_coleta_que_falha_mostra_o_erro_e_deixa_tentar_de_novo(tmp_path, monkeypatch):
+    from creditos import pipeline
+    from tests.test_creditos import relatorio_de_teste
+
+    monkeypatch.chdir(tmp_path)
+
+    def quebra(*a, **k):
+        raise RuntimeError("navegador não abriu")
+    monkeypatch.setattr(pipeline, "executar", quebra)
+    at = _tela_de_creditos()
+    at.session_state["relatorio"] = relatorio_de_teste()
+    at.run()
+    _botao(at, "Coletar e classificar").click().run()
+    assert any("A coleta não terminou: RuntimeError: navegador não abriu" in e.value for e in at.error)
+    assert "coletas" not in at.session_state
