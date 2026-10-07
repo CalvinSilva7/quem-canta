@@ -15,6 +15,20 @@ from cantor.matching import normalizar
 from . import captura
 
 JANELA = {"width": 1366, "height": 768}
+
+
+def tamanho_da_pagina() -> dict:
+    """Como a página se ajusta à janela (parâmetros de `new_context`).
+
+    No uso normal a página tem tamanho fixo, para os prints saírem sempre iguais. No print de tela inteira ela
+    acompanha a janela: a pessoa maximiza no monitor livre e a página ocupa a janela toda, sem sobra em branco.
+    """
+    return {"no_viewport": True} if captura.TELA_INTEIRA else {"viewport": JANELA}
+
+
+def tamanho_da_janela() -> list[str]:
+    """No print de tela inteira, a janela abre num tamanho que cabe em qualquer monitor; depois é só maximizar."""
+    return ["--window-size=1280,800"] if captura.TELA_INTEIRA else []
 _BLOQUEIO_NA_URL = ("accounts.google.com", "google.com/sorry", "consent.youtube.com", "consent.google.com",
                     "accounts.spotify.com", "challenge.spotify.com", "login.tidal.com", "account.deezer.com",
                     "idmsa.apple.com", "/captcha")
@@ -73,9 +87,10 @@ class Navegador:
             self._pw = sync_playwright().start()
             self._navegador = self._pw.chromium.launch(
                 headless=not self.visivel,
-                args=["--lang=pt-BR", "--disable-features=Translate", "--mute-audio"] + ([FORA_DA_TELA] if self.escondido else []),
+                args=["--lang=pt-BR", "--disable-features=Translate", "--mute-audio"] + tamanho_da_janela()
+                + ([FORA_DA_TELA] if self.escondido else []),
             )
-            contexto = self._navegador.new_context(viewport=JANELA, locale="pt-BR", timezone_id=captura.FUSO)
+            contexto = self._navegador.new_context(**tamanho_da_pagina(), locale="pt-BR", timezone_id=captura.FUSO)
             contexto.add_init_script(f"({captura.TRAVA_DE_TRADUCAO})()")
             self._pagina = contexto.new_page()
         return self._pagina

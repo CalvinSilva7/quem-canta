@@ -1263,3 +1263,25 @@ def test_executar_liga_a_tela_inteira_so_durante_a_coleta_e_deixa_o_navegador_vi
     pipeline.executar(rel, Config(), tmp_path, mostrar_navegador=False, tela_inteira=True)
     pipeline.executar(rel, Config(), tmp_path, mostrar_navegador=False)
     assert vistos == [(True, True), (False, False)] and captura.TELA_INTEIRA is False
+
+
+def test_captura_reabre_a_janela_minimizada_antes_de_fotografar(tmp_path):
+    comandos = []
+
+    class Sessao:
+        def __init__(self, estado): self.estado = estado
+        def send(self, comando, parametros=None):
+            comandos.append((comando, parametros))
+            return {"windowId": 7, "bounds": {"windowState": self.estado}}
+        def detach(self): pass
+
+    def pagina_com_janela(estado):
+        pagina = _PaginaDeCaptura()
+        pagina.context = type("Contexto", (), {"new_cdp_session": lambda self, p: Sessao(estado)})()
+        return pagina
+
+    captura.capturar(pagina_com_janela("minimized"), tmp_path, "LIGUE O RADIO", "Banda do Baile", "spotify", {})
+    assert ("Browser.setWindowBounds", {"windowId": 7, "bounds": {"windowState": "normal"}}) in comandos
+    comandos.clear()
+    captura.capturar(pagina_com_janela("normal"), tmp_path / "b", "LIGUE O RADIO", "Banda do Baile", "spotify", {})
+    assert [c for c, _ in comandos] == ["Browser.getWindowForTarget"]  # janela aberta: não mexe nela

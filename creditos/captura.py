@@ -113,6 +113,7 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
     """
     if pagina.evaluate(_TRADUZIDA):
         raise PaginaTraduzida(pagina.url)
+    _restaurar_janela(pagina)  # janela minimizada não é desenhada: a captura ficaria esperando até dar erro
     pasta = Path(pasta)
     pasta.mkdir(parents=True, exist_ok=True)
     quando = agora()
@@ -145,10 +146,23 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
     return registro
 
 
+def _restaurar_janela(pagina) -> None:
+    """Se a janela do navegador foi minimizada, volta a abri-la (no mesmo lugar e tamanho de antes)."""
+    try:
+        sessao = pagina.context.new_cdp_session(pagina)
+        janela = sessao.send("Browser.getWindowForTarget")
+        if janela.get("bounds", {}).get("windowState") == "minimized":
+            sessao.send("Browser.setWindowBounds", {"windowId": janela["windowId"], "bounds": {"windowState": "normal"}})
+            pagina.wait_for_timeout(700)  # o sistema leva um instante para reabrir a janela
+        sessao.detach()
+    except Exception:  # navegador sem esse comando: segue só com a tentativa de trazer a janela para a frente
+        pass
+
+
 def _tela_inteira(pagina, imagem: bytes) -> tuple[bytes | None, dict]:
     """Fotografa o monitor em que a página está à vista, com a faixa de carimbo ainda na tela.
 
-    Se a janela estiver coberta, tenta uma vez trazê-la para a frente. Falha aqui nunca derruba a captura:
+    Se a janela estiver coberta ou minimizada, tenta uma vez reabri-la e trazê-la para a frente. Falha aqui nunca derruba a captura:
     a captura de página continua valendo, e o motivo fica na ficha.
     """
     from . import tela
@@ -157,6 +171,7 @@ def _tela_inteira(pagina, imagem: bytes) -> tuple[bytes | None, dict]:
         pagina.wait_for_timeout(250)  # dá tempo de o sistema desenhar a faixa na janela
         foto, dados = tela.fotografar(imagem)
         if foto is None:
+            _restaurar_janela(pagina)
             pagina.bring_to_front()
             pagina.wait_for_timeout(1000)
             foto, dados = tela.fotografar(pagina.screenshot(type="png"))
