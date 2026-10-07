@@ -1,6 +1,6 @@
 {
-  "versao": "0.4.2",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.4.2/quem-canta-0.4.2-windows.zip",
-  "sha256": "8f08b9c0ea5ece28232084a1fa7d9ae9b2232b1609f85c5bee4259091ab6c9cd",
-  "notas": "Itens a confirmar aparecem em amarelo na planilha; botao Procurar atualizacao."
+  "versao": "0.4.3",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.4.3/quem-canta-0.4.3-windows.zip",
+  "sha256": "8cdda0d57aa1d5e84d216e59705c9195a347f744df6c0cae8d53e73e0515bb25",
+  "notas": "Barra de progresso, botao Parar coleta e print de tela inteira (opcional). Depois de instalar, rode o Instalar.cmd."
 }
