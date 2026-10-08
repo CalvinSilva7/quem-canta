@@ -92,10 +92,15 @@ def _executavel(pista: str) -> Path | None:
     if not pista:
         return None
     caminho = Path(pista)
-    if caminho.is_file() and caminho.suffix.lower() == ".exe" and "unins" not in caminho.name.lower():
+    # O programa tem ajudantes na mesma pasta ("Amazon Music Helper.exe"): o que interessa é o principal.
+    pasta = caminho.parent if caminho.suffix.lower() == ".exe" else caminho
+    if (pasta / PROCESSO).is_file():
+        return pasta / PROCESSO
+    auxiliar = lambda nome: any(parte in nome.lower() for parte in ("unins", "helper", "crash", "update", "install"))
+    if caminho.is_file() and caminho.suffix.lower() == ".exe" and not auxiliar(caminho.name):
         return caminho
     if caminho.is_dir():
-        return next((c for c in [caminho / PROCESSO, *sorted(caminho.glob("*Amazon*Music*.exe"))] if c.is_file()), None)
+        return next((c for c in sorted(caminho.glob("*Amazon*Music*.exe")) if c.is_file() and not auxiliar(c.name)), None)
     return None
 
 

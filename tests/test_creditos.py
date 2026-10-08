@@ -1613,8 +1613,13 @@ def test_amazon_app_acha_o_programa_perguntando_ao_windows(tmp_path, monkeypatch
     assert _amazon_app.caminho_do_aplicativo() == pasta / "Amazon Music.exe"  # a pasta de instalação serve; o desinstalador, não
     respostas[_amazon_app._REGISTRO] = []
     assert _amazon_app.caminho_do_aplicativo() is None
-    respostas[_amazon_app._ABERTO] = [str(pasta / "Amazon Music.exe")]
-    assert _amazon_app.caminho_do_aplicativo() == pasta / "Amazon Music.exe"  # o programa que está aberto diz onde está
+    (pasta / "Amazon Music Helper.exe").write_text("ajudante")
+    respostas[_amazon_app._ABERTO] = [str(pasta / "Amazon Music Helper.exe")]
+    assert _amazon_app.caminho_do_aplicativo() == pasta / "Amazon Music.exe"  # o ajudante aberto leva ao programa principal
+    so_ajudante = tmp_path / "So Ajudante"
+    so_ajudante.mkdir()
+    (so_ajudante / "Amazon Music Helper.exe").write_text("ajudante")
+    assert _amazon_app._executavel(so_ajudante / "Amazon Music Helper.exe") is None and _amazon_app._executavel(so_ajudante) is None
     monkeypatch.setenv("QUEMCANTA_AMAZON_EXE", str(pasta / "Amazon Music.exe"))
     assert _amazon_app.caminho_do_aplicativo() == pasta / "Amazon Music.exe"
     assert _amazon_app.e_da_loja(r"C:\Program Files\WindowsApps\AmazonMobileLLC.AmazonMusic_9.5\Amazon Music.exe")
