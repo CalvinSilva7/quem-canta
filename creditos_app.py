@@ -206,7 +206,8 @@ if etapa == ETAPAS[0]:
     if lista:
         if limite_de_obras:
             lista = lista[:limite_de_obras]
-        com = sum(bool(nomes) for _, nomes in lista)
+        com = sum(bool(nomes) for _, nomes, *_ in lista)
+        em_duvida = sum(len(resto[0]) for _, _, *resto in lista if resto)
         st.subheader("Resultado")
         st.download_button(
             "Planilha de intérpretes (.xlsx)", _interpretes.planilha(relatorio, lista),
@@ -217,8 +218,17 @@ if etapa == ETAPAS[0]:
             f"{com} de {len(lista)} obras com intérprete encontrado. As outras {len(lista) - com} vão em branco, para o "
             "compositor preencher. O app não acha todos: a conferência do compositor faz parte do processo."
         )
-        st.dataframe(pd.DataFrame([{"Obras": obra, "Intérpretes": nome.upper()} for obra, nomes in lista for nome in (nomes or [""])]),
-                     hide_index=True)
+        if em_duvida:
+            st.markdown(
+                f"**Em preto**, o intérprete de que o app tem certeza. :red[**Em vermelho**], os {em_duvida} que ele só supõe: "
+                "o compositor confirma ou apaga."
+            )
+        tabela = pd.DataFrame([{"Obras": obra, "Intérpretes": nome.upper(), "_duvida": bool(resto and nome in resto[0])}
+                               for obra, nomes, *resto in lista for nome in (nomes or [""])])
+        st.dataframe(
+            tabela.style.apply(lambda linha: ["", f"color: #{_interpretes.VERMELHO}" if linha["_duvida"] else "", ""], axis=1),
+            hide_index=True, column_order=["Obras", "Intérpretes"],
+        )
     st.stop()
 
 # --- conferir e ajustar (recolhido: quase nunca precisa mexer) ----------------

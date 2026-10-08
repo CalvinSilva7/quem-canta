@@ -362,14 +362,21 @@ def test_etapa_de_interpretes_devolve_so_a_planilha_de_obra_e_interprete(tmp_pat
     assert not at.exception
     assert chamadas == [(interpretes.PLATAFORMAS, False, ["ZECA LIMA", "ZECA DO BAILE"], ["CIDA DIAS"])]  # sem navegador, sem print
     lista = at.session_state["lista_de_interpretes"]
-    assert lista[0] == ("LIGUE O RADIO", ["Banda do Baile", "Fulana & Beltrano"]) and lista[1] == ("COISA FEITA", ["Fulana e Beltrano"])
+    # Banda do Baile tem o titular no crédito: certeza. A dupla só aparece sem crédito e num medley: fica em dúvida.
+    assert lista[0] == ("LIGUE O RADIO", ["Banda do Baile", "Fulana & Beltrano"], {"Fulana & Beltrano"})
+    assert lista[1] == ("COISA FEITA", ["Fulana e Beltrano"], {"Fulana e Beltrano"})
+    assert any("Em vermelho" in m.value and "os 2 que ele só supõe" in m.value for m in at.markdown)
     assert any("2 de 5 obras com intérprete encontrado" in cap.value for cap in at.caption)
     # A planilha: nome do titular, cabeçalho, uma linha por par, e obra sem intérprete em branco. Nada além disso.
     ws = openpyxl.load_workbook(io.BytesIO(interpretes.planilha(relatorio_de_teste(), lista))).active
-    linhas = [tuple(l) for l in ws.iter_rows(values_only=True)]
+    linhas = [tuple(l[:2]) for l in ws.iter_rows(values_only=True)]
     assert linhas[:5] == [("ZECA LIMA", None), ("Obras", "Intérpretes"), ("LIGUE O RADIO", "BANDA DO BAILE"),
                           ("LIGUE O RADIO", "FULANA & BELTRANO"), ("COISA FEITA", "FULANA E BELTRANO")]
-    assert linhas[5:] == [("BAILE NA SERRA", None), ("A DANCA DA PANELA", None), ("DANCA DA PANELLA", None)] and ws.max_column == 2
+    assert linhas[5:] == [("BAILE NA SERRA", None), ("A DANCA DA PANELA", None), ("DANCA DA PANELLA", None)]
+    # Em preto, o que o app tem certeza; em vermelho, o que ele só supõe; e uma legenda, fora das duas colunas.
+    cor = lambda linha: (ws.cell(linha, 2).font.color.rgb if ws.cell(linha, 2).font.color else "preto")
+    assert interpretes.VERMELHO not in str(cor(3)) and interpretes.VERMELHO in cor(4) and interpretes.VERMELHO in cor(5)
+    assert "Em vermelho" in ws.cell(1, 4).value and ws.cell(2, 3).value is None
     # A etapa 2 continua lá, com a coleta de sempre.
     at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
     assert "Buscar intérpretes" not in [b.label for b in at.button] and "Coletar e classificar" in [b.label for b in at.button]
