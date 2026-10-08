@@ -98,10 +98,18 @@ _ONDE_ESTA_O_TEXTO = "(padrao) => { " + _BASE + r""" const achado = folhas(docum
   return achado ? centro(achado) : null; }"""
 # Um retrato do que há de clicável na tela e dos caminhos que ela usa: é o que permite ajustar o módulo à distância.
 _RETRATO = "() => { " + _BASE + r""" const todos = anda(document);
-  return {caminhos: [...new Set(todos.map(e => (e.getAttribute && (e.getAttribute('href') || e.getAttribute('primary-href') || e.getAttribute('to'))) || '').filter(h => /^(#|\/)/.test(h) && h.length < 80))].slice(0, 30),
+  return {caminhos: [...new Set(todos.map(e => (e.getAttribute && (e.getAttribute('href') || e.getAttribute('primary-href') || e.getAttribute('to'))) || '').filter(h => /^(#|\/)/.test(h) && h.length < 120 && !/\.(css|js|png|ico|xml)(\?|$)/.test(h)))].slice(0, 70),
           etiquetas: Object.entries(todos.reduce((c, e) => { const t = e.tagName.toLowerCase(); c[t] = (c[t] || 0) + 1; return c; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 25),
           botoes: [...new Set(todos.filter(e => visivel(e) && (/button/.test(e.tagName.toLowerCase()) || e.getAttribute('role') === 'button')).map(e => (e.getAttribute('aria-label') || e.getAttribute('title') || proprio(e) || (e.className && e.className.toString()) || '').slice(0, 40)))].slice(0, 40)}; }"""
 _LER_HTML = "() => document.documentElement.outerHTML.slice(0, 900000)"
+# Escreve no campo de busca do jeito que a tela do aplicativo percebe (avisando a mudança) e dá Enter nele.
+_BUSCAR_PELO_CAMPO = "(texto) => { " + _BASE + """ const campo = anda(document).find(e => e.tagName === 'INPUT' && visivel(e) && !/checkbox|radio|hidden|range/.test(e.type || ''));
+  if (!campo) return 'sem campo de busca';
+  campo.focus();
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(campo, texto);
+  campo.dispatchEvent(new Event('input', {bubbles: true})); campo.dispatchEvent(new Event('change', {bubbles: true}));
+  for (const tipo of ['keydown', 'keypress', 'keyup']) campo.dispatchEvent(new KeyboardEvent(tipo, {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+  return 'escrito: ' + campo.value; }"""
 # Onde está o campo de busca do aplicativo (o primeiro campo de texto à vista).
 _ONDE_ESTA_A_BUSCA = "() => { " + _BASE + """ const campo = anda(document).find(e => e.tagName === 'INPUT' && visivel(e)
     && !/checkbox|radio|hidden|range/.test(e.type || ''));
@@ -544,32 +552,34 @@ def diagnostico(destino=None, album="") -> Path:
             album = album or next((c_.split("/album")[1].lstrip("s/").split("?")[0].split("/")[0] for c_ in retrato.get("caminhos", []) if "/album" in c_), "") \
                 or os.environ.get("QUEMCANTA_AMAZON_ALBUM", "")
             anotar(f"álbum de teste: {album or '(nenhum: a tela não mostrou endereço de álbum e nenhum foi indicado)'}")
-            # O aplicativo não abriu o álbum pelos endereços do site. O caminho de uma pessoa é a busca: escrever, dar
-            # Enter e ver o que a tela oferece. É também daí que sai o formato do endereço de álbum.
+            # O aplicativo pode ter ficado numa tela vazia de um teste anterior: começa de uma tela que existe.
+            from urllib.parse import quote
+            tentar("voltar para o início", lambda: app._ir_para("/home") or "pedido enviado")
+            pagina.wait_for_timeout(7000)
+            tentar("texto do início", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:700])
+            tentar("retrato do início", lambda: pagina.evaluate(_RETRATO))
+            guardar("1b-home")
+            # A busca: o teste anterior mostrou que o endereço dela é "#/search/<texto>".
             busca = os.environ.get("QUEMCANTA_AMAZON_BUSCA", "") or "amor"
-            campo = tentar("achar o campo de busca", lambda: pagina.evaluate(_ONDE_ESTA_A_BUSCA))
-            if campo:
-                tentar("clicar no campo de busca", lambda: pagina.clicar(campo["x"], campo["y"]) or "clicado")
-                pagina.wait_for_timeout(800)
-                tentar("selecionar o campo", lambda: pagina.evaluate(_ONDE_ESTA_A_BUSCA) and "selecionado")
-                tentar(f'escrever "{busca}"', lambda: pagina.digitar(busca) or "escrito")
-                pagina.wait_for_timeout(1500)
-                tentar("apertar Enter", lambda: pagina.keyboard.press("Enter") or "apertado")
+            antes = len(pagina.evaluate(_LER_TEXTO) or "")
+            tentar(f"buscar pelo endereço: /search/{busca}", lambda: app._ir_para("/search/" + quote(busca)) or "pedido enviado")
+            pagina.wait_for_timeout(9000)
+            tentar("endereço da busca", lambda: pagina.url)
+            if abs(len(pagina.evaluate(_LER_TEXTO) or "") - antes) < 40:  # a tela não mudou: tenta pelo campo, como uma pessoa
+                tentar("buscar pelo campo", lambda: pagina.evaluate(_BUSCAR_PELO_CAMPO, busca))
                 pagina.wait_for_timeout(9000)
-                tentar("endereço da busca", lambda: pagina.url)
-                tentar("texto da busca", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:1200])
-                tentar("retrato da busca", lambda: pagina.evaluate(_RETRATO))
-                enderecos = tentar("endereços de álbum na tela da busca", lambda: pagina.evaluate(_ENDERECOS_DE_ALBUM)) or []
-                guardar("2-busca")
-                linha = tentar("achar uma linha de faixa na busca", lambda: pagina.evaluate(_ACHAR_LINHA, ""))
-            else:
-                enderecos, linha = [], None
+                tentar("endereço da busca (pelo campo)", lambda: pagina.url)
+            tentar("texto da busca", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:1500])
+            tentar("retrato da busca", lambda: pagina.evaluate(_RETRATO))
+            enderecos = tentar("endereços de álbum na tela da busca", lambda: pagina.evaluate(_ENDERECOS_DE_ALBUM)) or []
+            guardar("2-busca")
+            linha = tentar("achar uma linha de faixa na busca", lambda: pagina.evaluate(_ACHAR_LINHA, ""))
             if not linha:
                 # Sem linha de faixa na busca: tenta chegar a um álbum pelo endereço que a própria tela mostrou.
                 import re
                 do_album = next((re.search(r"#?(/[^\s\"']*album[^\s\"']*)", e) for e in enderecos if re.search(r"#?(/[^\s\"']*album[^\s\"']*)", e)), None)
                 anotar(f"caminho de álbum tirado da tela: {do_album[1] if do_album else '(nenhum)'}")
-                for caminho in ([do_album[1].split('#')[-1]] if do_album else []) + ([f"/albums/{album}"] if album else []):
+                for caminho in ([do_album[1].split('#')[-1]] if do_album else []):
                     tentar(f"ir para {caminho}", lambda: app._ir_para(caminho) or "pedido enviado")
                     pagina.wait_for_timeout(9000)
                     tentar("endereço depois", lambda: pagina.url)
