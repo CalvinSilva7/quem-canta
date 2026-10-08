@@ -99,6 +99,9 @@ def registro_da_captura(pasta, nome_base: str) -> dict:
 def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma: str = "") -> tuple[bytes, list[str]]:
     """PDF com índice (nº, obra, intérprete, link, data e hora, hash) e um print por página, na ordem da lista.
 
+    Cada música leva um print, o primeiro válido. No aplicativo da Amazon Music a prova são dois (o menu da faixa
+    e a janela de créditos): lá entram todos, um por página, com o mesmo número.
+
     Devolve (pdf, avisos). Captura ausente ou com hash diferente do registrado não entra como prova: vira aviso.
     """
     from reportlab.lib import colors
@@ -128,29 +131,32 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
     ]
     linhas, paginas = [["Nº", "Obra", "Intérprete", "Link", "Capturado em", "SHA-256 da imagem"]], []
     for item in firmes:
-        registro = next((r for r in (registro_da_captura(pasta, p) for p in item["provas"]) if r), {})
-        if not registro:
+        registros = [r for r in (registro_da_captura(pasta, p) for p in item["provas"]) if r]
+        registros = registros if plataforma in TODOS_OS_PRINTS else registros[:1]
+        if not registros:
             avisos.append(f"{item['n']} ({item['obra']} / {item['interprete']}): sem captura de tela")
-        elif not registro["integra"]:
-            avisos.append(f"{item['n']} ({item['obra']} / {item['interprete']}): a imagem foi alterada depois da captura (hash não confere)")
-            registro = {}
-        linhas.append([str(item["n"]), Paragraph(item["obra"], pequeno), Paragraph(item["interprete"], pequeno),
-                       Paragraph(item["link"], pequeno), registro.get("capturado_em", "SEM CAPTURA"),
-                       Paragraph(registro.get("sha256", {}).get(registro.get("imagem", "png"), "-"), pequeno)])
-        if registro:
-            paginas.append((item, registro))
-            if registro.get("tela_inteira", {}).get("erro"):
-                avisos.append(f"{item['n']} ({item['obra']} / {item['interprete']}): sem print de tela inteira, porque "
-                              f"{registro['tela_inteira']['erro']}; o PDF traz a captura de página")
-    tabela = Table(linhas, colWidths=[1 * cm, 5.5 * cm, 4 * cm, 7.2 * cm, 3.6 * cm, 5.9 * cm], repeatRows=1)
+        for i, registro in enumerate(registros or [{}], start=1):
+            parte = f" ({i} de {len(registros)})" if len(registros) > 1 else ""
+            if registro and not registro["integra"]:
+                avisos.append(f"{item['n']}{parte} ({item['obra']} / {item['interprete']}): a imagem foi alterada depois da captura (hash não confere)")
+                registro = {}
+            linhas.append([str(item["n"]) + parte, Paragraph(item["obra"], pequeno), Paragraph(item["interprete"], pequeno),
+                           Paragraph(item["link"], pequeno), registro.get("capturado_em", "SEM CAPTURA"),
+                           Paragraph(registro.get("sha256", {}).get(registro.get("imagem", "png"), "-"), pequeno)])
+            if registro:
+                paginas.append((item, registro, parte))
+                if registro.get("tela_inteira", {}).get("erro"):
+                    avisos.append(f"{item['n']}{parte} ({item['obra']} / {item['interprete']}): sem print de tela inteira, porque "
+                                  f"{registro['tela_inteira']['erro']}; o PDF traz a captura de página")
+    tabela = Table(linhas, colWidths=[1.7 * cm, 5.2 * cm, 3.9 * cm, 6.9 * cm, 3.6 * cm, 5.9 * cm], repeatRows=1)
     tabela.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1B3A6B")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 7.5), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
     fluxo.append(tabela)
-    for item, registro in paginas:
+    for item, registro, parte in paginas:
         fluxo.append(PageBreak())
-        fluxo.append(Paragraph(f"{item['n']} - Música: {item['obra']} - Interpretada por: {item['interprete']}", estilos["Heading3"]))
+        fluxo.append(Paragraph(f"{item['n']} - Música: {item['obra']} - Interpretada por: {item['interprete']}{parte}", estilos["Heading3"]))
         fluxo.append(Paragraph(
             f"{item['link']}<br/>Capturado em {registro['capturado_em']} ({registro['fuso']}) · Data do servidor: "
             f"{registro.get('data_do_servidor') or 'não informada'}<br/>SHA-256: {registro['sha256'][registro['imagem']]} · "
@@ -163,6 +169,8 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
     return saida.getvalue(), avisos
 
 
+# Plataformas em que a prova de cada música são todos os prints tirados, e não só o primeiro.
+TODOS_OS_PRINTS = {"AMAZON"}
 # Onde cada plataforma guarda as capturas (dentro da pasta do caso) e como ela se chama nos documentos.
 PASTAS = {"YOUTUBE": "youtube", "SPOTIFY": "spotify", "TIDAL": "tidal", "DEEZER": "deezer", "VAGALUME": "vagalume",
           "APPLE MUSIC": "apple-music", "AMAZON - SITE": "amazon-site", "AMAZON": "amazon-app"}

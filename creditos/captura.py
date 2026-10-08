@@ -46,7 +46,7 @@ _CARIMBAR = """(texto) => {
 _TRADUZIDA = """() => document.documentElement.className.includes('translated-') ||
   !!document.querySelector('font[style*="vertical-align"]')"""
 _DATA_DO_SERVIDOR = """async () => {
-  try { const r = await fetch(location.origin + '/favicon.ico', {method: 'HEAD', cache: 'no-store'}); return r.headers.get('date') || ''; }
+  try { const r = await fetch(location.origin + '/favicon.ico?_=' + Date.now(), {method: 'HEAD', cache: 'no-store'}); return r.headers.get('date') || ''; }
   catch (e) { return ''; }
 }"""
 # Roda antes de qualquer script da página: impede a tradução automática, que adultera nomes próprios.

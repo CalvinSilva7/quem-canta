@@ -1712,3 +1712,26 @@ def test_scripts_usados_no_aplicativo_da_amazon_servem_num_navegador_antigo():
     for modulo in (_captura, _amazon_app):
         fonte = inspect.getsource(modulo)
         assert "?." not in fonte and "??" not in fonte and "replaceAll" not in fonte
+
+
+def test_pdf_de_provas_do_aplicativo_da_amazon_leva_os_dois_prints_de_cada_musica(rel, tmp_path):
+    """No aplicativo a prova são dois prints (o menu da faixa e a janela de créditos): os dois vão para o PDF."""
+    import pdfplumber
+
+    coleta = _coleta_para_peticao(tmp_path)
+    coleta.plataforma = "AMAZON"
+    for g in coleta.gravacoes:
+        g.plataforma = "AMAZON"
+    coleta.gravacoes[0].provas = ["prova-1", "prova-3"]  # LIGUE O RADIO: menu e créditos
+    pdf, avisos = provas.pdf_de_provas(rel, [coleta], "AMAZON", tmp_path, "Amazon Music (aplicativo)")
+    with pdfplumber.open(io.BytesIO(pdf)) as lido:
+        paginas = [p.extract_text() for p in lido.pages]
+    assert len(paginas) == 4 and "3 (1 de 2)" in paginas[0] and "3 (2 de 2)" in paginas[0]
+    assert "Ligue o Radio" in paginas[2] and "(1 de 2)" in paginas[2] and "prova-1.png" in paginas[2]
+    assert "Ligue o Radio" in paginas[3] and "(2 de 2)" in paginas[3] and "prova-3.png" in paginas[3]
+    # nas outras plataformas continua um print por música
+    coleta.plataforma = "YOUTUBE"
+    for g in coleta.gravacoes:
+        g.plataforma = "YOUTUBE"
+    with pdfplumber.open(io.BytesIO(provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path)[0])) as lido:
+        assert len(lido.pages) == 3
