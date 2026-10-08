@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.2",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.2/quem-canta-0.5.2-windows.zip",
-  "sha256": "4bddc9fed44f4fb2c6da405c6804f9e0e183e10d45a4597a0556c2b318f49de9",
-  "notas": "Duas abas no topo da tela: Buscar interpretes e Coleta de prints."
+  "versao": "0.5.3",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.3/quem-canta-0.5.3-windows.zip",
+  "sha256": "9cd74189939d146482df461a0c6e8e478f37af9cf27de6f5086873ca14816668",
+  "notas": "Busca de interpretes: em preto o que o app tem certeza, em vermelho o que ele so supoe."
 }
