@@ -1453,15 +1453,18 @@ def test_com_a_planilha_conferida_so_entra_quem_o_compositor_conferiu(rel):
         g("LIGUE O RADIO", "Presumido", c.SEM_CREDITOS, revisar=True),         # presumido pelo app, fora da planilha: sai da conta
         g("COISA FEITA", "Outro Cantor", c.VIOLACAO, creditos=["Cida Dias"], autores=["CIDA DIAS"]),  # provado pelo crédito, fora da planilha
         g("COISA FEITA", "Cantora Original", c.OK, creditos=["Zeca Lima"]),    # conferido e creditado: fica como está
+        g("LIGUE O RADIO", "Banda do Baile", c.VIOLACAO, revisar=True, creditos=["Fulano de Tal", "Beltrano"]),  # conferido, crédito de terceiros
     ])
     pipeline._so_os_conferidos(coleta, rel, Config(nomes_confirmados=["ZECA LIMA"]),
                                {"LIGUE O RADIO": ["Banda do Baile"], "COISA FEITA": ["Cantora Original"]})
-    firme, presumido, fora, ok = [x.classificacao for x in coleta.gravacoes]
+    firme, presumido, fora, ok, errado = [x.classificacao for x in coleta.gravacoes]
+    # crédito só com outros nomes, de intérprete que o compositor conferiu: violação firme, sem "a confirmar"
+    assert (errado.status, errado.revisar) == (c.VIOLACAO, False) and "o compositor conferiu" in errado.fundamento
     assert (firme.status, firme.revisar) == (c.SEM_CREDITOS, False) and coleta.gravacoes[0].vinculo == "intérprete conferido pelo compositor"
     assert presumido.status == c.HOMONIMA and "não está na planilha conferida" in presumido.fundamento
     assert fora.status == c.HOMONIMA and "vale perguntar ao compositor" in fora.fundamento  # não some: fica nas pendências, com o motivo
     assert ok.status == c.OK and coleta.interpretes_inferidos == []
-    assert provas.itens_da_peticao([coleta], "DEEZER")[0][0]["interprete"] == "Banda do Baile" and len(provas.itens_da_peticao([coleta], "DEEZER")[0]) == 1
+    assert provas.itens_da_peticao([coleta], "DEEZER")[0][0]["interprete"] == "Banda do Baile" and len(provas.itens_da_peticao([coleta], "DEEZER")[0]) == 2
 
 
 # --- Amazon Music na web -------------------------------------------------------------

@@ -986,7 +986,7 @@ def _so_os_conferidos(coleta: Coleta, relatorio: Relatorio, config: Config, conf
         k = g.classificacao
         do_par = any(_par_conhecido(conferidos, titulo, g.interprete) for titulo in g.obra.split("; "))
         if do_par and (k.status == c.HOMONIMA or (k.status in c.NEGATIVOS and k.revisar)):
-            novo = classificar(Item(titulo=g.titulo, interprete=g.interprete, creditos=g.creditos, vinculo=True,
+            novo = classificar(Item(titulo=g.titulo, interprete=g.interprete, creditos=g.creditos, vinculo=True, conferido=True,
                                     plataforma=g.plataforma, link=g.link), relatorio, config)
             if novo.status != c.FORA_DO_REPERTORIO:
                 g.classificacao, g.vinculo = novo, "intérprete conferido pelo compositor"

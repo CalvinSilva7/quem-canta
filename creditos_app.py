@@ -346,13 +346,13 @@ with area_da_coleta:
 
     if st.session_state.pop("aviso_de_confirmacao", False):
         st.success("Intérpretes confirmados. Clique em **Coletar e classificar** de novo: como tudo já foi lido, sai em instantes.")
-    # A planilha de intérpretes é opcional: com ela, a coleta usa só os pares conferidos; sem ela, o app descobre sozinho.
+    # A planilha de intérpretes conferida é exigida: a coleta verifica só os pares (obra, intérprete) dela.
     from creditos import interpretes as _interpretes
 
     conferida = st.file_uploader(
-        "Planilha de intérpretes conferida pelo compositor (.xlsx, opcional)", type=["xlsx"], key="planilha_conferida",
+        "Planilha de intérpretes conferida pelo compositor (.xlsx)", type=["xlsx"], key="planilha_conferida",
         help="A planilha da aba de intérpretes, depois que o compositor conferiu e corrigiu: a obra na primeira coluna e o intérprete "
-        "na segunda. Com ela, o app verifica só esses intérpretes. Sem ela, ele descobre os intérpretes sozinho.",
+        "na segunda. O app verifica só esses intérpretes. Sem ela, a coleta de prints não começa.",
     )
     if conferida is not None and st.session_state.get("conferida_id") != conferida.file_id:
         try:
@@ -375,9 +375,9 @@ with area_da_coleta:
     elif conferidos is not None:
         st.error("Nenhuma obra da planilha foi encontrada no relatório. Confira se a planilha é deste compositor.")
     else:
-        st.caption(
-            "Sem a planilha de intérpretes, o app descobre sozinho quem gravou cada obra. Com a planilha conferida pelo "
-            "compositor (aba \"Buscar intérpretes\"), ele verifica só os intérpretes dela, e o resultado fica mais certeiro."
+        st.warning(
+            "**Falta a planilha de intérpretes conferida.** Envie no campo acima a planilha da aba \"Buscar intérpretes\", depois "
+            "de conferida pelo compositor. A coleta de prints só começa com ela: é ela que diz quem gravou cada obra."
         )
     NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
                              "apple": "Apple Music (controle)", "vagalume": "Vagalume", "amazon": "Amazon Music (site)",
@@ -455,7 +455,7 @@ with area_da_coleta:
     elif tarefa is not None and not tarefa.viva:
         recolher(tarefa)
         tarefa = None
-    if tarefa is None and not de_outra_etapa and st.button("Coletar e classificar", type="primary"):
+    if tarefa is None and not de_outra_etapa and conferidos and st.button("Coletar e classificar", type="primary"):
         from creditos import pipeline
         from creditos.classificador import Config
 

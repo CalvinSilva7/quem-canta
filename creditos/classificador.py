@@ -56,6 +56,7 @@ class Item:
     erro: str = ""
     interprete_esperado: str = ""  # quando o link veio de um mapeamento obra -> intérprete
     vinculo: bool = False  # a gravação já foi ligada à obra do titular por outra via (ISRC, lista oficial, mapeamento)
+    conferido: bool = False  # o compositor conferiu que este intérprete gravou a obra (planilha de intérpretes)
     plataforma: str = ""
     link: str = ""
     isrc: str = ""
@@ -385,6 +386,14 @@ def _decidir(item, autores, achados, desconhecidos, do_titular, exibidos, vincul
             HOMONIMA,
             f'título igual, mas nem o intérprete ("{item.interprete}") nem o crédito ("{exibido}") têm vínculo com o '
             "titular: pode ser obra homônima de terceiro" + sufixo, revisar=True,
+        )
+    if item.conferido:
+        # O compositor já disse que este intérprete gravou a obra dele: crédito só com outros nomes é crédito errado.
+        return Classificacao(
+            VIOLACAO,
+            f'o crédito ("{exibido}") não traz o titular, e o compositor conferiu que este intérprete gravou a obra; '
+            f"autores do relatório omitidos: {', '.join(todos_omitidos)}" + sufixo,
+            coautores_omitidos=todos_omitidos,
         )
     return Classificacao(
         VIOLACAO,
