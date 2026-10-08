@@ -253,9 +253,9 @@ Etapa 1 (pronta): importar o relatório e classificar créditos.
 - `creditos/filtro.py` barra percentuais, CAE/IPI, códigos do cadastro, datas
   de contrato e de inclusão, editoras e CPF em qualquer texto que vá para fora.
 
-### As duas etapas
+### As duas abas
 
-A tela trabalha em duas etapas, como o escritório:
+A tela tem duas abas, visíveis desde o início, como o escritório trabalha:
 
 1. **Buscar intérpretes** (`creditos/interpretes.py`): Deezer e Apple Music, sem navegador. Devolve uma planilha só
    com obra e intérprete, para o compositor conferir e corrigir.

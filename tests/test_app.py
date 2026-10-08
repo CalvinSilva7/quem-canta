@@ -8,7 +8,7 @@ from streamlit.testing.v1 import AppTest
 
 from cantor.busca import Buscador, Resultado
 
-ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS = "1. Buscar intérpretes", "2. Verificar créditos e tirar prints"
+ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS = "Buscar intérpretes", "Coleta de prints"
 # A planilha que o compositor conferiu, já lida.
 CONFERIDOS = {"LIGUE O RADIO": ["Banda do Baile"], "COISA FEITA": ["Cantora Original"]}
 
@@ -356,7 +356,7 @@ def test_etapa_de_interpretes_devolve_so_a_planilha_de_obra_e_interprete(tmp_pat
     at.session_state["relatorio"] = relatorio_de_teste()
     at.run()
     # A primeira etapa é a de intérpretes: sem opções de plataforma, de print ou de navegador.
-    assert at.radio[0].value == ETAPA_DOS_INTERPRETES and not at.exception
+    assert at.button_group[0].value == ETAPA_DOS_INTERPRETES and not at.exception
     assert "Coletar e classificar" not in [b.label for b in at.button] and not at.multiselect and not at.checkbox
     _botao(at, "Buscar intérpretes").click().run()
     assert not at.exception
@@ -371,7 +371,7 @@ def test_etapa_de_interpretes_devolve_so_a_planilha_de_obra_e_interprete(tmp_pat
                           ("LIGUE O RADIO", "FULANA & BELTRANO"), ("COISA FEITA", "FULANA E BELTRANO")]
     assert linhas[5:] == [("BAILE NA SERRA", None), ("A DANCA DA PANELA", None), ("DANCA DA PANELLA", None)] and ws.max_column == 2
     # A etapa 2 continua lá, com a coleta de sempre.
-    at.radio[0].set_value(ETAPA_DOS_PRINTS).run()
+    at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
     assert "Buscar intérpretes" not in [b.label for b in at.button] and "Coletar e classificar" in [b.label for b in at.button]
 
 
@@ -416,9 +416,9 @@ def test_busca_de_interpretes_tem_barra_propria_e_nao_mistura_com_a_coleta(tmp_p
     assert tarefa.viva and tarefa.dados["tipo"] == "interpretes" and tarefa.andamento.etapas == ["deezer", "apple"]  # sem etapa de prints
     assert "Parar busca" in [b.label for b in at.button] and any("Deezer: em andamento · Apple Music: na fila" == cap.value for cap in at.caption)
     # Na etapa 2, enquanto a busca roda, não dá para começar uma coleta.
-    at.radio[0].set_value(ETAPA_DOS_PRINTS).run()
+    at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
     assert "Coletar e classificar" not in [b.label for b in at.button] and any("busca de intérpretes em andamento" in i.value for i in at.info)
-    at.radio[0].set_value(ETAPA_DOS_INTERPRETES).run()
+    at.button_group[0].set_value(ETAPA_DOS_INTERPRETES).run()
     _botao(at, "Parar busca").click().run()
     tarefa.linha.join(5)
     at.run()
@@ -448,3 +448,11 @@ def test_etapa_dos_prints_usa_a_planilha_conferida_se_houver_e_funciona_sem_ela(
     assert any("para as 2 obras" in i.value for i in at.info)  # a estimativa de tempo conta só as obras com intérprete
     _botao(at, "Coletar e classificar").click().run()
     assert recebidos == [None, CONFERIDOS]
+
+
+def test_as_duas_abas_aparecem_antes_de_enviar_qualquer_arquivo():
+    at = _tela_de_creditos().run()
+    assert not at.exception and at.button_group[0].options == [ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS]
+    assert at.button_group[0].value == ETAPA_DOS_INTERPRETES and any("planilha de intérpretes" in c.value for c in at.caption)
+    at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
+    assert any("lista da petição" in c.value for c in at.caption) and any("Envie o relatório" in i.value for i in at.info)

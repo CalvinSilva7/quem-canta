@@ -1,4 +1,4 @@
-"""Créditos nas plataformas: etapa 1, importar o relatório do titular.
+"""Créditos nas plataformas: a tela, com duas abas (buscar intérpretes e coleta de prints).
 
 Rode com: streamlit run creditos_app.py
 (tela separada do app.py enquanto o fluxo novo é construído por etapas)
@@ -22,7 +22,7 @@ from creditos.modelo import SITUACOES, Relatorio
 # Onde ficam os casos (o que já foi lido e os prints): fora da pasta do programa, para uma atualização nunca tocar neles.
 PASTA_DE_DADOS = Path(os.environ.get("QUEMCANTA_DADOS") or Path.home() / "Documents" / "Quem Canta")
 
-ETAPAS = ["1. Buscar intérpretes", "2. Verificar créditos e tirar prints"]
+ETAPAS = ["Buscar intérpretes", "Coleta de prints"]  # as duas abas do app
 
 
 @st.fragment(run_every=1)
@@ -84,9 +84,17 @@ else:
             st.success(f"Você já está na versão mais recente ({VERSAO}).")
         else:
             st.warning("Não consegui consultar agora. Confira a internet e tente de novo; o app funciona normalmente sem isso.")
+# As duas abas ficam no topo, antes de qualquer coisa: uma só busca intérpretes, a outra faz a coleta de prints.
+em_curso = andamento.atual()
+if em_curso is not None and "etapa" not in st.session_state:  # página recarregada: volta para a aba que está rodando
+    st.session_state.etapa = ETAPAS[0] if em_curso.dados.get("tipo") == "interpretes" else ETAPAS[1]
+st.session_state.setdefault("etapa", ETAPAS[0])
+etapa = st.segmented_control("Aba", ETAPAS, key="etapa", label_visibility="collapsed") or ETAPAS[0]
 st.caption(
-    "Do relatório do titular à planilha, à lista da petição e às provas. O arquivo é lido só neste computador; "
-    "o app nunca acessa o ECADNET nem o portal de associação nenhuma."
+    ("Envie o relatório do compositor e receba a planilha de intérpretes: a obra e quem gravou, para ele conferir e corrigir. "
+     if etapa == ETAPAS[0] else
+     "Do relatório do titular à planilha de obras, à lista da petição e às provas. ")
+    + "O arquivo é lido só neste computador; o app nunca acessa o ECADNET nem o portal de associação nenhuma."
 )
 
 arquivo = st.file_uploader(
@@ -133,12 +141,8 @@ if relatorio.total_declarado is not None and relatorio.total_declarado == len(re
 for aviso in relatorio.avisos:
     st.warning(aviso)
 
-# --- as duas etapas do trabalho ------------------------------------------------
+# --- a aba de intérpretes ------------------------------------------------------
 
-em_curso = andamento.atual()
-if em_curso is not None and "etapa" not in st.session_state:  # página recarregada: volta para a etapa que está rodando
-    st.session_state.etapa = ETAPAS[0] if em_curso.dados.get("tipo") == "interpretes" else ETAPAS[1]
-etapa = st.radio("Etapa", ETAPAS, horizontal=True, key="etapa", label_visibility="collapsed")
 pasta_do_caso = PASTA_DE_DADOS / "casos" / slug(relatorio.pseudonimo_titular or relatorio.nome_titular or "caso")
 
 if etapa == ETAPAS[0]:
@@ -148,7 +152,7 @@ if etapa == ETAPAS[0]:
     st.subheader("Buscar intérpretes")
     st.caption(
         "O app descobre quem gravou cada obra do relatório e devolve uma planilha só com isto: a obra e o intérprete. "
-        "Mande a planilha para o compositor conferir e corrigir. A coleta de prints (etapa 2) vem depois."
+        "Mande a planilha para o compositor conferir e corrigir. A coleta de prints fica na outra aba."
     )
     obras_distintas = len({o.titulo for o in relatorio.obras})
     limite_de_obras = None
@@ -175,7 +179,7 @@ if etapa == ETAPAS[0]:
             st.session_state.lista_de_interpretes = tarefa.resultado
         tarefa = None
     if de_outra_etapa:
-        st.info("Há uma coleta de prints em andamento na etapa 2. Espere terminar, ou pare por lá, antes de buscar intérpretes.")
+        st.info("Há uma coleta de prints em andamento na outra aba. Espere terminar, ou pare por lá, antes de buscar intérpretes.")
     elif tarefa is None and st.button("Buscar intérpretes", type="primary"):
         from creditos.classificador import Config
 
@@ -337,7 +341,7 @@ with area_da_coleta:
 
     conferida = st.file_uploader(
         "Planilha de intérpretes conferida pelo compositor (.xlsx, opcional)", type=["xlsx"], key="planilha_conferida",
-        help="A planilha da etapa 1, depois que o compositor conferiu e corrigiu: a obra na primeira coluna e o intérprete "
+        help="A planilha da aba de intérpretes, depois que o compositor conferiu e corrigiu: a obra na primeira coluna e o intérprete "
         "na segunda. Com ela, o app verifica só esses intérpretes. Sem ela, ele descobre os intérpretes sozinho.",
     )
     if conferida is not None and st.session_state.get("conferida_id") != conferida.file_id:
@@ -363,7 +367,7 @@ with area_da_coleta:
     else:
         st.caption(
             "Sem a planilha de intérpretes, o app descobre sozinho quem gravou cada obra. Com a planilha conferida pelo "
-            "compositor (etapa 1), ele verifica só os intérpretes dela, e o resultado fica mais certeiro."
+            "compositor (aba \"Buscar intérpretes\"), ele verifica só os intérpretes dela, e o resultado fica mais certeiro."
         )
     NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
                              "apple": "Apple Music (controle)", "vagalume": "Vagalume", "amazon": "Amazon Music (site)",
@@ -436,7 +440,7 @@ with area_da_coleta:
     tarefa = andamento.atual()
     de_outra_etapa = tarefa is not None and tarefa.dados.get("tipo") == "interpretes"
     if de_outra_etapa:
-        st.info("Há uma busca de intérpretes em andamento na etapa 1. Espere terminar, ou pare por lá, antes de coletar.")
+        st.info("Há uma busca de intérpretes em andamento na outra aba. Espere terminar, ou pare por lá, antes de coletar.")
         tarefa = None
     elif tarefa is not None and not tarefa.viva:
         recolher(tarefa)
