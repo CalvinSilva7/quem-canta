@@ -102,6 +102,14 @@ _RETRATO = "() => { " + _BASE + r""" const todos = anda(document);
           etiquetas: Object.entries(todos.reduce((c, e) => { const t = e.tagName.toLowerCase(); c[t] = (c[t] || 0) + 1; return c; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 25),
           botoes: [...new Set(todos.filter(e => visivel(e) && (/button/.test(e.tagName.toLowerCase()) || e.getAttribute('role') === 'button')).map(e => (e.getAttribute('aria-label') || e.getAttribute('title') || proprio(e) || (e.className && e.className.toString()) || '').slice(0, 40)))].slice(0, 40)}; }"""
 _LER_HTML = "() => document.documentElement.outerHTML.slice(0, 900000)"
+# Onde está o campo de busca do aplicativo (o primeiro campo de texto à vista).
+_ONDE_ESTA_A_BUSCA = "() => { " + _BASE + """ const campo = anda(document).find(e => e.tagName === 'INPUT' && visivel(e)
+    && !/checkbox|radio|hidden|range/.test(e.type || ''));
+  if (!campo) return null; campo.focus(); if (campo.select) campo.select(); return centro(campo); }"""
+# Os endereços de álbum que a tela mostra (em links e em atributos), para aprender o formato que o aplicativo usa.
+_ENDERECOS_DE_ALBUM = "() => { " + _BASE + """ const achados = [];
+  for (const e of anda(document)) for (const a of (e.attributes || [])) if (/album/i.test(a.value) && a.value.length < 160 && !/\\.(css|js|png|jpg|svg)/.test(a.value)) achados.push(a.name + '=' + a.value);
+  return [...new Set(achados)].slice(0, 25); }"""
 
 
 class AplicativoIndisponivel(Exception):
@@ -536,25 +544,49 @@ def diagnostico(destino=None, album="") -> Path:
             album = album or next((c_.split("/album")[1].lstrip("s/").split("?")[0].split("/")[0] for c_ in retrato.get("caminhos", []) if "/album" in c_), "") \
                 or os.environ.get("QUEMCANTA_AMAZON_ALBUM", "")
             anotar(f"álbum de teste: {album or '(nenhum: a tela não mostrou endereço de álbum e nenhum foi indicado)'}")
-            linha = None
-            for caminho in ([f"/albums/{album}", f"/album/{album}"] if album else []):
-                tentar(f"ir para {caminho}", lambda: app._ir_para(caminho) or "pedido enviado")
+            # O aplicativo não abriu o álbum pelos endereços do site. O caminho de uma pessoa é a busca: escrever, dar
+            # Enter e ver o que a tela oferece. É também daí que sai o formato do endereço de álbum.
+            busca = os.environ.get("QUEMCANTA_AMAZON_BUSCA", "") or "amor"
+            campo = tentar("achar o campo de busca", lambda: pagina.evaluate(_ONDE_ESTA_A_BUSCA))
+            if campo:
+                tentar("clicar no campo de busca", lambda: pagina.clicar(campo["x"], campo["y"]) or "clicado")
+                pagina.wait_for_timeout(800)
+                tentar("selecionar o campo", lambda: pagina.evaluate(_ONDE_ESTA_A_BUSCA) and "selecionado")
+                tentar(f'escrever "{busca}"', lambda: pagina.digitar(busca) or "escrito")
+                pagina.wait_for_timeout(1500)
+                tentar("apertar Enter", lambda: pagina.keyboard.press("Enter") or "apertado")
                 pagina.wait_for_timeout(9000)
-                tentar("endereço depois", lambda: pagina.url)
-                tentar("texto depois", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:600])
-                linha = tentar("achar uma linha de faixa", lambda: pagina.evaluate(_ACHAR_LINHA, ""))
-                if linha:
-                    break
-            if album:
+                tentar("endereço da busca", lambda: pagina.url)
+                tentar("texto da busca", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:1200])
+                tentar("retrato da busca", lambda: pagina.evaluate(_RETRATO))
+                enderecos = tentar("endereços de álbum na tela da busca", lambda: pagina.evaluate(_ENDERECOS_DE_ALBUM)) or []
+                guardar("2-busca")
+                linha = tentar("achar uma linha de faixa na busca", lambda: pagina.evaluate(_ACHAR_LINHA, ""))
+            else:
+                enderecos, linha = [], None
+            if not linha:
+                # Sem linha de faixa na busca: tenta chegar a um álbum pelo endereço que a própria tela mostrou.
+                import re
+                do_album = next((re.search(r"#?(/[^\s\"']*album[^\s\"']*)", e) for e in enderecos if re.search(r"#?(/[^\s\"']*album[^\s\"']*)", e)), None)
+                anotar(f"caminho de álbum tirado da tela: {do_album[1] if do_album else '(nenhum)'}")
+                for caminho in ([do_album[1].split('#')[-1]] if do_album else []) + ([f"/albums/{album}"] if album else []):
+                    tentar(f"ir para {caminho}", lambda: app._ir_para(caminho) or "pedido enviado")
+                    pagina.wait_for_timeout(9000)
+                    tentar("endereço depois", lambda: pagina.url)
+                    tentar("texto depois", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:900])
+                    tentar("endereços de álbum nesta tela", lambda: pagina.evaluate(_ENDERECOS_DE_ALBUM))
+                    linha = tentar("achar uma linha de faixa", lambda: pagina.evaluate(_ACHAR_LINHA, ""))
+                    if linha:
+                        break
                 tentar("retrato da tela do álbum", lambda: pagina.evaluate(_RETRATO))
-                guardar("2-album")
+                guardar("3-album")
             if linha:
                 pagina.wait_for_timeout(800)
                 tentar("onde clicar", lambda: pagina.evaluate(_ONDE_CLICAR))
                 itens = tentar("abrir o menu da faixa", lambda: app._abrir_o_menu(""))
                 anotar(f"botões vistos na linha: {app.botoes_vistos}")
                 tentar("leitura do menu", lambda: interpretar_menu(itens))
-                guardar("3-menu")
+                guardar("4-menu")
                 if itens and interpretar_menu(itens) == "com_creditos":
                     item = tentar('onde está o item "Créditos"', lambda: pagina.evaluate(_ONDE_ESTA_O_TEXTO, "^cr[eé]ditos?$|^credits?$"))
                     if item:
@@ -562,7 +594,7 @@ def diagnostico(destino=None, album="") -> Path:
                         pagina.wait_for_timeout(3000)
                         blocos = tentar("blocos da janela de créditos", lambda: pagina.evaluate(_LER_CREDITOS))
                         tentar("créditos lidos", lambda: interpretar_creditos(blocos))
-                        guardar("4-creditos")
+                        guardar("5-creditos")
                         tentar("fechar a janela", lambda: pagina.keyboard.press("Escape") or "fechada")
     finally:
         app.__exit__()

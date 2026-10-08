@@ -106,6 +106,7 @@ def telas(porta: int) -> list[dict]:
 
 _FUNCAO = re.compile(r"\s*(async\s+)?(\(|function\b|[A-Za-z_$][\w$]*\s*=>)")
 _TECLAS = {"Escape": (27, "Escape"), "Enter": (13, "Enter")}
+_TEXTO_DA_TECLA = {"Enter": "\r"}
 
 
 class _Teclado:
@@ -114,9 +115,11 @@ class _Teclado:
 
     def press(self, tecla: str):
         codigo, nome = _TECLAS[tecla]
-        for tipo in ("keyDown", "keyUp"):
-            self.pagina.comando("Input.dispatchKeyEvent", type=tipo, key=nome, code=nome, windowsVirtualKeyCode=codigo,
-                                nativeVirtualKeyCode=codigo)
+        extra = {"text": _TEXTO_DA_TECLA[tecla]} if tecla in _TEXTO_DA_TECLA else {}  # o Enter só vale com o caractere junto
+        self.pagina.comando("Input.dispatchKeyEvent", type="keyDown", key=nome, code=nome, windowsVirtualKeyCode=codigo,
+                            nativeVirtualKeyCode=codigo, **extra)
+        self.pagina.comando("Input.dispatchKeyEvent", type="keyUp", key=nome, code=nome, windowsVirtualKeyCode=codigo,
+                            nativeVirtualKeyCode=codigo)
 
 
 class PaginaCDP:
@@ -184,6 +187,10 @@ class PaginaCDP:
         self.mover_o_mouse(x, y)
         for tipo in ("mousePressed", "mouseReleased"):
             self.comando("Input.dispatchMouseEvent", type=tipo, x=x, y=y, button="left", clickCount=1)
+
+    def digitar(self, texto: str):
+        """Escreve no campo que estiver com o cursor."""
+        self.comando("Input.insertText", text=texto)
 
     def fechar(self):
         self.canal.fechar()
