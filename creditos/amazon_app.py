@@ -503,6 +503,8 @@ class AmazonApp:
                 if linha:
                     self.caminho_que_funcionou = caminho.split(cand.album)[0]
                     return linha
+            if pagina.evaluate(_ACHAR_LINHA, "", False):  # o álbum abriu e tem faixas: a procurada não está nele
+                return None
         return None
 
     def _ler(self, leitura: Leitura, cand: Candidato, obra: str):
