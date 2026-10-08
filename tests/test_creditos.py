@@ -4,6 +4,7 @@ Todos os nomes, títulos e códigos daqui são inventados.
 """
 
 import collections
+import sys
 import pandas as pd
 import pytest
 
@@ -1597,3 +1598,26 @@ def test_amazon_app_sem_o_aplicativo_a_coleta_para_e_avisa_sem_inventar_nada(rel
     with pytest.raises(_amazon_app.AplicativoIndisponivel, match="não foi encontrado"):
         _amazon_app.AmazonApp(tmp_path).pagina
     assert provas.NOMES["AMAZON"] == "Amazon Music (aplicativo)" and "amazon_app" not in pipeline.TODAS  # só entra quando a pessoa marca
+
+
+def test_amazon_app_acha_o_programa_perguntando_ao_windows(tmp_path, monkeypatch):
+    pasta = tmp_path / "Outro Lugar" / "Amazon Music"
+    pasta.mkdir(parents=True)
+    (pasta / "Amazon Music.exe").write_text("programa")
+    (pasta / "unins000.exe").write_text("desinstalador")
+    for variavel in ("QUEMCANTA_AMAZON_EXE", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
+        monkeypatch.delenv(variavel, raising=False)
+    # Nada nas pastas de costume: vale o que o Windows responder, nesta ordem: aberto agora, registro, loja.
+    respostas = {_amazon_app._ABERTO: [], _amazon_app._REGISTRO: [str(pasta / "unins000.exe") + ",0", str(pasta)], _amazon_app._DA_LOJA: []}
+    monkeypatch.setattr(_amazon_app, "_powershell", lambda comando: respostas[comando])
+    assert _amazon_app.caminho_do_aplicativo() == pasta / "Amazon Music.exe"  # a pasta de instalação serve; o desinstalador, não
+    respostas[_amazon_app._REGISTRO] = []
+    assert _amazon_app.caminho_do_aplicativo() is None
+    respostas[_amazon_app._ABERTO] = [str(pasta / "Amazon Music.exe")]
+    assert _amazon_app.caminho_do_aplicativo() == pasta / "Amazon Music.exe"  # o programa que está aberto diz onde está
+    monkeypatch.setenv("QUEMCANTA_AMAZON_EXE", str(pasta / "Amazon Music.exe"))
+    assert _amazon_app.caminho_do_aplicativo() == pasta / "Amazon Music.exe"
+    assert _amazon_app.e_da_loja(r"C:\Program Files\WindowsApps\AmazonMobileLLC.AmazonMusic_9.5\Amazon Music.exe")
+    assert not _amazon_app.e_da_loja(pasta / "Amazon Music.exe")
+    monkeypatch.undo()
+    assert sys.platform == "win32" or _amazon_app._powershell("Get-Date") == []  # fora do Windows, não pergunta nada

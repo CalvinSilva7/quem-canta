@@ -64,13 +64,67 @@ class Leitura:
     lido_em: str = ""
 
 
+def _powershell(comando: str) -> list[str]:
+    """As linhas que um comando do PowerShell devolve. Fora do Windows, ou se o comando falhar, lista vazia."""
+    if sys.platform != "win32":
+        return []
+    try:
+        saida = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", comando],
+                               capture_output=True, text=True, timeout=25, encoding="utf-8", errors="ignore").stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [linha.strip().strip('"') for linha in saida.splitlines() if linha.strip()]
+
+
+# Onde o Windows sabe dizer que o Amazon Music está: o programa aberto agora, o registro de programas instalados
+# e a lista de aplicativos da Microsoft Store.
+_ABERTO = "Get-Process | Where-Object { $_.ProcessName -like '*Amazon*Music*' } | ForEach-Object { $_.Path }"
+_REGISTRO = ("Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',"
+             "'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',"
+             "'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | "
+             "Where-Object { $_.DisplayName -like '*Amazon Music*' } | ForEach-Object { $_.InstallLocation; $_.DisplayIcon }")
+_DA_LOJA = "Get-AppxPackage *AmazonMusic* -ErrorAction SilentlyContinue | ForEach-Object { $_.InstallLocation }"
+
+
+def _executavel(pista: str) -> Path | None:
+    """De uma pista do Windows (o próprio .exe, um ícone "arquivo,0" ou a pasta de instalação), o executável."""
+    pista = str(pista or "").strip().strip('"').split(",")[0].strip()
+    if not pista:
+        return None
+    caminho = Path(pista)
+    if caminho.is_file() and caminho.suffix.lower() == ".exe" and "unins" not in caminho.name.lower():
+        return caminho
+    if caminho.is_dir():
+        return next((c for c in [caminho / PROCESSO, *sorted(caminho.glob("*Amazon*Music*.exe"))] if c.is_file()), None)
+    return None
+
+
 def caminho_do_aplicativo() -> Path | None:
-    """Onde o Amazon Music está instalado. `QUEMCANTA_AMAZON_EXE` aponta outro lugar, se for o caso."""
+    """Onde o Amazon Music está instalado. `QUEMCANTA_AMAZON_EXE` aponta outro lugar, se for o caso.
+
+    Procura nas pastas de costume e, não achando, pergunta ao Windows: o programa que está aberto agora, o
+    registro de programas instalados e, por último, os aplicativos da Microsoft Store.
+    """
     candidatos = [os.environ.get("QUEMCANTA_AMAZON_EXE", "")]
     for base in (os.environ.get("LOCALAPPDATA", ""), os.environ.get("PROGRAMFILES", ""), os.environ.get("PROGRAMFILES(X86)", "")):
         if base:
-            candidatos += [str(Path(base) / "Amazon Music" / PROCESSO), str(Path(base) / "Amazon" / "Amazon Music" / PROCESSO)]
-    return next((Path(c) for c in candidatos if c and Path(c).is_file()), None)
+            candidatos += [str(Path(base) / "Amazon Music"), str(Path(base) / "Amazon" / "Amazon Music"),
+                           str(Path(base) / "Programs" / "Amazon Music")]
+    for pista in candidatos:
+        achado = _executavel(pista)
+        if achado:
+            return achado
+    for comando in (_ABERTO, _REGISTRO, _DA_LOJA):
+        for pista in _powershell(comando):
+            achado = _executavel(pista)
+            if achado:
+                return achado
+    return None
+
+
+def e_da_loja(caminho) -> bool:
+    """O aplicativo veio da Microsoft Store? Esses ficam numa pasta protegida do Windows e costumam recusar ser abertos por outro programa."""
+    return "windowsapps" in str(caminho or "").lower()
 
 
 def interpretar_menu(itens) -> str:
@@ -153,9 +207,14 @@ class AmazonApp:
                 "o aplicativo Amazon Music não foi encontrado neste computador. Instale-o pelo site da Amazon (não pela "
                 "Microsoft Store), abra uma vez e faça login com a conta do escritório")
         self.avisar("Amazon Music (aplicativo): abrindo o aplicativo")
-        subprocess.run(["taskkill", "/IM", PROCESSO, "/F"], capture_output=True)  # aberto sem a porta de depuração não serve
+        subprocess.run(["taskkill", "/IM", caminho.name, "/F"], capture_output=True)  # aberto sem a porta de depuração não serve
         time.sleep(2)
-        subprocess.Popen([str(caminho), f"--remote-debugging-port={self.porta}"], close_fds=True)
+        try:
+            subprocess.Popen([str(caminho), f"--remote-debugging-port={self.porta}"], close_fds=True)
+        except OSError as e:
+            raise AplicativoIndisponivel(
+                f"o Windows não deixou abrir o Amazon Music a partir de {caminho} ({type(e).__name__})"
+                + (". Esta é a versão da Microsoft Store: desinstale-a e instale a do site da Amazon" if e_da_loja(caminho) else "")) from e
         limite = time.monotonic() + 60
         while time.monotonic() < limite:
             if self._responde():
@@ -163,8 +222,9 @@ class AmazonApp:
                 return
             time.sleep(1.5)
         raise AplicativoIndisponivel(
-            "o aplicativo abriu, mas não aceitou a conexão do app (porta de depuração). Rode o diagnóstico "
-            '("Testar Amazon.cmd") e mande o arquivo gerado para quem cuida do app')
+            "o aplicativo abriu, mas não aceitou a conexão do app (porta de depuração)"
+            + (". Esta é a versão da Microsoft Store, que não aceita: desinstale-a e instale a do site da Amazon" if e_da_loja(caminho)
+               else '. Rode o diagnóstico ("Testar Amazon.cmd") e mande o arquivo gerado para quem cuida do app'))
 
     @property
     def pagina(self):
@@ -312,7 +372,12 @@ def diagnostico(destino=None, album="") -> Path:
             anotar(f"[FALHOU] {nome}: {type(e).__name__}: {str(e)[:400]}")
             return None
 
-    anotar(f"aplicativo instalado em: {caminho_do_aplicativo()}")
+    # O que o Windows sabe sobre o Amazon Music: é o que permite achar o programa quando ele não está na pasta de costume.
+    anotar(f"Amazon Music aberto agora (programa em execução): {_powershell(_ABERTO) or 'nenhum'}")
+    anotar(f"Amazon Music no registro de programas instalados: {_powershell(_REGISTRO) or 'nada'}")
+    anotar(f"Amazon Music entre os aplicativos da Microsoft Store: {_powershell(_DA_LOJA) or 'nada'}")
+    achado = caminho_do_aplicativo()
+    anotar(f"aplicativo instalado em: {achado}" + (" (versão da Microsoft Store)" if e_da_loja(achado) else ""))
     app = AmazonApp(destino, ao_avancar=anotar)
     try:
         pagina = tentar("conectar ao aplicativo", lambda: app.pagina)
