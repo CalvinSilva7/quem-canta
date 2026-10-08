@@ -1648,3 +1648,28 @@ def test_amazon_app_da_loja_e_aberto_pelo_comando_do_windows(tmp_path, monkeypat
     with pytest.raises(_amazon_app.AplicativoIndisponivel, match="aberto pela Microsoft Store. O que o Windows respondeu: pacote: X"):
         _amazon_app.AmazonApp(tmp_path)._abrir_o_aplicativo()
     assert len(pedidos) == 1 and "Invoke-CommandInDesktopPackage" in pedidos[0] and abertos == []
+
+
+def test_cdp_trata_funcao_e_expressao_como_o_playwright():
+    from creditos import cdp
+    enviados = []
+
+    class Falsa(cdp.PaginaCDP):
+        def __init__(self):
+            self.keyboard = cdp._Teclado(self)
+        def comando(self, metodo, **parametros):
+            enviados.append((metodo, parametros))
+            return {"result": {"value": "valor"}} if metodo == "Runtime.evaluate" else {"data": "aW1hZ2Vt"}
+
+    pagina = Falsa()
+    assert pagina.evaluate("(texto) => texto.length", "é isso") == "valor"
+    assert enviados[-1][1]["expression"] == '((texto) => texto.length)("é isso")' and enviados[-1][1]["awaitPromise"] is True
+    pagina.evaluate("async () => { return 1; }")
+    assert enviados[-1][1]["expression"] == "(async () => { return 1; })()"
+    pagina.evaluate("document.body.innerText.slice(0, 1500)")  # expressão: vai como está
+    assert enviados[-1][1]["expression"] == "document.body.innerText.slice(0, 1500)"
+    assert pagina.screenshot(type="png") == b"imagem"
+    pagina.keyboard.press("Escape")
+    assert [p["type"] for m, p in enviados[-2:]] == ["keyDown", "keyUp"] and enviados[-1][1]["key"] == "Escape"
+    pagina.clicar(10, 20)
+    assert [p["type"] for m, p in enviados[-3:]] == ["mouseMoved", "mousePressed", "mouseReleased"]
