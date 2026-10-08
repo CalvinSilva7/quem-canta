@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.0",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.0/quem-canta-0.5.0-windows.zip",
-  "sha256": "f3de6f8348c0e07306fe2830184514ccf84e84ff3134cb80da61adb84df1f5b8",
-  "notas": "Duas etapas: buscar interpretes e tirar prints (com a planilha conferida). Busca do YouTube refeita. Amazon Music: site e aplicativo de desktop."
+  "versao": "0.5.1",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.1/quem-canta-0.5.1-windows.zip",
+  "sha256": "bdfe7ea9f7ee73cf224951378cb554676e94b76ec0ca105eb7cc1f680b1c35d0",
+  "notas": "A planilha de interpretes voltou a ser opcional na etapa dos prints."
 }
