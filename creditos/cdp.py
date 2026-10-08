@@ -188,6 +188,12 @@ class PaginaCDP:
         for tipo in ("mousePressed", "mouseReleased"):
             self.comando("Input.dispatchMouseEvent", type=tipo, x=x, y=y, button="left", clickCount=1)
 
+    def clicar_com_o_direito(self, x: float, y: float):
+        """O clique que abre o menu de contexto."""
+        self.mover_o_mouse(x, y)
+        for tipo in ("mousePressed", "mouseReleased"):
+            self.comando("Input.dispatchMouseEvent", type=tipo, x=x, y=y, button="right", clickCount=1)
+
     def digitar(self, texto: str):
         """Escreve no campo que estiver com o cursor."""
         self.comando("Input.insertText", text=texto)

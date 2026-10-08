@@ -75,6 +75,31 @@ _ACHAR_LINHA = "(titulo, rolar) => { " + _BASE + r""" const alvo = limpo(titulo)
     }
   }
   return null; }"""
+# Nos resultados da busca as músicas não vêm em linhas com duração, e sim em blocos pequenos (capa, título, artista).
+# Acha o bloco pelo título e o guarda como "linha", para os passos seguintes servirem igual.
+_ACHAR_ITEM = "(titulo) => { " + _BASE + r""" const alvo = limpo(titulo);
+  const guardado = window.__quemcanta_alvo;
+  const iguais = anda(document).filter(x => proprio(x) && visivel(x) && limpo(proprio(x)) === alvo);
+  for (const e of (guardado && iguais.includes(guardado) ? [guardado] : []).concat(iguais)) {
+    // O bloco é o maior antepassado ainda baixo e estreito: é ele que traz a capa e os botões, além do texto.
+    let bloco = null, atual = e;
+    for (let i = 0; i < 10 && pai(atual); i++) { atual = pai(atual); const r = atual.getBoundingClientRect();
+      if (r.height > 140 || r.width > innerWidth * 0.6) break;
+      if (folhas(atual).length >= 2 && r.width >= 180) bloco = atual; }
+    if (bloco) { const r = bloco.getBoundingClientRect();
+      bloco.scrollIntoView({block: 'center'}); window.__quemcanta_linha = bloco;
+      return {titulo: centro(e), bloco: (folhas(bloco).map(proprio).join(' | ')).slice(0, 160), largura: Math.round(r.width), classe: (bloco.className || '').toString().slice(0, 60)}; }
+  }
+  return null; }"""
+# O primeiro texto depois de um título de seção ("Músicas", "Álbuns"): serve para escolher um item qualquer no teste.
+_PRIMEIRO_DA_SECAO = "(secao) => { " + _BASE + """ const todas = anda(document).filter(e => proprio(e) && e.getBoundingClientRect().width > 0);
+  const i = todas.findIndex(e => limpo(proprio(e)) === limpo(secao));
+  if (i < 0) return null;
+  const item = todas.slice(i + 1).find(e => proprio(e).length > 1 && !/^(ver tudo|ver mais|hd|ultra hd|sd|letras)$/i.test(proprio(e).trim()));
+  if (!item) return null;
+  item.scrollIntoView({block: 'center'}); window.__quemcanta_alvo = item;
+  return {texto: proprio(item).trim()}; }"""
+_ONDE_ESTA_O_ALVO = "() => { " + _BASE + " const e = window.__quemcanta_alvo; return e && visivel(e) ? centro(e) : null; }"
 # Onde estão a linha guardada e os botões dela. O de mais ações ("⋮") é o que fica mais à direita.
 _ONDE_CLICAR = "() => { " + _BASE + r""" const linha = window.__quemcanta_linha; if (!linha || !linha.isConnected) return null;
   const r = linha.getBoundingClientRect();
@@ -432,6 +457,22 @@ class AmazonApp:
             pagina.wait_for_timeout(400)
         return itens
 
+    def _abrir_o_menu_da_guardada(self) -> list[str]:
+        """Abre o menu da linha ou do bloco já guardado na tela (sem procurá-lo de novo pelo título)."""
+        pagina = self.pagina
+        onde = pagina.evaluate(_ONDE_CLICAR)
+        if not onde:
+            return []
+        pagina.mover_o_mouse(onde["linha"]["x"], onde["linha"]["y"])
+        pagina.wait_for_timeout(700)
+        onde = pagina.evaluate(_ONDE_CLICAR) or onde
+        self.botoes_vistos = onde.get("botoes", [])
+        if not onde.get("botao"):
+            return []
+        pagina.clicar(onde["botao"]["x"], onde["botao"]["y"])
+        pagina.wait_for_timeout(1500)
+        return pagina.evaluate(_LER_MENU_ABERTO, list(SINAIS_DE_MENU)) or []
+
     def _abrir_album(self, cand: Candidato) -> dict | None:
         """Abre o álbum no aplicativo e acha a linha da faixa. Tenta os formatos de endereço que o aplicativo pode usar."""
         pagina = self.pagina
@@ -520,7 +561,8 @@ def diagnostico(destino=None, album="") -> Path:
     def tentar(nome, funcao):
         try:
             valor = funcao()
-            anotar(f"[ok] {nome}: {str(valor)[:900]}")
+            linhas.append(f"[ok] {nome}: {valor}")  # no arquivo vai inteiro; na tela, só o começo
+            print(f"[ok] {nome}: {str(valor)[:900]}", flush=True)
             return valor
         except Exception as e:
             anotar(f"[FALHOU] {nome}: {type(e).__name__}: {str(e)[:400]}")
@@ -573,30 +615,19 @@ def diagnostico(destino=None, album="") -> Path:
             tentar("retrato da busca", lambda: pagina.evaluate(_RETRATO))
             enderecos = tentar("endereços de álbum na tela da busca", lambda: pagina.evaluate(_ENDERECOS_DE_ALBUM)) or []
             guardar("2-busca")
-            linha = tentar("achar uma linha de faixa na busca", lambda: pagina.evaluate(_ACHAR_LINHA, ""))
-            if not linha:
-                # Sem linha de faixa na busca: tenta chegar a um álbum pelo endereço que a própria tela mostrou.
-                import re
-                do_album = next((re.search(r"#?(/[^\s\"']*album[^\s\"']*)", e) for e in enderecos if re.search(r"#?(/[^\s\"']*album[^\s\"']*)", e)), None)
-                anotar(f"caminho de álbum tirado da tela: {do_album[1] if do_album else '(nenhum)'}")
-                for caminho in ([do_album[1].split('#')[-1]] if do_album else []):
-                    tentar(f"ir para {caminho}", lambda: app._ir_para(caminho) or "pedido enviado")
-                    pagina.wait_for_timeout(9000)
-                    tentar("endereço depois", lambda: pagina.url)
-                    tentar("texto depois", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:900])
-                    tentar("endereços de álbum nesta tela", lambda: pagina.evaluate(_ENDERECOS_DE_ALBUM))
-                    linha = tentar("achar uma linha de faixa", lambda: pagina.evaluate(_ACHAR_LINHA, ""))
-                    if linha:
-                        break
-                tentar("retrato da tela do álbum", lambda: pagina.evaluate(_RETRATO))
-                guardar("3-album")
-            if linha:
-                pagina.wait_for_timeout(800)
+            def experimentar_o_menu(nome):
+                """Com a linha (ou o bloco) guardada: mostra os botões, abre o menu e, havendo "Créditos", abre a janela."""
                 tentar("onde clicar", lambda: pagina.evaluate(_ONDE_CLICAR))
-                itens = tentar("abrir o menu da faixa", lambda: app._abrir_o_menu(""))
-                anotar(f"botões vistos na linha: {app.botoes_vistos}")
+                itens = tentar("abrir o menu pelo botão mais à direita", lambda: app._abrir_o_menu_da_guardada())
+                anotar(f"botões vistos: {app.botoes_vistos}")
+                if not itens or interpretar_menu(itens) == "invalido":
+                    onde = pagina.evaluate(_ONDE_CLICAR)
+                    if onde:
+                        tentar("clicar com o botão direito", lambda: pagina.clicar_com_o_direito(onde["linha"]["x"], onde["linha"]["y"]) or "clicado")
+                        pagina.wait_for_timeout(1500)
+                        itens = tentar("itens do menu de contexto", lambda: pagina.evaluate(_LER_MENU_ABERTO, list(SINAIS_DE_MENU)))
                 tentar("leitura do menu", lambda: interpretar_menu(itens))
-                guardar("4-menu")
+                guardar(f"{nome}-menu")
                 if itens and interpretar_menu(itens) == "com_creditos":
                     item = tentar('onde está o item "Créditos"', lambda: pagina.evaluate(_ONDE_ESTA_O_TEXTO, "^cr[eé]ditos?$|^credits?$"))
                     if item:
@@ -604,8 +635,32 @@ def diagnostico(destino=None, album="") -> Path:
                         pagina.wait_for_timeout(3000)
                         blocos = tentar("blocos da janela de créditos", lambda: pagina.evaluate(_LER_CREDITOS))
                         tentar("créditos lidos", lambda: interpretar_creditos(blocos))
-                        guardar("5-creditos")
-                        tentar("fechar a janela", lambda: pagina.keyboard.press("Escape") or "fechada")
+                        guardar(f"{nome}-creditos")
+                tentar("fechar menu ou janela", lambda: pagina.keyboard.press("Escape") or "fechado")
+                pagina.wait_for_timeout(800)
+                return itens
+
+            (destino / "2-busca-retrato.json").write_text(json.dumps(pagina.evaluate(_RETRATO), ensure_ascii=False, indent=1), encoding="utf-8")
+            # 1. Uma música direto nos resultados da busca.
+            musica = tentar('primeira música da seção "Músicas"', lambda: pagina.evaluate(_PRIMEIRO_DA_SECAO, "Músicas"))
+            pagina.wait_for_timeout(800)
+            if musica and tentar("bloco dessa música", lambda: pagina.evaluate(_ACHAR_ITEM, musica["texto"])):
+                pagina.wait_for_timeout(700)
+                experimentar_o_menu("3-musica")
+            # 2. Um álbum: clicar nele mostra o endereço que o aplicativo usa e a lista de faixas com duração.
+            capa = tentar('primeiro álbum da seção "Álbuns"', lambda: pagina.evaluate(_PRIMEIRO_DA_SECAO, "Álbuns"))
+            pagina.wait_for_timeout(800)
+            ponto = tentar("onde está esse álbum na tela", lambda: pagina.evaluate(_ONDE_ESTA_O_ALVO)) if capa else None
+            if ponto:
+                tentar("clicar no álbum", lambda: pagina.clicar(ponto["x"], ponto["y"]) or "clicado")
+                pagina.wait_for_timeout(9000)
+                tentar("endereço do álbum (o formato que o aplicativo usa)", lambda: pagina.url)
+                tentar("texto do álbum", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:900])
+                (destino / "4-album-retrato.json").write_text(json.dumps(pagina.evaluate(_RETRATO), ensure_ascii=False, indent=1), encoding="utf-8")
+                guardar("4-album")
+                if tentar("achar uma linha de faixa no álbum", lambda: pagina.evaluate(_ACHAR_LINHA, "")):
+                    pagina.wait_for_timeout(700)
+                    experimentar_o_menu("5-faixa")
     finally:
         app.__exit__()
     relatorio = destino / "diagnostico-amazon.txt"
