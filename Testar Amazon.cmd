@@ -21,17 +21,21 @@ echo      escritorio esta logada. Depois pode fechar.
 echo.
 echo  O teste vai fechar e abrir o Amazon Music, abrir um album
 echo  de exemplo, o menu de uma faixa e a janela de creditos.
-echo  Nao le dados da conta e nao altera nada.
+echo  Ele guarda fotos e copias das telas por onde passa (a tela
+echo  inicial mostra nomes de playlists e buscas recentes da conta).
+echo  Nao altera nada no Amazon Music.
 echo ============================================================
 echo.
 pause
 
+rem Album usado no teste quando a tela inicial nao mostra nenhum. Qualquer album serve.
+if not defined QUEMCANTA_AMAZON_ALBUM set QUEMCANTA_AMAZON_ALBUM=B001LC69QA
 ".venv\Scripts\python.exe" -m creditos.amazon_app
 
 echo.
 echo ============================================================
 echo  Pronto. Mande para quem cuida do app a pasta:
 echo      Documentos\Quem Canta\diagnostico-amazon
-echo  (o arquivo de texto e as imagens que estiverem la).
+echo  (todos os arquivos que estiverem la; pode compactar a pasta).
 echo ============================================================
 pause

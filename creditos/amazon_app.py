@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 from cantor.matching import normalizar
 
 from . import captura
-from .amazon import _LER_MENU, _TODOS, Candidato
+from .amazon import _TODOS, Candidato
 
 PLATAFORMA = "AMAZON"
 PORTA = 9333
@@ -34,6 +34,9 @@ PROCESSO = "Amazon Music.exe"
 ITEM_DE_CREDITOS = ("credito", "credit")
 # Itens que provam que o menu aberto é o da faixa.
 ITENS_DA_FAIXA = ("adicionar a fila", "adicionar a playlist", "compartilhar musica", "reproduzir a proxima", "add to queue")
+# Itens pelos quais se reconhece um menu de faixa aberto na tela (os do aplicativo e os do site).
+SINAIS_DE_MENU = ("adicionar a fila", "adicionar a playlist", "compartilhar musica", "reproduzir a proxima", "creditos",
+                  "ver album", "ver artista", "compartilhar esta musica")
 ROTULOS_DE_AUTOR = ("compositor", "letrista", "autor", "songwriter", "composer", "lyricist", "writer")
 
 # O texto de cada rótulo da janela de créditos e do bloco em volta dele.
@@ -41,26 +44,64 @@ _LER_CREDITOS = _TODOS + """.filter(e => e.children.length === 0 && /^(composito
     .test((e.textContent || '').trim()) && (e.textContent || '').trim().length < 40)
   .map(e => ({rotulo: e.textContent.trim(), bloco: ((e.parentElement && e.parentElement.innerText) || '').trim().slice(0, 600)})); }"""
 _LER_TEXTO = "() => (document.body.innerText || '').slice(0, 6000)"
-_ANDAR = "const anda = (raiz) => { let s = []; for (const e of raiz.querySelectorAll('*')) { s.push(e); if (e.shadowRoot) s = s.concat(anda(e.shadowRoot)); } return s; };"
-# Acha a linha da faixa (pelo identificador ou pelo título), rola até ela e a guarda para os passos seguintes.
-_ACHAR_LINHA = "(faixa, titulo) => { " + _ANDAR + """ const todos = anda(document);
-  const linha = (faixa && todos.find(e => e.getAttribute && (e.getAttribute('primary-href') || '').includes(faixa)))
-    || (titulo && todos.find(e => e.getAttribute && e.getAttribute('primary-text') === titulo && /row/.test(e.tagName.toLowerCase())))
-    || (!faixa && !titulo && todos.find(e => e.getAttribute && /\\/tracks\\//.test(e.getAttribute('primary-href') || '')));
-  if (!linha) return null;
-  linha.scrollIntoView({block: 'center'}); window.__quemcanta_linha = linha;
-  return {texto: linha.getAttribute('primary-text') || '', tag: linha.tagName.toLowerCase(), href: linha.getAttribute('primary-href') || ''}; }"""
-# Onde estão, na tela, a linha guardada e o botão de mais ações dela.
-_ONDE_CLICAR = "() => { " + _ANDAR + """ const linha = window.__quemcanta_linha; if (!linha) return null;
-  const centro = (e) => { const r = e.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2, largura: r.width}; };
-  const botoes = [linha, ...anda(linha.shadowRoot || linha), ...anda(linha)].filter(e => /button/.test(e.tagName.toLowerCase()));
-  const nome = (e) => ((e.getAttribute('icon-name') || '') + ' ' + (e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('title') || '')).toLowerCase();
-  const mais = botoes.filter(e => /more|mais|op[cç][oõ]es|ellipsis|overflow/.test(nome(e)) && e.getBoundingClientRect().width > 0);
-  return {linha: centro(linha), botao: mais.length ? centro(mais[mais.length - 1]) : null, botoes: [...new Set(botoes.map(nome))].slice(0, 12)}; }"""
-# Onde está o item do menu cujo texto casa com o padrão.
-_ONDE_ESTA_O_ITEM = "(padrao) => { " + _ANDAR + """ const item = anda(document).filter(e => e.tagName.toLowerCase() === 'music-list-item')
-    .find(e => new RegExp(padrao, 'i').test(e.getAttribute('primary-text') || (e.shadowRoot ? e.shadowRoot.textContent : e.textContent) || ''));
-  if (!item) return null; const r = item.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2}; }"""
+# O aplicativo de desktop não usa os mesmos componentes do site: por isso tudo aqui se guia pelo que está escrito
+# na tela (o título da faixa, "Créditos", "Compositores") e pela posição dos elementos, não por nomes internos.
+_BASE = r"""const anda = (raiz) => { let s = []; for (const e of raiz.querySelectorAll('*')) { s.push(e); if (e.shadowRoot) s = s.concat(anda(e.shadowRoot)); } return s; };
+  const limpo = (t) => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const visivel = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight; };
+  const proprio = (e) => [...e.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ').trim();
+  const centro = (e) => { const r = e.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2}; };
+  const pai = (e) => e.parentElement || (e.getRootNode && e.getRootNode().host) || null;
+  const folhas = (raiz) => anda(raiz).filter(e => proprio(e) && visivel(e));
+"""
+# A linha da faixa: o elemento com o título, dentro de um bloco largo e baixo que também traz a duração ("3:45").
+_ACHAR_LINHA = "(titulo, rolar) => { " + _BASE + r""" const alvo = limpo(titulo);
+  const candidatos = anda(document).filter(e => proprio(e) && (alvo ? limpo(proprio(e)) === alvo : true));
+  for (const e of candidatos) {
+    let linha = e;
+    for (let i = 0; i < 10 && linha; i++) {
+      const r = linha.getBoundingClientRect();
+      if (r.width > innerWidth * 0.5 && r.height <= 170 && /\d{1,2}:\d\d/.test(linha.innerText || linha.textContent || '')) {
+        // sobe até o bloco mais de fora que ainda tem altura de linha: é nele que ficam os botões
+        // (mas sem passar para um bloco que junte duas faixas: cada faixa tem uma duração só)
+        const duracoes = (b) => (folhas(b).map(proprio).join(' ').match(/\b\d{1,2}:\d\d\b/g) || []).length;
+        while (pai(linha) && pai(linha).getBoundingClientRect().height <= 170 && pai(linha).getBoundingClientRect().height > 0
+               && duracoes(pai(linha)) <= 1) linha = pai(linha);
+        if (rolar !== false) linha.scrollIntoView({block: 'center'});
+        window.__quemcanta_linha = linha;
+        return {texto: proprio(e).slice(0, 80), linha: (linha.innerText || '').replace(/\n+/g, ' | ').slice(0, 160), tag: linha.tagName.toLowerCase()};
+      }
+      linha = pai(linha);
+    }
+  }
+  return null; }"""
+# Onde estão a linha guardada e os botões dela. O de mais ações ("⋮") é o que fica mais à direita.
+_ONDE_CLICAR = "() => { " + _BASE + r""" const linha = window.__quemcanta_linha; if (!linha || !linha.isConnected) return null;
+  const r = linha.getBoundingClientRect();
+  const clicaveis = anda(linha).concat(linha.shadowRoot ? anda(linha.shadowRoot) : []).filter(e => { const b = e.getBoundingClientRect();
+    return visivel(e) && b.width <= 70 && b.height <= 70 && b.width >= 8 && (/^(button|a)$/.test(e.tagName.toLowerCase())
+      || e.getAttribute('role') === 'button' || /button/.test(e.tagName.toLowerCase()) || getComputedStyle(e).cursor === 'pointer'); });
+  clicaveis.sort((a, b) => centro(a).x - centro(b).x);
+  const ultimo = clicaveis[clicaveis.length - 1];
+  return {linha: {x: r.x + Math.min(r.width / 2, 400), y: r.y + r.height / 2}, botao: ultimo ? centro(ultimo) : null,
+          botoes: clicaveis.map(e => e.tagName.toLowerCase() + ':' + (e.getAttribute('aria-label') || e.getAttribute('title') || e.getAttribute('icon-name') || (e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className) || '').toString().slice(0, 30) + '@' + Math.round(centro(e).x)).slice(-8)}; }"""
+# O menu aberto: acha um item conhecido e sobe até o bloco que junta os itens.
+_LER_MENU_ABERTO = "(sinais) => { " + _BASE + r""" const todas = folhas(document);
+  const item = todas.find(e => sinais.some(s => limpo(proprio(e)) === s || limpo(proprio(e)).startsWith(s)));
+  if (!item) return [];
+  let bloco = item;
+  for (let i = 0; i < 10 && pai(bloco); i++) { bloco = pai(bloco); const r = bloco.getBoundingClientRect();
+    if (folhas(bloco).length >= 3 && r.width < innerWidth * 0.6) break; }
+  return [...new Set(folhas(bloco).map(e => proprio(e).replace(/\s+/g, ' ').trim()).filter(t => t && t.length < 60))].slice(0, 20); }"""
+# Onde está, na tela, o texto que casa com o padrão (o item "Créditos" do menu).
+_ONDE_ESTA_O_TEXTO = "(padrao) => { " + _BASE + r""" const achado = folhas(document).find(e => new RegExp(padrao, 'i').test(proprio(e)) && proprio(e).length < 40);
+  return achado ? centro(achado) : null; }"""
+# Um retrato do que há de clicável na tela e dos caminhos que ela usa: é o que permite ajustar o módulo à distância.
+_RETRATO = "() => { " + _BASE + r""" const todos = anda(document);
+  return {caminhos: [...new Set(todos.map(e => (e.getAttribute && (e.getAttribute('href') || e.getAttribute('primary-href') || e.getAttribute('to'))) || '').filter(h => /^(#|\/)/.test(h) && h.length < 80))].slice(0, 30),
+          etiquetas: Object.entries(todos.reduce((c, e) => { const t = e.tagName.toLowerCase(); c[t] = (c[t] || 0) + 1; return c; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 25),
+          botoes: [...new Set(todos.filter(e => visivel(e) && (/button/.test(e.tagName.toLowerCase()) || e.getAttribute('role') === 'button')).map(e => (e.getAttribute('aria-label') || e.getAttribute('title') || proprio(e) || (e.className && e.className.toString()) || '').slice(0, 40)))].slice(0, 40)}; }"""
+_LER_HTML = "() => document.documentElement.outerHTML.slice(0, 900000)"
 
 
 class AplicativoIndisponivel(Exception):
@@ -223,7 +264,7 @@ class AmazonApp:
         self.cache = self.pasta / "leituras"
         self.avisar = ao_avancar or (lambda texto: None)
         self.so_o_que_ja_foi_lido, self.porta = so_o_que_ja_foi_lido, porta
-        self.navegacoes, self.pela_loja, self.telas = 0, [], []
+        self.navegacoes, self.pela_loja, self.telas, self.botoes_vistos, self.caminho_que_funcionou = 0, [], [], [], ""
         self._pagina = None
 
     def __enter__(self):
@@ -298,15 +339,15 @@ class AmazonApp:
         return self._pagina
 
     def _esperar_carregar(self, limite=75) -> int:
-        """Espera a tela do aplicativo montar os componentes da Amazon Music. Devolve quantos achou (zero: não carregou)."""
+        """Espera a tela do aplicativo aparecer. Devolve quantas letras de texto ela tem (zero: não carregou)."""
         fim = time.monotonic() + limite
-        quantos = 0
+        letras = 0
         while time.monotonic() < fim:
-            quantos = self.pagina.evaluate(_TODOS + ".filter(e => e.tagName.toLowerCase().startsWith('music-')).length; }") or 0
-            if quantos > 5:
-                return quantos
+            letras = len(self.pagina.evaluate(_LER_TEXTO) or "")
+            if letras > 120:
+                return letras
             self.pagina.wait_for_timeout(1500)
-        return quantos
+        return letras
 
     def _ir_para(self, caminho: str):
         """Abre um caminho ("/albums/<álbum>?trackAsin=<faixa>") dentro do aplicativo.
@@ -346,27 +387,48 @@ class AmazonApp:
             arquivo.write_text(json.dumps(asdict(leitura), ensure_ascii=False), encoding="utf-8")
         return leitura
 
-    def _abrir_o_menu(self) -> list[str]:
-        """Clica no botão de mais ações da linha guardada e devolve os itens do menu que abriu."""
+    def _abrir_o_menu(self, titulo: str = "") -> list[str]:
+        """Clica no botão de mais ações da linha da faixa e devolve os itens do menu que abriu.
+
+        A lista de faixas é redesenhada quando rola: por isso a linha é procurada de novo, sem rolar, logo antes de
+        cada clique, em vez de confiar na que foi achada antes.
+        """
         pagina = self.pagina
         itens = []
         for _ in range(2):  # o primeiro clique às vezes pega o botão ainda carregando
+            pagina.evaluate(_ACHAR_LINHA, titulo, False)
             onde = pagina.evaluate(_ONDE_CLICAR)
             if not onde:
                 return []
-            pagina.mover_o_mouse(onde["linha"]["x"], onde["linha"]["y"])  # o botão só aparece com o mouse em cima da linha
-            pagina.wait_for_timeout(500)
+            pagina.mover_o_mouse(onde["linha"]["x"], onde["linha"]["y"])  # há botão que só aparece com o mouse em cima da linha
+            pagina.wait_for_timeout(600)
+            pagina.evaluate(_ACHAR_LINHA, titulo, False)
             onde = pagina.evaluate(_ONDE_CLICAR) or onde
+            self.botoes_vistos = onde.get("botoes", [])
             if not onde.get("botao"):
-                self.botoes_vistos = onde.get("botoes", [])
                 return []
             pagina.clicar(onde["botao"]["x"], onde["botao"]["y"])
-            pagina.wait_for_timeout(1300)
-            itens = [i for i in pagina.evaluate(_LER_MENU) if i]
+            pagina.wait_for_timeout(1400)
+            itens = pagina.evaluate(_LER_MENU_ABERTO, list(SINAIS_DE_MENU)) or []
             if interpretar_menu(itens) != "invalido":
                 break
             pagina.keyboard.press("Escape")
+            pagina.wait_for_timeout(400)
         return itens
+
+    def _abrir_album(self, cand: Candidato) -> dict | None:
+        """Abre o álbum no aplicativo e acha a linha da faixa. Tenta os formatos de endereço que o aplicativo pode usar."""
+        pagina = self.pagina
+        for caminho in (f"/albums/{cand.album}?trackAsin={cand.faixa}", f"/albums/{cand.album}", f"/album/{cand.album}"):
+            self._ir_para(caminho)
+            limite = time.monotonic() + 20
+            while time.monotonic() < limite:
+                pagina.wait_for_timeout(1200)
+                linha = pagina.evaluate(_ACHAR_LINHA, cand.titulo)
+                if linha:
+                    self.caminho_que_funcionou = caminho.split(cand.album)[0]
+                    return linha
+        return None
 
     def _ler(self, leitura: Leitura, cand: Candidato, obra: str):
         pagina = self.pagina
@@ -375,25 +437,20 @@ class AmazonApp:
         self.navegacoes += 1
         if not self._esperar_carregar():
             raise AplicativoIndisponivel("a tela do aplicativo não carregou")
-        self._ir_para(f"/albums/{cand.album}?trackAsin={cand.faixa}")
-        linha = None
-        limite = time.monotonic() + 30
-        while linha is None and time.monotonic() < limite:
-            pagina.wait_for_timeout(1000)
-            linha = pagina.evaluate(_ACHAR_LINHA, cand.faixa, cand.titulo)
+        linha = self._abrir_album(cand)
         if linha is None:
             leitura.coleta, leitura.erro = "indisponivel", "a faixa não apareceu na lista do álbum dentro do aplicativo"
             return
-        pagina.wait_for_timeout(1500)
-        pagina.evaluate(_ACHAR_LINHA, cand.faixa, cand.titulo)  # rola de novo, com a lista já carregada
-        pagina.wait_for_timeout(600)
-        itens = self._abrir_o_menu()
+        pagina.wait_for_timeout(1200)
+        pagina.evaluate(_ACHAR_LINHA, cand.titulo)  # rola de novo, com a lista já carregada
+        pagina.wait_for_timeout(900)
+        itens = self._abrir_o_menu(cand.titulo)
         leitura.menu = itens
         resultado = interpretar_menu(itens)
         if resultado == "invalido":
             leitura.coleta = "erro"
             leitura.erro = "o menu de ações da faixa não abriu no aplicativo" + (
-                f" (itens vistos: {', '.join(itens)[:120]})" if itens else f" (botões da linha: {', '.join(getattr(self, 'botoes_vistos', []))[:120]})")
+                f" (itens vistos: {', '.join(itens)[:120]})" if itens else f" (botões da linha: {', '.join(self.botoes_vistos)[:160]})")
             return
         exibido = {"titulo": cand.titulo, "interprete": cand.interprete, "itens_do_menu": itens}
         if resultado == "sem_creditos":
@@ -403,7 +460,7 @@ class AmazonApp:
             return
         leitura.tem_item_de_creditos = True
         leitura.provas.append(captura.capturar(pagina, self.pasta, obra, cand.interprete, "amazon-app", exibido, "menu")["captura"])
-        item = pagina.evaluate(_ONDE_ESTA_O_ITEM, "cr[eé]dito|credit")
+        item = pagina.evaluate(_ONDE_ESTA_O_TEXTO, "^cr[eé]ditos?$|^credits?$")
         if not item:
             leitura.coleta, leitura.erro = "erro", 'o item "Créditos" sumiu do menu antes do clique'
             return
@@ -460,45 +517,53 @@ def diagnostico(destino=None, album="") -> Path:
     achado = caminho_do_aplicativo()
     anotar(f"aplicativo instalado em: {achado}" + (" (versão da Microsoft Store)" if e_da_loja(achado) else ""))
     app = AmazonApp(destino, ao_avancar=anotar)
+    def guardar(nome):
+        """A foto e o HTML da tela neste ponto: é com eles que o módulo é ajustado sem ter o aplicativo à mão."""
+        tentar(f"foto {nome}.png", lambda: len(pagina.screenshot(path=str(destino / f"{nome}.png"))) and "gravada")
+        tentar(f"tela {nome}.html", lambda: (destino / f"{nome}.html").write_text(pagina.evaluate(_LER_HTML) or "", encoding="utf-8") and "gravada")
+
     try:
         pagina = tentar("conectar ao aplicativo", lambda: app.pagina)
         anotar(f"o que o Windows respondeu ao abrir pela loja: {app.pela_loja or '(não foi pela loja)'}")
         if pagina is not None:
             anotar(f"telas abertas: {app.telas}")
+            tentar("esperar a tela carregar (letras de texto)", app._esperar_carregar)
             tentar("endereço da tela principal", lambda: pagina.url)
-            tentar("esperar a tela carregar (componentes da Amazon Music)", app._esperar_carregar)
-            tentar("endereço depois de carregar", lambda: pagina.url)
-            tentar("componentes da tela", lambda: pagina.evaluate(_TODOS + """.reduce((c, e) => { const t = e.tagName.toLowerCase();
-                if (t.includes('-')) c[t] = (c[t] || 0) + 1; return c; }, {}); }"""))
-            tentar("caminhos que a tela usa", lambda: pagina.evaluate(_TODOS + """.map(e => (e.getAttribute && (e.getAttribute('primary-href') || e.getAttribute('href'))) || '')
-                .filter(h => h && h.length < 90).filter((h, i, a) => a.indexOf(h) === i).slice(0, 14); }"""))
-            tentar("texto da tela inicial", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:700])
-            album = album or os.environ.get("QUEMCANTA_AMAZON_ALBUM", "") or tentar("um álbum da tela inicial", lambda: pagina.evaluate(
-                _TODOS + """.map(e => ((e.getAttribute && (e.getAttribute('primary-href') || e.getAttribute('href'))) || '').match(/\\/albums\\/([A-Z0-9]{8,})/))
-                .filter(Boolean).map(m => m[1])[0] || ''; }""")) or ""
             anotar(f"página única (navega pelo trecho depois do #): {e_de_pagina_unica(pagina.url)}")
-            if album and tentar("abrir o álbum de teste", lambda: app._ir_para(f"/albums/{album}") or f"pedido enviado: /albums/{album}"):
-                pagina.wait_for_timeout(8000)
-                tentar("endereço depois de abrir", lambda: pagina.url)
-                tentar("texto do álbum", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:700])
-                tentar("print do álbum", lambda: len(pagina.screenshot(path=str(destino / "1-album.png"))) and "1-album.png")
-                linha = tentar("achar a primeira faixa", lambda: pagina.evaluate(_ACHAR_LINHA, "", ""))
+            tentar("texto da tela inicial", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:500])
+            retrato = tentar("retrato da tela inicial", lambda: pagina.evaluate(_RETRATO)) or {}
+            guardar("1-inicio")
+            album = album or next((c_.split("/album")[1].lstrip("s/").split("?")[0].split("/")[0] for c_ in retrato.get("caminhos", []) if "/album" in c_), "") \
+                or os.environ.get("QUEMCANTA_AMAZON_ALBUM", "")
+            anotar(f"álbum de teste: {album or '(nenhum: a tela não mostrou endereço de álbum e nenhum foi indicado)'}")
+            linha = None
+            for caminho in ([f"/albums/{album}", f"/album/{album}"] if album else []):
+                tentar(f"ir para {caminho}", lambda: app._ir_para(caminho) or "pedido enviado")
+                pagina.wait_for_timeout(9000)
+                tentar("endereço depois", lambda: pagina.url)
+                tentar("texto depois", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:600])
+                linha = tentar("achar uma linha de faixa", lambda: pagina.evaluate(_ACHAR_LINHA, ""))
                 if linha:
-                    pagina.wait_for_timeout(800)
-                    tentar("onde clicar", lambda: pagina.evaluate(_ONDE_CLICAR))
-                    itens = tentar("abrir o menu da faixa", app._abrir_o_menu)
-                    tentar("leitura do menu", lambda: interpretar_menu(itens))
-                    tentar("print do menu", lambda: len(pagina.screenshot(path=str(destino / "2-menu.png"))) and "2-menu.png")
-                    if itens and interpretar_menu(itens) == "com_creditos":
-                        item = tentar('onde está o item "Créditos"', lambda: pagina.evaluate(_ONDE_ESTA_O_ITEM, "cr[eé]dito|credit"))
-                        if item:
-                            tentar("clicar em Créditos", lambda: pagina.clicar(item["x"], item["y"]) or "clicado")
-                            pagina.wait_for_timeout(3000)
-                            blocos = tentar("blocos da janela de créditos", lambda: pagina.evaluate(_LER_CREDITOS))
-                            tentar("créditos lidos", lambda: interpretar_creditos(blocos))
-                            tentar("texto com a janela aberta", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[-500:])
-                            tentar("print dos créditos", lambda: len(pagina.screenshot(path=str(destino / "3-creditos.png"))) and "3-creditos.png")
-                            tentar("fechar a janela", lambda: pagina.keyboard.press("Escape") or "fechada")
+                    break
+            if album:
+                tentar("retrato da tela do álbum", lambda: pagina.evaluate(_RETRATO))
+                guardar("2-album")
+            if linha:
+                pagina.wait_for_timeout(800)
+                tentar("onde clicar", lambda: pagina.evaluate(_ONDE_CLICAR))
+                itens = tentar("abrir o menu da faixa", lambda: app._abrir_o_menu(""))
+                anotar(f"botões vistos na linha: {app.botoes_vistos}")
+                tentar("leitura do menu", lambda: interpretar_menu(itens))
+                guardar("3-menu")
+                if itens and interpretar_menu(itens) == "com_creditos":
+                    item = tentar('onde está o item "Créditos"', lambda: pagina.evaluate(_ONDE_ESTA_O_TEXTO, "^cr[eé]ditos?$|^credits?$"))
+                    if item:
+                        tentar("clicar em Créditos", lambda: pagina.clicar(item["x"], item["y"]) or "clicado")
+                        pagina.wait_for_timeout(3000)
+                        blocos = tentar("blocos da janela de créditos", lambda: pagina.evaluate(_LER_CREDITOS))
+                        tentar("créditos lidos", lambda: interpretar_creditos(blocos))
+                        guardar("4-creditos")
+                        tentar("fechar a janela", lambda: pagina.keyboard.press("Escape") or "fechada")
     finally:
         app.__exit__()
     relatorio = destino / "diagnostico-amazon.txt"
