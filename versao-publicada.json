@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.1",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.1/quem-canta-0.5.1-windows.zip",
-  "sha256": "bdfe7ea9f7ee73cf224951378cb554676e94b76ec0ca105eb7cc1f680b1c35d0",
-  "notas": "A planilha de interpretes voltou a ser opcional na etapa dos prints."
+  "versao": "0.5.2",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.2/quem-canta-0.5.2-windows.zip",
+  "sha256": "4bddc9fed44f4fb2c6da405c6804f9e0e183e10d45a4597a0556c2b318f49de9",
+  "notas": "Duas abas no topo da tela: Buscar interpretes e Coleta de prints."
 }
