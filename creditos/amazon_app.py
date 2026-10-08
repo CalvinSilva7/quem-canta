@@ -33,7 +33,11 @@ PORTA = 9333
 PROCESSO = "Amazon Music.exe"
 ITEM_DE_CREDITOS = ("credito", "credit")
 # Itens que provam que o menu aberto é o da faixa.
-ITENS_DA_FAIXA = ("adicionar a fila", "adicionar a playlist", "compartilhar musica", "reproduzir a proxima", "add to queue")
+# "Adicionar à fila" e "Adicionar à playlist" não servem: também estão na lista de playlists que o aplicativo
+# guarda escondida na página, e ela não pode passar por menu de faixa.
+ITENS_DA_FAIXA = ("compartilhar musica", "reproduzir musicas semelhantes", "share song", "play similar")
+# Itens que só existem nessa lista escondida: se aparecem, o que foi lido não é o menu da faixa.
+ITENS_DE_OUTRO_MENU = ("criar uma playlist", "minhas curtidas", "create playlist", "my likes")
 # Itens pelos quais se reconhece um menu de faixa aberto na tela (os do aplicativo e os do site).
 SINAIS_DE_MENU = ("adicionar a fila", "adicionar a playlist", "compartilhar musica", "reproduzir a proxima", "creditos",
                   "ver album", "ver artista", "compartilhar esta musica")
@@ -53,6 +57,16 @@ _BASE = r"""const anda = (raiz) => { let s = []; for (const e of raiz.querySelec
   const centro = (e) => { const r = e.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2}; };
   const pai = (e) => e.parentElement || (e.getRootNode && e.getRootNode().host) || null;
   const folhas = (raiz) => anda(raiz).filter(e => proprio(e) && visivel(e));
+  // À vista de verdade: dentro da tela e sendo o que está por cima naquele ponto. O aplicativo guarda menus
+  // escondidos na página (a lista de playlists, por exemplo), que têm tamanho mas não aparecem.
+  const avista = (e) => { if (!visivel(e)) return false; const r = e.getBoundingClientRect();
+    if (r.right <= 0 || r.left >= innerWidth) return false;
+    const estilo = getComputedStyle(e); if (estilo.visibility === 'hidden' || estilo.display === 'none') return false;
+    let topo = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    while (topo && topo.shadowRoot && topo.shadowRoot.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+           && topo.shadowRoot.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) !== topo) topo = topo.shadowRoot.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return !!topo && (topo === e || e.contains(topo) || (topo.contains(e) && topo.getBoundingClientRect().height <= r.height + 30)); };
+  const avistas = (raiz) => anda(raiz).filter(e => proprio(e) && avista(e));
 """
 # A linha da faixa: o elemento com o título, dentro de um bloco largo e baixo que também traz a duração ("3:45").
 _ACHAR_LINHA = "(titulo, rolar) => { " + _BASE + r""" const alvo = limpo(titulo);
@@ -111,15 +125,15 @@ _ONDE_CLICAR = "() => { " + _BASE + r""" const linha = window.__quemcanta_linha;
   return {linha: {x: r.x + Math.min(r.width / 2, 400), y: r.y + r.height / 2}, botao: ultimo ? centro(ultimo) : null,
           botoes: clicaveis.map(e => e.tagName.toLowerCase() + ':' + (e.getAttribute('aria-label') || e.getAttribute('title') || e.getAttribute('icon-name') || (e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className) || '').toString().slice(0, 30) + '@' + Math.round(centro(e).x)).slice(-8)}; }"""
 # O menu aberto: acha um item conhecido e sobe até o bloco que junta os itens.
-_LER_MENU_ABERTO = "(sinais) => { " + _BASE + r""" const todas = folhas(document);
+_LER_MENU_ABERTO = "(sinais) => { " + _BASE + r""" const todas = avistas(document);
   const item = todas.find(e => sinais.some(s => limpo(proprio(e)) === s || limpo(proprio(e)).startsWith(s)));
   if (!item) return [];
   let bloco = item;
   for (let i = 0; i < 10 && pai(bloco); i++) { bloco = pai(bloco); const r = bloco.getBoundingClientRect();
-    if (folhas(bloco).length >= 3 && r.width < innerWidth * 0.6) break; }
-  return [...new Set(folhas(bloco).map(e => proprio(e).replace(/\s+/g, ' ').trim()).filter(t => t && t.length < 60))].slice(0, 20); }"""
+    if (avistas(bloco).length >= 3 && r.width < innerWidth * 0.6) break; }
+  return [...new Set(avistas(bloco).map(e => proprio(e).replace(/\s+/g, ' ').trim()).filter(t => t && t.length < 60))].slice(0, 20); }"""
 # Onde está, na tela, o texto que casa com o padrão (o item "Créditos" do menu).
-_ONDE_ESTA_O_TEXTO = "(padrao) => { " + _BASE + r""" const achado = folhas(document).find(e => new RegExp(padrao, 'i').test(proprio(e)) && proprio(e).length < 40);
+_ONDE_ESTA_O_TEXTO = "(padrao) => { " + _BASE + r""" const achado = avistas(document).find(e => new RegExp(padrao, 'i').test(proprio(e)) && proprio(e).length < 40);
   return achado ? centro(achado) : null; }"""
 # Um retrato do que há de clicável na tela e dos caminhos que ela usa: é o que permite ajustar o módulo à distância.
 _RETRATO = "() => { " + _BASE + r""" const todos = anda(document);
@@ -265,6 +279,8 @@ def interpretar_menu(itens) -> str:
     """O menu da faixa no aplicativo: "com_creditos", "sem_creditos" ou "invalido" (não é o menu da faixa)."""
     limpos = [normalizar(i) for i in itens or [] if str(i or "").strip()]
     if not any(any(sinal in item for sinal in ITENS_DA_FAIXA) for item in limpos):
+        return "invalido"
+    if any(any(sinal in item for sinal in ITENS_DE_OUTRO_MENU) for item in limpos):
         return "invalido"
     return "com_creditos" if any(any(sinal in item for sinal in ITEM_DE_CREDITOS) for item in limpos) else "sem_creditos"
 
@@ -476,7 +492,9 @@ class AmazonApp:
     def _abrir_album(self, cand: Candidato) -> dict | None:
         """Abre o álbum no aplicativo e acha a linha da faixa. Tenta os formatos de endereço que o aplicativo pode usar."""
         pagina = self.pagina
-        for caminho in (f"/albums/{cand.album}?trackAsin={cand.faixa}", f"/albums/{cand.album}", f"/album/{cand.album}"):
+        # O primeiro formato é o que o próprio aplicativo mostra ao abrir um álbum; os outros são os do site.
+        for caminho in (f"/album/detail/{cand.album}?id={cand.album}&asin={cand.album}", f"/albums/{cand.album}?trackAsin={cand.faixa}",
+                        f"/albums/{cand.album}", f"/album/{cand.album}"):
             self._ir_para(caminho)
             limite = time.monotonic() + 20
             while time.monotonic() < limite:
@@ -633,6 +651,7 @@ def diagnostico(destino=None, album="") -> Path:
                     if item:
                         tentar("clicar em Créditos", lambda: pagina.clicar(item["x"], item["y"]) or "clicado")
                         pagina.wait_for_timeout(3000)
+                        tentar("texto da tela com a janela de créditos", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip()))
                         blocos = tentar("blocos da janela de créditos", lambda: pagina.evaluate(_LER_CREDITOS))
                         tentar("créditos lidos", lambda: interpretar_creditos(blocos))
                         guardar(f"{nome}-creditos")
@@ -661,6 +680,19 @@ def diagnostico(destino=None, album="") -> Path:
                 if tentar("achar uma linha de faixa no álbum", lambda: pagina.evaluate(_ACHAR_LINHA, "")):
                     pagina.wait_for_timeout(700)
                     experimentar_o_menu("5-faixa")
+                # 3. O mesmo álbum aberto pelo endereço, que é como a coleta de verdade vai chegar nele.
+                import re
+                codigo = (re.search(r"/album/detail/([A-Z0-9]+)", pagina.url) or [None, os.environ.get("QUEMCANTA_AMAZON_ALBUM", "")])[1]
+                if codigo:
+                    tentar("voltar para o início", lambda: app._ir_para("/home") or "pedido enviado")
+                    pagina.wait_for_timeout(6000)
+                    tentar(f"abrir o álbum {codigo} pelo endereço", lambda: app._ir_para(f"/album/detail/{codigo}?id={codigo}&asin={codigo}") or "pedido enviado")
+                    pagina.wait_for_timeout(9000)
+                    tentar("endereço depois de abrir pelo endereço", lambda: pagina.url)
+                    guardar("6-album-pelo-endereco")
+                    if tentar("achar uma linha de faixa no álbum aberto pelo endereço", lambda: pagina.evaluate(_ACHAR_LINHA, "")):
+                        pagina.wait_for_timeout(700)
+                        experimentar_o_menu("7-faixa")
     finally:
         app.__exit__()
     relatorio = destino / "diagnostico-amazon.txt"

@@ -1545,6 +1545,9 @@ def test_amazon_app_le_o_menu_e_a_janela_de_creditos():
     assert _amazon_app.interpretar_menu(menu) == "com_creditos"
     assert _amazon_app.interpretar_menu([i for i in menu if i != "Créditos"]) == "sem_creditos"
     assert _amazon_app.interpretar_menu(["Biblioteca", "Baixadas"]) == "invalido"  # não é o menu de uma faixa
+    # a lista de playlists que o aplicativo guarda escondida na página não é o menu da faixa: nunca vira "sem créditos"
+    escondida = ["Adicionar à playlist", "Criar uma playlist", "Minhas curtidas", "Reproduzir a próxima", "Adicionar à fila", "Fazer download"]
+    assert _amazon_app.interpretar_menu(escondida) == "invalido" and _amazon_app.interpretar_menu(escondida + menu) == "invalido"
     blocos = [{"rotulo": "Compositores", "bloco": "Créditos\nCompositores\nZeca Lima, Cida Dias"}]
     secoes = _amazon_app.interpretar_creditos(blocos)
     assert secoes == {"Compositores": ["Zeca Lima", "Cida Dias"]} and _amazon_app.autores(secoes) == ["Zeca Lima", "Cida Dias"]
