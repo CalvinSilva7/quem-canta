@@ -216,7 +216,11 @@ def _titulos(relatorio: Relatorio, limite, coleta: Coleta, onde: str) -> list[tu
 
 def _par_conhecido(pares: dict, titulo: str, interprete: str) -> bool:
     """O par (esta obra, este intérprete) já foi provado em outra plataforma, por um autor do relatório no crédito?"""
-    return any(c.mesmo_artista(parte, n) for n in pares.get(titulo, []) for parte in c.partes_do_interprete(interprete))
+    conhecidos = pares.get(titulo, [])
+    if any(c.mesmo_artista(parte, n) for n in conhecidos for parte in c.partes_do_interprete(interprete)):
+        return True
+    # Dupla de nomes de uma palavra só ("Fulano e Beltrano"): a divisão em partes a desfaz; compara o nome inteiro.
+    return any(_palavras(n) == _palavras(interprete) or _nome_dentro(n, interprete) for n in conhecidos)
 
 
 def _citado(nome: str, titulo_do_video: str) -> bool:
@@ -363,6 +367,88 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
         _parar(coleta, e)
     _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
     coleta.albuns_lidos, coleta.requisicoes, coleta.segundos = len(lidas), spotify.nav.navegacoes, time.monotonic() - inicio
+    return coleta
+
+
+def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, nome) -> list:
+    """As faixas da Amazon Music a abrir: [(candidato, título da obra, consulta)]. A busca é a do site, que não pede
+    login e funciona melhor só com o título; por isso vai o título e, depois, o título com cada intérprete.
+    De cada intérprete entram até `por_interprete` faixas por obra."""
+    principais = _principais(relatorio, config, recorrentes)
+    fila, vistos = [], set()
+    titulos = _titulos(relatorio, limite_de_obras, coleta, nome)
+    for i, (base, titulo) in enumerate(titulos, start=1):
+        avisar(f"{nome}: buscando {i}/{len(titulos)}")
+        ligados, por_nome = _ligados(relatorio, config, recorrentes, pares, titulo), {}
+        for consulta in [titulo, *_consultas(titulo, principais, pares)[:-1]]:
+            for cand in amazon.buscar(consulta):
+                if cand.faixa in vistos or not _e_da_obra(_titulo_do_video(cand.titulo, relatorio, ligados), titulo, relatorio) == "exato":
+                    continue
+                vistos.add(cand.faixa)
+                elo = next((n for n in ligados if any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(cand.interprete))
+                            or _nome_dentro(n, cand.interprete)), "")
+                if not elo:
+                    coleta.sem_vinculo_nao_abertos += 1
+                elif len(por_nome.setdefault(tuple(_palavras(elo)), [])) < por_interprete:
+                    por_nome[tuple(_palavras(elo))].append((cand, titulo, consulta))
+        fila += [item for grupo in por_nome.values() for item in grupo]
+    return fila
+
+
+def coletar_amazon(relatorio: Relatorio, config: Config, amazon, recorrentes=(), pares=None, limite_de_obras=None,
+                   por_interprete=2, ao_avancar=None) -> Coleta:
+    """Amazon Music na web: acha a faixa de cada intérprete ligado ao titular e fotografa o menu dela, que não tem
+    item de créditos. É um print por música."""
+    from types import SimpleNamespace
+    from .captura import PaginaTraduzida
+    from .navegador import Bloqueio
+
+    inicio, pares, avisar = time.monotonic(), pares or {}, ao_avancar or (lambda texto: None)
+    coleta = Coleta("AMAZON - SITE", sementes=_principais(relatorio, config, recorrentes))
+    lidas = []
+    try:
+        fila = _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, "Amazon Music")
+        for i, (cand, titulo, consulta) in enumerate(fila, start=1):
+            avisar(f"Amazon Music: lendo faixa {i}/{len(fila)}")
+            leitura = amazon.ler(cand, titulo)
+            faixa = SimpleNamespace(
+                titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=[], link=leitura.link or cand.link,
+                coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
+                nota="na versão web da Amazon Music não existe tela de créditos: o print mostra o menu da faixa, sem esse item")
+            lidas.append((faixa, SimpleNamespace(titulo=leitura.album, fornecedor="", lancamento=""), f'busca "{consulta}"'))
+    except (Bloqueio, PaginaTraduzida) as e:
+        _parar(coleta, e)
+    _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
+    coleta.albuns_lidos, coleta.requisicoes, coleta.segundos = len(lidas), amazon.nav.navegacoes, time.monotonic() - inicio
+    return coleta
+
+
+def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo, recorrentes=(), pares=None, limite_de_obras=None,
+                       por_interprete=2, ao_avancar=None) -> Coleta:
+    """Amazon Music no aplicativo de desktop: as faixas são achadas pela busca do site (`amazon`) e abertas no
+    aplicativo (`aplicativo`), que é onde aparece o item "Créditos" com os compositores. Dois prints por música."""
+    from types import SimpleNamespace
+    from .amazon_app import AplicativoIndisponivel
+    from .captura import PaginaTraduzida
+    from .navegador import Bloqueio
+
+    inicio, pares, avisar = time.monotonic(), pares or {}, ao_avancar or (lambda texto: None)
+    nome = "Amazon Music (aplicativo)"
+    coleta = Coleta("AMAZON", sementes=_principais(relatorio, config, recorrentes))
+    lidas = []
+    try:
+        fila = _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, nome)
+        for i, (cand, titulo, consulta) in enumerate(fila, start=1):
+            avisar(f"{nome}: lendo faixa {i}/{len(fila)}")
+            leitura = aplicativo.ler(cand, titulo)
+            faixa = SimpleNamespace(titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=leitura.creditos,
+                                    link=cand.link, coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
+                                    nota="lido no aplicativo de desktop da Amazon Music; o link é o da mesma faixa no site")
+            lidas.append((faixa, SimpleNamespace(titulo=leitura.album, fornecedor="", lancamento=""), f'busca "{consulta}"'))
+    except (Bloqueio, PaginaTraduzida, AplicativoIndisponivel) as e:
+        _parar(coleta, e)
+    _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
+    coleta.albuns_lidos, coleta.requisicoes, coleta.segundos = len(lidas), aplicativo.navegacoes, time.monotonic() - inicio
     return coleta
 
 
@@ -603,24 +689,140 @@ def interpretes_conhecidos(coletas) -> tuple[list[str], dict]:
     return recorrentes, pares
 
 
-def _titulo_do_video(titulo: str, relatorio: Relatorio) -> str:
-    """Vídeo costuma vir como "Intérprete - Título": devolve a parte que é título de obra do relatório."""
-    if c.casar_titulo(titulo, relatorio)[0] == "exato":
-        return titulo
+PENDENCIAS_POR_OBRA = 15  # acima disso o título é comum demais para a lista de vídeos desconhecidos ajudar
+# Vídeo que não é a gravação do intérprete, e sim outra pessoa cantando, tocando ou legendando: fica para o fim.
+_NUMEROS = {"1": "um", "2": "dois", "3": "tres", "4": "quatro", "5": "cinco", "6": "seis", "7": "sete", "8": "oito", "9": "nove", "10": "dez"}
+_DERIVADO = ("cover", "karaoke", "playback", "tipografia", "cifra", "coreografia", "como tocar", "aula", "tutorial", "status")
+
+
+def _visualizacoes(detalhe: str) -> float:
+    """"1,1 mi de visualizações" -> 1100000; "58 mil visualizações" -> 58000. Sem a informação, zero."""
     import re
-    for parte in re.split(r"\s+[-–—|]\s+", titulo):
-        if c.casar_titulo(parte, relatorio)[0] == "exato":
-            return parte
+    achado = re.search(r"(\d[\d.,]*)\s*(mil|mi|bi)?\s*(?:de\s+)?visualiza", str(detalhe or "").lower())
+    if not achado:
+        return 0.0
+    try:
+        numero = float(achado[1].replace(".", "").replace(",", "."))
+    except ValueError:
+        return 0.0
+    return numero * {"mil": 1e3, "mi": 1e6, "bi": 1e9}.get(achado[2] or "", 1)
+
+
+def _escolher_videos(candidatos: list, por_interprete: int, por_obra: int) -> list:
+    """De todos os vídeos de uma obra, quais abrir: alguns de CADA intérprete, e os melhores de cada um.
+
+    `candidatos`: [(candidato, título, intérprete que o liga ao titular, consulta)]. Sem isto, um intérprete com
+    dezenas de vídeos tomaria todo o limite da obra e os outros ficariam sem nenhum. Dentro de cada intérprete
+    vêm primeiro a faixa de álbum e os vídeos do canal dele, depois os de outros canais, dos mais vistos para os
+    menos vistos; cover, karaokê e parecidos ficam por último. A escolha é por rodadas (o primeiro de cada
+    intérprete, depois o segundo...), para o limite da obra nunca deixar um intérprete de fora.
+    """
+    grupos = {}
+    for item in candidatos:
+        cand, _, elo, _ = item
+        do_canal = any(c.mesmo_artista(parte, elo) for parte in c.partes_do_interprete(cand.interprete)) or _nome_dentro(elo, cand.interprete)
+        derivado = any(palavra in normalizar(cand.titulo) for palavra in _DERIVADO)
+        grupos.setdefault(tuple(_palavras(elo)), []).append(((derivado, not do_canal, cand.tipo != "Música", -_visualizacoes(cand.detalhe)), item))
+    filas = [[item for _, item in sorted(grupo, key=lambda par: par[0])][:por_interprete] for grupo in grupos.values()]
+    escolhidos = []
+    for rodada in range(por_interprete):
+        escolhidos += [fila[rodada] for fila in filas if rodada < len(fila)]
+    return escolhidos[:por_obra]
+
+
+def _palavras(texto) -> list[str]:
+    """As palavras do texto, sem acento nem pontuação, com "&" lido como "e"."""
+    return normalizar(str(texto or "").replace("&", " e ")).split()
+
+
+def _nome_dentro(nome: str, texto: str) -> bool:
+    """O nome (de duas palavras ou mais) aparece inteiro no texto, como palavras seguidas?
+
+    Serve para duplas e bandas, que a divisão por "e" e "&" parte ao meio: "Fulano e Beltrano - Música".
+    Nome de uma palavra só nunca casa por aqui: seria fácil confundir com parte de outro nome.
+    """
+    alvo, onde = _palavras(nome), _palavras(texto)
+    return len(alvo) >= 2 and any(onde[i:i + len(alvo)] == alvo for i in range(len(onde) - len(alvo) + 1))
+
+
+def _titulo_do_video(titulo: str, relatorio: Relatorio, nomes=()) -> str:
+    """Vídeo costuma vir como "Intérprete - Título", às vezes com o nome grudado ou com "[Álbum Tal]" no fim.
+
+    Devolve o trecho que é título de obra do relatório. Se nenhum trecho for igual a um título, devolve o que
+    mais se aproxima: o título inteiro quando é um medley, ou o trecho parecido. `nomes` são os intérpretes e
+    nomes do titular já conhecidos, que podem ser tirados do começo ou do fim do título do vídeo.
+    """
+    import re
+
+    def sem_nomes(texto):
+        palavras = _palavras(texto)
+        for nome in sorted(nomes, key=len, reverse=True):
+            for alvo in (["grupo", *_palavras(nome)], _palavras(nome)):
+                if len(alvo) >= 2 and palavras[:len(alvo)] == alvo and len(palavras) > len(alvo):
+                    return " ".join(palavras[len(alvo):])
+                if len(alvo) >= 2 and palavras[-len(alvo):] == alvo and len(palavras) > len(alvo):
+                    return " ".join(palavras[:-len(alvo)])
+        return ""
+
+    limpo = re.sub(r"\s*\[[^\]]*\]\s*", " ", str(titulo or "")).strip()
+    candidatos = [titulo, limpo, *re.split(r"\s*[-–—|:]\s+|\s+[-–—|]\s*", limpo)]
+    # "Música ( Clipe Oficial ) Part. Fulano" -> "Música": sem os parênteses e sem a participação no fim.
+    candidatos += [re.sub(r"(?i)\s+(?:part|participa[cç][aã]o|feat|ft)\b\.?.*$", "", re.sub(r"\s*\([^)]*\)\s*", " ", x)).strip()
+                   for x in list(candidatos)]
+    # "Música 2016/2017" -> "Música": o ano solto no fim não faz parte do título.
+    candidatos += [re.sub(r"\s+(?:19|20)\d\d(?:\s*/\s*(?:19|20)?\d\d)?\s*$", "", x).strip() for x in list(candidatos)]
+    candidatos += [sem_nomes(x) for x in list(candidatos)]
+    # "Depois das 3" -> "Depois das tres": o cadastro costuma trazer o número por extenso.
+    candidatos += [" ".join(_NUMEROS.get(p, p) for p in _palavras(x)) for x in list(candidatos) if any(p in _NUMEROS for p in _palavras(x))]
+    # O título da obra inteiro dentro do título do vídeo, cercado de sobras ("FULANO - TAL MÚSICA [NOVA] setembro 2016").
+    # Vale para título de três palavras ou mais, ou de duas quando o vídeo também cita um nome conhecido; e só se
+    # for uma obra só, para não desmanchar um medley.
+    palavras_do_video = _palavras(limpo)
+    cita_nome = any(set(_palavras(n)) <= set(palavras_do_video) for n in nomes if _palavras(n))
+    dentro = {o.titulo for o in relatorio.obras
+              if (len(_palavras(o.titulo)) >= 3 or (len(_palavras(o.titulo)) == 2 and cita_nome))
+              and any(palavras_do_video[i:i + len(_palavras(o.titulo))] == _palavras(o.titulo) for i in range(len(palavras_do_video)))}
+    if len(dentro) == 1 and c.casar_titulo(titulo, relatorio)[0] != "medley":
+        candidatos.append(dentro.pop())
+    # Um trecho que é só o nome de um artista conhecido não é título: sem isto, a banda "Fulana" casaria com a obra "Fulano".
+    artistas = [alvo for nome in nomes for alvo in (_palavras(nome), ["grupo", *_palavras(nome)], ["banda", *_palavras(nome)])]
+    candidatos = [x for x in dict.fromkeys(candidatos) if x and x.strip() and (x == titulo or _palavras(x) not in artistas)]
+    tipos = {x: c.casar_titulo(x, relatorio)[0] for x in candidatos}
+    if _palavras(titulo) in artistas or (candidatos[1:] and c.casar_titulo(titulo, relatorio)[0] != "exato"):
+        tipos[titulo] = "" if tipos[titulo] == "aproximado" else tipos[titulo]  # o título inteiro só vale se for exato ou medley
+    for quero in ("exato", "medley", "aproximado"):
+        achado = next((x for x in candidatos if tipos[x] == quero), None)
+        if achado:
+            return achado
     return titulo
 
 
-def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), pares=None, por_obra=12, ao_avancar=None,
-                    limite_de_obras=None) -> Coleta:
+def _e_da_obra(titulo_exibido: str, titulo_da_obra: str, relatorio: Relatorio) -> str:
+    """Como o título exibido se liga a esta obra: "exato", "medley", "aproximado" ou ""."""
+    tipo, obras = c.casar_titulo(titulo_exibido, relatorio)
+    if tipo == "exato":
+        return tipo if c._titulo_base(titulo_exibido) == c._titulo_base(titulo_da_obra) else ""
+    return tipo if tipo and any(c._titulo_base(o.titulo) == c._titulo_base(titulo_da_obra) for o in obras) else ""
+
+
+def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), pares=None, por_obra=80, ao_avancar=None,
+                    limite_de_obras=None, so_os_pares=False, por_interprete=6) -> Coleta:
     """YouTube Music: busca "título + intérprete" e, para cada resultado ligado ao titular, lê o menu da faixa.
 
     `recorrentes` e `pares` vêm de `interpretes_conhecidos` (o que outra plataforma já mostrou). Só são
     abertas as faixas de artistas com ligação conhecida com o titular, ou que citam um deles no título do
-    vídeo: resultado com o mesmo título e artista sem relação é contado, não aberto.
+    vídeo. Vídeo com o título exato e canal sem relação conhecida não é aberto, mas vai para as pendências:
+    pode ser um intérprete que o app não conhece.
+
+    A busca olha as abas "Músicas" e "Vídeos" para cada intérprete e também só pelo título: clipes, shows
+    e envios de fãs ficam em "Vídeos", e é neles que o crédito mais falta. Título escrito de outro jeito e
+    medley com a obra são lidos quando o intérprete é conhecido; a classificação os deixa "a revisar".
+
+    `so_os_pares`: quando os intérpretes de cada obra já foram informados (em `pares`), busca só "título +
+    intérprete informado", sem as buscas de descoberta. É bem mais rápido: serve para ir direto aos prints.
+
+    De cada obra são abertos até `por_interprete` vídeos de cada intérprete (ver _escolher_videos) e, no total,
+    até `por_obra`.
     """
     from cantor.matching import nomes_parecidos
     from .ytmusic import Bloqueio, LINK
@@ -640,9 +842,12 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
             avisar(f"YouTube Music: buscando {i}/{len(titulos)}")
             da_obra = [n for n in pares.get(titulo, []) if not any(c.mesmo_artista(n, p) for p in principais)]
             ligados = [*principais, *recorrentes, *config.interpretes, *do_titular, *pares.get(titulo, [])]
-            consultas = [(f"{titulo} {n}", ("Músicas", "Vídeos") if k == 0 else ("Músicas",)) for k, n in enumerate(principais)]
-            consultas += [(f"{titulo} {n}", ("Músicas",)) for n in da_obra]
-            abertos = 0
+            if so_os_pares:
+                consultas = [(f"{titulo} {n}", ("Músicas", "Vídeos")) for n in pares.get(titulo, [])]
+            else:
+                consultas = [(f"{titulo} {n}", ("Músicas", "Vídeos")) for n in [*principais, *da_obra]]
+                consultas.append((titulo, ("Músicas", "Vídeos")))
+            da_vez, sem_ligacao = [], []
             for consulta, abas in consultas:
                 try:
                     achados = ytm.buscar(consulta, abas)
@@ -650,29 +855,49 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
                     coleta.avisos.append(f'busca "{consulta}" não foi feita: o filtro de saída barrou ({e})')
                     continue
                 for cand in achados:
-                    if cand.video in vistos or c.casar_titulo(_titulo_do_video(cand.titulo, relatorio), relatorio)[0] != "exato":
+                    if cand.video in vistos:
                         continue
-                    if c._titulo_base(_titulo_do_video(cand.titulo, relatorio)) != base:
+                    ligacao = _e_da_obra(_titulo_do_video(cand.titulo, relatorio, ligados), titulo, relatorio)
+                    if not ligacao:
                         continue
                     elo = next((n for n in ligados if any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(cand.interprete))
-                                or _citado(n, cand.titulo)), "")
+                                or _nome_dentro(n, cand.interprete) or _citado(n, cand.titulo) or _nome_dentro(n, cand.titulo)), "")
                     vistos.add(cand.video)
                     if not elo:
                         coleta.sem_vinculo_nao_abertos += 1
-                    elif abertos < por_obra:
-                        abertos += 1
-                        fila.append((cand, titulo, elo, consulta))
+                        # Canal desconhecido: não dá para afirmar nada, mas alguém precisa olhar.
+                        motivo = {"exato": "com o título da obra", "medley": "de medley que cita a obra",
+                                  "aproximado": "com título parecido com o da obra"}[ligacao]
+                        sem_ligacao.append(Gravacao(
+                            plataforma="YOUTUBE", link=LINK.format(cand.video), titulo=cand.titulo, interprete=cand.interprete,
+                            album=cand.detalhe, creditos=["(vídeo não aberto)"], origem=f'busca "{consulta}" ({cand.tipo})',
+                            obra=titulo, classificacao=c.Classificacao(
+                                c.HOMONIMA, f'vídeo {motivo}, publicado por "{cand.interprete}", que o app não conseguiu ligar ao '
+                                "titular; não foi aberto. Se esse artista grava o titular, informe o nome e colete de novo",
+                                revisar=True),
+                        ))
+                    else:
+                        da_vez.append((cand, titulo, elo, consulta))
+            fila += _escolher_videos(da_vez, por_interprete, por_obra)
+            if len(sem_ligacao) <= PENDENCIAS_POR_OBRA:
+                coleta.gravacoes += sem_ligacao
+            else:  # título comum: listar dezenas de homônimos só esconderia os casos que importam
+                coleta.avisos.append(
+                    f'"{titulo}" é um título comum no YouTube Music: {len(sem_ligacao)} vídeos de canais sem ligação conhecida '
+                    "com o titular não foram listados nas pendências. Se algum intérprete estiver faltando, informe o nome dele"
+                )
         for i, (cand, titulo, elo, consulta) in enumerate(fila, start=1):
             avisar(f"YouTube Music: lendo faixa {i}/{len(fila)}")
             leitura = ytm.ler(cand.video, titulo, cand)
-            mostrado = _titulo_do_video(leitura.titulo or cand.titulo, relatorio)
-            do_canal = any(c.mesmo_artista(parte, elo) for parte in c.partes_do_interprete(leitura.interprete or cand.interprete))
+            mostrado = _titulo_do_video(leitura.titulo or cand.titulo, relatorio, [elo, *do_titular, *recorrentes])
+            do_canal = any(c.mesmo_artista(parte, elo) for parte in c.partes_do_interprete(leitura.interprete or cand.interprete)) \
+                or _nome_dentro(elo, leitura.interprete or cand.interprete)
             item = Item(
                 titulo=mostrado, interprete=elo if not do_canal else (leitura.interprete or cand.interprete),
                 creditos=leitura.creditos, coleta=leitura.coleta, erro=leitura.erro, vinculo=_par_conhecido(pares, titulo, elo),
                 plataforma="YOUTUBE", link=LINK.format(cand.video), fonte=leitura.fornecedor, album=leitura.detalhe,
             )
-            if leitura.coleta == "ok" and c._titulo_base(mostrado) != c._titulo_base(titulo):
+            if leitura.coleta == "ok" and not _e_da_obra(mostrado, titulo, relatorio):
                 item.coleta, item.erro = "erro", f'a página abriu "{leitura.titulo}", que não é o título buscado'
             resultado = classificar(item, relatorio, config_local)
             if resultado.status == c.FORA_DO_REPERTORIO:
@@ -705,8 +930,8 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
 # Tempo da primeira coleta, medido nos dois primeiros casos (um de 47 e um de 119 títulos, 10 a 20 obras cada).
 # Segundos por obra em cada plataforma, mais um tempo fixo. É uma ordem de grandeza, não uma promessa: depende
 # de quantas gravações cada obra tem e de quantos intérpretes aparecem.
-SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0}
-SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 420, "vagalume": 30}
+SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0, "amazon": 25, "amazon_app": 35}
+SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 420, "vagalume": 30, "amazon": 20, "amazon_app": 60}
 
 
 def estimar_minutos(obras: int, plataformas) -> int:
@@ -727,13 +952,13 @@ def texto_da_estimativa(minutos: int) -> str:
     return f"cerca de {horas}h{resto:02d}" if resto else f"cerca de {horas} hora{'s' if horas > 1 else ''}"
 
 
-TODAS = ("deezer", "apple", "youtube", "spotify", "tidal", "vagalume")
-ORDEM = ["YOUTUBE", "SPOTIFY", "TIDAL", "DEEZER", "VAGALUME", "APPLE MUSIC"]  # a das colunas da planilha
+TODAS = ("deezer", "apple", "youtube", "spotify", "tidal", "vagalume", "amazon")
+ORDEM = ["YOUTUBE", "SPOTIFY", "TIDAL", "DEEZER", "VAGALUME", "AMAZON", "AMAZON - SITE", "APPLE MUSIC"]  # a das colunas da planilha
 
 
 def executar(relatorio: Relatorio, config: Config, pasta, nomes_dos_coautores=(), youtube=False, limite_youtube=None,
-             por_obra=12, ao_avancar=None, so_o_que_ja_foi_lido=False, plataformas=None, prints=True,
-             mostrar_navegador=True, tela_inteira=False) -> list[Coleta]:
+             por_obra=80, ao_avancar=None, so_o_que_ja_foi_lido=False, plataformas=None, prints=True,
+             mostrar_navegador=True, tela_inteira=False, conferidos=None) -> list[Coleta]:
     """O fluxo inteiro, do relatório às coletas de cada plataforma, com as capturas de tela.
 
     `pasta` é a pasta do caso: cada plataforma guarda ali o que já leu e os seus prints (pasta/<plataforma>).
@@ -741,47 +966,83 @@ def executar(relatorio: Relatorio, config: Config, pasta, nomes_dos_coautores=()
     número de obras buscadas em cada plataforma (a discografia da Deezer é sempre percorrida inteira).
     A Deezer vem primeiro porque ensina às outras quem grava o titular. As coletas saem na ordem da planilha.
     `tela_inteira`: cada print ganha também a foto do monitor inteiro; a janela do navegador fica visível.
+    `conferidos`: {título: [intérpretes]} da planilha que o compositor conferiu. Com ela, o app não descobre nem
+    presume intérprete nenhum: verifica só esses pares, e as obras sem intérprete na planilha ficam de fora.
     """
     from . import captura
 
     captura.TELA_INTEIRA, antes = bool(tela_inteira), captura.TELA_INTEIRA
     try:
         return _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_youtube, por_obra, ao_avancar,
-                         so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador or tela_inteira)
+                         so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador or tela_inteira, conferidos=conferidos)
     finally:
         captura.TELA_INTEIRA = antes
 
 
+def _so_os_conferidos(coleta: Coleta, relatorio: Relatorio, config: Config, conferidos: dict) -> Coleta:
+    """Deixa na coleta só o que o compositor conferiu: par (obra, intérprete) da planilha vale como ligação provada;
+    resultado negativo de intérprete que não está na planilha para aquela obra sai da conta e vai para as pendências."""
+    for g in coleta.gravacoes:
+        k = g.classificacao
+        do_par = any(_par_conhecido(conferidos, titulo, g.interprete) for titulo in g.obra.split("; "))
+        if do_par and (k.status == c.HOMONIMA or (k.status in c.NEGATIVOS and k.revisar)):
+            novo = classificar(Item(titulo=g.titulo, interprete=g.interprete, creditos=g.creditos, vinculo=True,
+                                    plataforma=g.plataforma, link=g.link), relatorio, config)
+            if novo.status != c.FORA_DO_REPERTORIO:
+                g.classificacao, g.vinculo = novo, "intérprete conferido pelo compositor"
+        elif not do_par and k.status in c.NEGATIVOS:
+            g.classificacao = Classificacao(
+                c.HOMONIMA, f'o intérprete "{g.interprete}" não está na planilha conferida para esta obra'
+                + ("; o crédito exibido traz autor do relatório: vale perguntar ao compositor se ele gravou"
+                   if k.autores_reconhecidos else "; pode ser obra homônima de terceiro"), revisar=True)
+    coleta.interpretes_inferidos = []  # nada de intérprete presumido: quem não está na planilha não entra
+    return coleta
+
+
 def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_youtube, por_obra, ao_avancar,
-              so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador) -> list[Coleta]:
+              so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador, conferidos=None) -> list[Coleta]:
     from .navegador import Navegador
 
     pasta, limite = Path(pasta), limite_youtube
     pedidas = set(plataformas) if plataformas is not None else {"deezer"} | ({"youtube"} if youtube else set())
+    sem_interprete = []
+    if conferidos is not None:
+        import copy
+        sem_interprete = [t for t in dict.fromkeys(o.titulo for o in relatorio.obras) if not conferidos.get(t)]
+        relatorio = copy.copy(relatorio)
+        relatorio.obras = [o for o in relatorio.obras if conferidos.get(o.titulo)]
+        nomes_dos_coautores = []  # sem descoberta: os intérpretes já vieram conferidos
+    ajustar = (lambda coleta: _so_os_conferidos(coleta, relatorio, config, conferidos)) if conferidos is not None else (lambda coleta: coleta)
     filtro = filtro_do_relatorio(relatorio, config)
     deezer = Deezer(filtro=filtro, cache=pasta / "deezer")
-    coletas = [coletar_deezer(relatorio, config, deezer, nomes_dos_coautores, ao_avancar=ao_avancar,
-                              limite_de_obras=limite if plataformas is not None else None)]
-    recorrentes, pares = interpretes_conhecidos(coletas)
+    coletas = [ajustar(coletar_deezer(relatorio, config, deezer, nomes_dos_coautores, ao_avancar=ao_avancar,
+                                      limite_de_obras=limite if plataformas is not None else None))]
+    if sem_interprete:
+        coletas[0].avisos.append(
+            f"{len(sem_interprete)} obras estão sem intérprete na planilha conferida e não foram verificadas: "
+            + "; ".join(sem_interprete[:40]) + ("…" if len(sem_interprete) > 40 else ""))
+    recorrentes, pares = ([], dict(conferidos)) if conferidos is not None else interpretes_conhecidos(coletas)
     if "apple" in pedidas:
         from .apple import AppleMusic
-        coletas.append(coletar_apple(relatorio, config, AppleMusic(filtro=filtro, cache=pasta / "apple"), recorrentes, pares, limite,
-                                     ao_avancar=ao_avancar))
-        recorrentes, pares = interpretes_conhecidos(coletas)  # a Apple costuma revelar mais intérpretes
+        coletas.append(ajustar(coletar_apple(relatorio, config, AppleMusic(filtro=filtro, cache=pasta / "apple"), recorrentes, pares, limite,
+                                             ao_avancar=ao_avancar)))
+        if conferidos is None:
+            recorrentes, pares = interpretes_conhecidos(coletas)  # a Apple costuma revelar mais intérpretes
     if "vagalume" in pedidas:
         from .vagalume import Vagalume
-        coletas.append(coletar_vagalume(relatorio, config, Vagalume(filtro=filtro, cache=pasta / "vagalume"), recorrentes, pares, limite,
-                                        ao_avancar=ao_avancar))
+        coletas.append(ajustar(coletar_vagalume(relatorio, config, Vagalume(filtro=filtro, cache=pasta / "vagalume"), recorrentes, pares,
+                                                limite, ao_avancar=ao_avancar)))
     if "youtube" in pedidas:
         from .ytmusic import YouTubeMusic
         with YouTubeMusic(pasta / "youtube", filtro=filtro, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
                           visivel=not so_o_que_ja_foi_lido, so_o_que_ja_foi_lido=so_o_que_ja_foi_lido) as ytm:
-            coletas.append(coletar_youtube(relatorio, config, ytm, recorrentes, pares, por_obra, ao_avancar, limite))
+            coletas.append(coletar_youtube(relatorio, config, ytm, recorrentes, pares, por_obra, ao_avancar, limite,
+                                           so_os_pares=conferidos is not None))
     for coleta in coletas:  # o que já foi fotografado em outra rodada é reaproveitado
         if coleta.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME"):
             reaproveitar_prints(coleta, pasta / coleta.plataforma.lower().replace(" ", "-"),
                                 pagina_da_musica_na_apple if coleta.plataforma == "APPLE MUSIC" else None)
-    com_tela = pedidas & {"spotify", "tidal"}
+    com_tela = pedidas & {"spotify", "tidal", "amazon", "amazon_app"}
     falta_print = prints and not so_o_que_ja_foi_lido and any(
         g.classificacao.status in c.NEGATIVOS and not g.provas for k in coletas if k.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME")
         for g in k.gravacoes)
@@ -789,12 +1050,23 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
         with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador) as nav:
             if "spotify" in pedidas:
                 from .spotify import Spotify
-                coletas.append(coletar_spotify(relatorio, config, Spotify(nav, pasta / "spotify", so_o_que_ja_foi_lido),
-                                               recorrentes, pares, limite, ao_avancar=ao_avancar))
+                coletas.append(ajustar(coletar_spotify(relatorio, config, Spotify(nav, pasta / "spotify", so_o_que_ja_foi_lido),
+                                                       recorrentes, pares, limite, ao_avancar=ao_avancar)))
             if "tidal" in pedidas:
                 from .tidal import Tidal
-                coletas.append(coletar_tidal(relatorio, config, Tidal(nav, pasta / "tidal", so_o_que_ja_foi_lido),
-                                             recorrentes, pares, limite, ao_avancar=ao_avancar))
+                coletas.append(ajustar(coletar_tidal(relatorio, config, Tidal(nav, pasta / "tidal", so_o_que_ja_foi_lido),
+                                                     recorrentes, pares, limite, ao_avancar=ao_avancar)))
+            if "amazon" in pedidas:
+                from .amazon import AmazonWeb
+                coletas.append(ajustar(coletar_amazon(relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido),
+                                                      recorrentes, pares, limite, ao_avancar=ao_avancar)))
+            if "amazon_app" in pedidas:
+                from .amazon import AmazonWeb
+                from .amazon_app import AmazonApp
+                with AmazonApp(pasta / "amazon-app", ao_avancar, so_o_que_ja_foi_lido) as aplicativo:
+                    coletas.append(ajustar(coletar_amazon_app(
+                        relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido), aplicativo,
+                        recorrentes, pares, limite, ao_avancar=ao_avancar)))
             if falta_print:
                 preparos = {"DEEZER": abrir_creditos_da_deezer, "VAGALUME": abrir_autoria_do_vagalume,
                             "APPLE MUSIC": abrir_creditos_da_apple}

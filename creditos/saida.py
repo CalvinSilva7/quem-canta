@@ -22,9 +22,12 @@ from . import classificador as c
 # Ordem das colunas da planilha do escritório.
 # A Apple Music não está na planilha do escritório: entra no fim, como plataforma de controle.
 PLATAFORMAS = ["YOUTUBE", "SPOTIFY", "TIDAL", "DEEZER", "CLARO", "BRISA MUSIC", "PALCO MP3", "VAGALUME", "NAPSTER", "AMAZON",
+               "AMAZON - SITE",
                "APPLE MUSIC"]
 ENCERRADAS = {"BRISA MUSIC", "NAPSTER"}
-SEM_CAMPO_DE_AUTORIA = {"AMAZON"}  # a plataforma não exibe compositor em lugar nenhum: a prova é ata notarial
+# "AMAZON" é o aplicativo de desktop da Amazon Music, o único lugar em que ela mostra o compositor ("Créditos").
+# Ele não é um site e exige a conta logada: o app não coleta ali. O site é a coluna "AMAZON - SITE".
+SO_NO_APLICATIVO = {"AMAZON"}
 SEPARADOR = " -- "
 TEM_CREDITOS, NAO_ESTA, VERIFICAR = "tem créditos", "N/A", "verificar manualmente"
 NAO_COLETADO = "não coletado nesta versão"
@@ -70,8 +73,8 @@ def linhas_por_obra(relatorio, coletas) -> list[dict]:
 def _nao_coletada(plataforma):
     if plataforma in ENCERRADAS:
         return "plataforma encerrada", ""
-    if plataforma in SEM_CAMPO_DE_AUTORIA:
-        return "sem campo de autoria (prova por ata notarial)", ""
+    if plataforma in SO_NO_APLICATIVO:
+        return "não coletado: aplicativo de desktop (print manual)", ""
     return NAO_COLETADO, ""
 
 

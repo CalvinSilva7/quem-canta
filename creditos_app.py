@@ -22,6 +22,27 @@ from creditos.modelo import SITUACOES, Relatorio
 # Onde ficam os casos (o que já foi lido e os prints): fora da pasta do programa, para uma atualização nunca tocar neles.
 PASTA_DE_DADOS = Path(os.environ.get("QUEMCANTA_DADOS") or Path.home() / "Documents" / "Quem Canta")
 
+ETAPAS = ["1. Buscar intérpretes", "2. Verificar créditos e tirar prints"]
+
+
+@st.fragment(run_every=1)
+def painel_do_andamento(rotulo="Coleta", parar="Parar coleta"):
+    """A barra de progresso e o botão de parar. Atualiza sozinho a cada segundo, sem recarregar o resto da tela."""
+    tarefa = andamento.atual()
+    if tarefa is None or not tarefa.viva:
+        st.rerun()  # terminou: a tela inteira é refeita, agora com o resultado
+    retrato = tarefa.andamento.retrato()
+    st.progress(retrato["fracao"], text=f"**{rotulo}: {round(retrato['fracao'] * 100)}%** · {retrato['restante']}")
+    st.caption(f"Etapa {retrato['etapa']} de {retrato['etapas']}: {retrato['nome']} · {retrato['detalhe']}")
+    st.caption(" · ".join(f"{nome}: {situacao}" for nome, situacao in retrato["situacoes"]))
+    parando = retrato["parando"]
+    if not parando and st.button(parar, help="O que já foi lido fica guardado: ao rodar de novo, continua de onde parou."):
+        tarefa.pedir_parada()
+        parando = True
+    if parando:
+        st.warning("Parando… o app termina a página que está aberta e para. O que já foi lido fica guardado.")
+
+
 st.set_page_config(page_title="Créditos nas plataformas", layout="wide")
 st.title("Créditos nas plataformas")
 
@@ -82,11 +103,15 @@ if arquivo is not None and st.session_state.get("arquivo_id") != arquivo.file_id
         st.stop()
     st.session_state.arquivo_id = arquivo.file_id
     st.session_state.relatorio = relatorio
+    for chave in ("conferidos", "conferidos_fora", "conferida_id", "lista_de_interpretes", "coletas", "saidas"):
+        st.session_state.pop(chave, None)  # relatório novo: o que era do anterior não vale mais
 
 em_curso = andamento.atual()
 if em_curso is not None and em_curso.viva and st.session_state.get("relatorio") is None:
     # A página foi recarregada no meio de uma coleta: a coleta continua, e a tela volta a acompanhá-la.
     st.session_state.relatorio = em_curso.dados["relatorio"]
+    if em_curso.dados.get("conferidos"):
+        st.session_state.conferidos = em_curso.dados["conferidos"]
 relatorio: Relatorio | None = st.session_state.get("relatorio")
 if relatorio is None:
     st.info("Envie o relatório para começar.")
@@ -107,6 +132,90 @@ if relatorio.total_declarado is not None and relatorio.total_declarado == len(re
     st.success("Contagem conferida: todas as obras declaradas no relatório foram lidas.")
 for aviso in relatorio.avisos:
     st.warning(aviso)
+
+# --- as duas etapas do trabalho ------------------------------------------------
+
+em_curso = andamento.atual()
+if em_curso is not None and "etapa" not in st.session_state:  # página recarregada: volta para a etapa que está rodando
+    st.session_state.etapa = ETAPAS[0] if em_curso.dados.get("tipo") == "interpretes" else ETAPAS[1]
+etapa = st.radio("Etapa", ETAPAS, horizontal=True, key="etapa", label_visibility="collapsed")
+pasta_do_caso = PASTA_DE_DADOS / "casos" / slug(relatorio.pseudonimo_titular or relatorio.nome_titular or "caso")
+
+if etapa == ETAPAS[0]:
+    from creditos import interpretes as _interpretes
+    from creditos import pipeline as _pipeline
+
+    st.subheader("Buscar intérpretes")
+    st.caption(
+        "O app descobre quem gravou cada obra do relatório e devolve uma planilha só com isto: a obra e o intérprete. "
+        "Mande a planilha para o compositor conferir e corrigir. A coleta de prints (etapa 2) vem depois."
+    )
+    obras_distintas = len({o.titulo for o in relatorio.obras})
+    limite_de_obras = None
+    if os.environ.get("QUEMCANTA_DEV"):  # só para quem desenvolve e demonstra o app
+        quantas = st.number_input("Obras a buscar (só para teste)", min_value=0, max_value=obras_distintas,
+                                  value=min(10, obras_distintas), step=5, help="0 = todas.")
+        if quantas and quantas < obras_distintas:
+            limite_de_obras, obras_distintas = int(quantas), int(quantas)
+    st.info(
+        f"**Tempo estimado: {_pipeline.texto_da_estimativa(_pipeline.estimar_minutos(obras_distintas, _interpretes.PLATAFORMAS))}** "
+        f"para as {obras_distintas} obras. Nesta etapa nenhum navegador é aberto e nenhum print é tirado. O que já foi "
+        "lido fica guardado: se parar no meio, continua de onde estava."
+    )
+    tarefa = andamento.atual()
+    de_outra_etapa = tarefa is not None and tarefa.dados.get("tipo") != "interpretes"
+    if tarefa is not None and not de_outra_etapa and not tarefa.viva:
+        andamento.encerrar()
+        if tarefa.erro is not None:
+            st.error(f"A busca não terminou: {type(tarefa.erro).__name__}: {tarefa.erro}")
+        elif tarefa.interrompida:
+            st.warning("Busca interrompida. O que já foi lido ficou guardado: clique em **Buscar intérpretes** para continuar.")
+        else:
+            st.session_state.relatorio = relatorio = tarefa.dados["relatorio"]
+            st.session_state.lista_de_interpretes = tarefa.resultado
+        tarefa = None
+    if de_outra_etapa:
+        st.info("Há uma coleta de prints em andamento na etapa 2. Espere terminar, ou pare por lá, antes de buscar intérpretes.")
+    elif tarefa is None and st.button("Buscar intérpretes", type="primary"):
+        from creditos.classificador import Config
+
+        nomes_do_relatorio = relatorio.nomes_artisticos()
+        config = Config(nomes_confirmados=[n["nome"] for n in nomes_do_relatorio if n["titular"]])
+        coautores = [n["nome"] for n in nomes_do_relatorio if not n["titular"]]
+        tarefa = andamento.iniciar(
+            lambda avisar: _interpretes.buscar(relatorio, config, pasta_do_caso, coautores if len(coautores) <= 10 else [],
+                                              ao_avancar=avisar, limite=limite_de_obras),
+            andamento.Andamento(obras_distintas, _interpretes.PLATAFORMAS, prints=False), tipo="interpretes", relatorio=relatorio,
+        )
+        tarefa.linha.join(0.3)
+        if tarefa.viva:
+            st.rerun()
+        andamento.encerrar()
+        if tarefa.erro is not None:
+            st.error(f"A busca não terminou: {type(tarefa.erro).__name__}: {tarefa.erro}")
+        elif not tarefa.interrompida:
+            st.session_state.lista_de_interpretes = tarefa.resultado
+        tarefa = None
+    if tarefa is not None and not de_outra_etapa:
+        painel_do_andamento("Busca", "Parar busca")
+    lista = st.session_state.get("lista_de_interpretes")
+    if lista:
+        if limite_de_obras:
+            lista = lista[:limite_de_obras]
+        com = sum(bool(nomes) for _, nomes in lista)
+        st.subheader("Resultado")
+        st.download_button(
+            "Planilha de intérpretes (.xlsx)", _interpretes.planilha(relatorio, lista),
+            f"Intérpretes - {relatorio.pseudonimo_titular or relatorio.nome_titular}.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary",
+        )
+        st.caption(
+            f"{com} de {len(lista)} obras com intérprete encontrado. As outras {len(lista) - com} vão em branco, para o "
+            "compositor preencher. O app não acha todos: a conferência do compositor faz parte do processo."
+        )
+        st.dataframe(pd.DataFrame([{"Obras": obra, "Intérpretes": nome.upper()} for obra, nomes in lista for nome in (nomes or [""])]),
+                     hide_index=True)
+    st.stop()
 
 # --- conferir e ajustar (recolhido: quase nunca precisa mexer) ----------------
 
@@ -223,14 +332,55 @@ with area_da_coleta:
 
     if st.session_state.pop("aviso_de_confirmacao", False):
         st.success("Intérpretes confirmados. Clique em **Coletar e classificar** de novo: como tudo já foi lido, sai em instantes.")
+    # A coleta só anda com os intérpretes que o compositor conferiu: o app não decide sozinho quem canta.
+    from creditos import interpretes as _interpretes
+
+    conferida = st.file_uploader(
+        "Planilha de intérpretes conferida pelo compositor (.xlsx)", type=["xlsx"], key="planilha_conferida",
+        help="A planilha da etapa 1, depois que o compositor conferiu e corrigiu: a obra na primeira coluna e o intérprete na segunda.",
+    )
+    if conferida is not None and st.session_state.get("conferida_id") != conferida.file_id:
+        try:
+            lidos, fora = _interpretes.ler_planilha(conferida.getvalue(), relatorio)
+        except Exception as e:
+            st.error(f"Não consegui ler a planilha de intérpretes: {e}")
+        else:
+            st.session_state.conferidos, st.session_state.conferidos_fora, st.session_state.conferida_id = lidos, fora, conferida.file_id
+            st.session_state.pop("coletas", None)
+            st.session_state.pop("saidas", None)
+    conferidos = st.session_state.get("conferidos")
+    if conferidos:
+        sem = len({o.titulo for o in relatorio.obras}) - len(conferidos)
+        st.success(
+            f"Planilha lida: {sum(map(len, conferidos.values()))} intérpretes em {len(conferidos)} obras."
+            + (f" As outras {sem} obras do relatório estão sem intérprete e não serão verificadas." if sem else "")
+        )
+        if st.session_state.get("conferidos_fora"):
+            st.warning("Obras da planilha que não estão no relatório, e por isso ficam de fora: " + "; ".join(st.session_state.conferidos_fora))
+    elif conferidos is not None:
+        st.error("Nenhuma obra da planilha foi encontrada no relatório. Confira se a planilha é deste compositor.")
+    elif andamento.atual() is None:
+        st.info(
+            "Envie a planilha de intérpretes conferida pelo compositor para liberar a coleta. Se ainda não tem, faça a "
+            "**etapa 1** e mande a planilha para ele conferir."
+        )
     NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
-                             "apple": "Apple Music (controle)", "vagalume": "Vagalume"}
+                             "apple": "Apple Music (controle)", "vagalume": "Vagalume", "amazon": "Amazon Music (site)",
+                             "amazon_app": "Amazon Music (aplicativo de desktop)"}
     from creditos import pipeline as _pipeline
 
     escolhidas = st.multiselect(
-        "Plataformas", list(NOMES_DAS_PLATAFORMAS), default=list(NOMES_DAS_PLATAFORMAS), format_func=NOMES_DAS_PLATAFORMAS.get,
-        help="A Deezer roda sempre: é ela que mostra às outras quem grava o titular.",
+        "Plataformas", list(NOMES_DAS_PLATAFORMAS), default=[p for p in NOMES_DAS_PLATAFORMAS if p != "amazon_app"],
+        format_func=NOMES_DAS_PLATAFORMAS.get,
+        help="A Deezer roda sempre. O aplicativo de desktop da Amazon Music vem desmarcado: só funciona no Windows, com o "
+        "aplicativo instalado e a conta do escritório já logada nele.",
     )
+    if "amazon_app" in escolhidas:
+        st.warning(
+            "**Amazon Music (aplicativo de desktop):** é no aplicativo que a Amazon mostra o compositor. O app vai **fechar e "
+            "abrir de novo o Amazon Music** para poder controlá-lo, e usa a conta que já estiver logada nele: não digita senha "
+            "nem faz login. Não use o aplicativo enquanto a coleta roda."
+        )
     mostrar_navegador = st.checkbox(
         "Mostrar a janela do navegador enquanto coleta", value=False,
         help="Desmarcado, o navegador que o app usa fica fora da tela e você pode trabalhar normalmente. Marque para "
@@ -247,7 +397,7 @@ with area_da_coleta:
             "que vai ficar livre, maximize-a** e trabalhe no outro. Não cubra nem minimize essa janela durante a coleta. "
             "Tudo o que estiver nesse monitor sai no print: feche ali o que não pode aparecer."
         )
-    titulos_do_relatorio = len({o.titulo for o in relatorio.obras})
+    titulos_do_relatorio = len(conferidos) if conferidos else len({o.titulo for o in relatorio.obras})
     limite = None
     if os.environ.get("QUEMCANTA_DEV"):
         # Só para quem desenvolve e demonstra o app (variável QUEMCANTA_DEV). No pacote instalado isto não aparece:
@@ -265,24 +415,6 @@ with area_da_coleta:
         "O computador pode ser usado normalmente enquanto isso, mas precisa ficar ligado. O que já foi lido fica "
         "guardado: se parar no meio ou coletar de novo, continua de onde estava."
     )
-    pasta_do_caso = PASTA_DE_DADOS / "casos" / slug(relatorio.pseudonimo_titular or relatorio.nome_titular or "caso")
-
-    @st.fragment(run_every=1)
-    def painel_da_coleta():
-        """A barra de progresso e o botão de parar. Atualiza sozinho a cada segundo, sem recarregar o resto da tela."""
-        tarefa = andamento.atual()
-        if tarefa is None or not tarefa.viva:
-            st.rerun()  # terminou: a tela inteira é refeita, agora com o resultado
-        retrato = tarefa.andamento.retrato()
-        st.progress(retrato["fracao"], text=f"**Coleta: {round(retrato['fracao'] * 100)}%** · {retrato['restante']}")
-        st.caption(f"Etapa {retrato['etapa']} de {retrato['etapas']}: {retrato['nome']} · {retrato['detalhe']}")
-        st.caption(" · ".join(f"{nome}: {situacao}" for nome, situacao in retrato["situacoes"]))
-        parando = retrato["parando"]
-        if not parando and st.button("Parar coleta", help="O que já foi lido fica guardado: ao coletar de novo, continua de onde parou."):
-            tarefa.pedir_parada()
-            parando = True
-        if parando:
-            st.warning("Parando… o app termina a página que está aberta e para. O que já foi lido fica guardado.")
 
     def recolher(tarefa):
         """Pega o resultado da coleta que terminou (ou diz por que não terminou) e libera o botão de coletar."""
@@ -301,10 +433,14 @@ with area_da_coleta:
             st.session_state.pop("saidas", None)
 
     tarefa = andamento.atual()
-    if tarefa is not None and not tarefa.viva:
+    de_outra_etapa = tarefa is not None and tarefa.dados.get("tipo") == "interpretes"
+    if de_outra_etapa:
+        st.info("Há uma busca de intérpretes em andamento na etapa 1. Espere terminar, ou pare por lá, antes de coletar.")
+        tarefa = None
+    elif tarefa is not None and not tarefa.viva:
         recolher(tarefa)
         tarefa = None
-    if tarefa is None and st.button("Coletar e classificar", type="primary"):
+    if tarefa is None and not de_outra_etapa and conferidos and st.button("Coletar e classificar", type="primary"):
         from creditos import pipeline
         from creditos.classificador import Config
 
@@ -317,9 +453,10 @@ with area_da_coleta:
             lambda avisar: pipeline.executar(
                 relatorio, config, pasta_do_caso, coautores if len(coautores) <= 10 else [], ao_avancar=avisar,
                 limite_youtube=limite, plataformas=tuple(escolhidas), mostrar_navegador=mostrar_navegador,
-                tela_inteira=tela_inteira,
+                tela_inteira=tela_inteira, conferidos=conferidos,
             ),
-            andamento.Andamento(titulos_do_relatorio, escolhidas), relatorio=relatorio, pasta=str(pasta_do_caso),
+            andamento.Andamento(titulos_do_relatorio, escolhidas), tipo="coleta", relatorio=relatorio, pasta=str(pasta_do_caso),
+            conferidos=conferidos,
         )
         tarefa.linha.join(0.3)  # o que já estava todo lido termina na hora, sem passar pela barra
         if tarefa.viva:
@@ -327,7 +464,7 @@ with area_da_coleta:
         recolher(tarefa)
         tarefa = None
     if tarefa is not None:
-        painel_da_coleta()
+        painel_do_andamento()
 
     coletas = st.session_state.get("coletas")
     if coletas:

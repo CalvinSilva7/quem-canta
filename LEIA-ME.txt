@@ -47,6 +47,19 @@ O QUE VOCE PRECISA SABER
   para um monitor que vai ficar livre e trabalhe no outro. Nao cubra nem
   minimize essa janela. Tudo o que estiver nesse monitor sai no print.
 
+AMAZON MUSIC
+------------
+A Amazon tem dois lugares, e o app trata cada um numa coluna da planilha:
+- "AMAZON - SITE": o site music.amazon.com.br. La nao existe tela de
+  creditos; o app tira um print por musica, do menu da faixa.
+- "AMAZON": o aplicativo de desktop, onde aparece o item "Creditos". Sao
+  dois prints por musica. Vem desmarcado em "Plataformas": precisa do
+  Amazon Music instalado neste computador (baixado do site da Amazon) e da
+  conta do escritorio ja logada nele. O app fecha e abre o aplicativo para
+  poder usa-lo; ele nao digita senha nem faz login.
+  Antes de usar pela primeira vez, de dois cliques em "Testar Amazon.cmd":
+  ele confere se o app consegue controlar o aplicativo neste computador.
+
 ONDE FICAM OS DADOS
 -------------------
 Em Documentos\Quem Canta\casos, uma pasta por compositor, com o que foi lido

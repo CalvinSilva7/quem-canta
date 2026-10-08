@@ -31,7 +31,7 @@ def tamanho_da_janela() -> list[str]:
     return ["--window-size=1280,800"] if captura.TELA_INTEIRA else []
 _BLOQUEIO_NA_URL = ("accounts.google.com", "google.com/sorry", "consent.youtube.com", "consent.google.com",
                     "accounts.spotify.com", "challenge.spotify.com", "login.tidal.com", "account.deezer.com",
-                    "idmsa.apple.com", "/captcha")
+                    "idmsa.apple.com", "/captcha", "amazon.com.br/ap/signin", "amazon.com/ap/signin", "/errors/validateCaptcha")
 _BLOQUEIO_NO_TEXTO = ("nao e um robo", "trafego incomum", "unusual traffic", "faca login para confirmar",
                       "verify you are human", "confirme que voce e humano", "access denied", "acesso negado")
 

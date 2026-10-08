@@ -12,10 +12,10 @@ import time
 
 from . import pipeline
 
-ETAPAS = ["deezer", "apple", "vagalume", "youtube", "spotify", "tidal"]  # a ordem em que a coleta acontece
+ETAPAS = ["deezer", "apple", "vagalume", "youtube", "spotify", "tidal", "amazon", "amazon_app"]  # a ordem em que a coleta acontece
 PRINTS = "prints"
 NOMES = {"deezer": "Deezer", "apple": "Apple Music", "vagalume": "Vagalume", "youtube": "YouTube Music",
-         "spotify": "Spotify", "tidal": "Tidal", PRINTS: "Prints das provas"}
+         "spotify": "Spotify", "tidal": "Tidal", "amazon": "Amazon Music", "amazon_app": "Amazon Music (aplicativo)", PRINTS: "Prints das provas"}
 _PELO_NOME = {nome.lower(): etapa for etapa, nome in NOMES.items()}
 # Que pedaço de cada etapa cada tipo de aviso ocupa: (palavra do aviso, começo, fim).
 FASES = {
@@ -25,6 +25,8 @@ FASES = {
     "youtube": [("buscando", 0.0, 0.3), ("lendo faixa", 0.3, 1.0)],
     "spotify": [("buscando", 0.0, 0.3), ("lendo faixa", 0.3, 1.0)],
     "tidal": [("procurando", 0.0, 0.5), ("lendo álbum", 0.5, 0.9), ("print", 0.9, 1.0)],
+    "amazon": [("buscando", 0.0, 0.4), ("lendo faixa", 0.4, 1.0)],
+    "amazon_app": [("buscando", 0.0, 0.2), ("abrindo", 0.2, 0.25), ("lendo faixa", 0.25, 1.0)],
     PRINTS: [("print", 0.0, 1.0)],
 }
 _CONTAGEM = re.compile(r"(\d+)\s*/\s*(\d+)\s*$")
@@ -37,11 +39,12 @@ class Interrompida(BaseException):
 class Andamento:
     """Recebe os avisos da coleta (é o `ao_avancar` dela) e responde quanto já foi feito."""
 
-    def __init__(self, obras: int, plataformas, agora=time.monotonic):
+    def __init__(self, obras: int, plataformas, agora=time.monotonic, prints=True):
         pedidas = set(plataformas) | {"deezer"}
-        self.etapas = [e for e in ETAPAS if e in pedidas] + [PRINTS]
+        self.etapas = [e for e in ETAPAS if e in pedidas] + ([PRINTS] if prints else [])
         self.pesos = {e: pipeline.SEGUNDOS_POR_OBRA.get(e, 0) * obras + pipeline.SEGUNDOS_FIXOS.get(e, 0) for e in self.etapas}
-        self.pesos[PRINTS] = 30 + 2 * obras
+        if prints:
+            self.pesos[PRINTS] = 30 + 2 * obras
         self.estimativa = sum(self.pesos.values())  # segundos, para quando ainda não dá para medir
         self.agora, self.inicio = agora, agora()
         self.parar = threading.Event()

@@ -3,6 +3,7 @@
 Todos os nomes, títulos e códigos daqui são inventados.
 """
 
+import collections
 import pandas as pd
 import pytest
 
@@ -604,7 +605,10 @@ def test_youtube_so_abre_faixa_de_quem_tem_ligacao_com_o_titular(rel):
     )
     coleta = _youtube(rel, ytm)
     assert ytm.lidos == ["v1", "v2"] and coleta.sem_vinculo_nao_abertos == 1
-    ok, sem = coleta.gravacoes
+    pendencia, ok, sem = coleta.gravacoes
+    # O homônimo não é aberto, mas fica nas pendências, com o canal, para alguém olhar.
+    assert (pendencia.classificacao.status, pendencia.interprete, pendencia.provas) == (c.HOMONIMA, "Cantor Famoso", [])
+    assert pendencia.link.endswith("v3") and "não foi aberto" in pendencia.classificacao.fundamento
     assert (ok.classificacao.status, ok.fornecedor, ok.link) == (c.OK, "Selo Inventado", "https://music.youtube.com/watch?v=v1")
     assert (sem.classificacao.status, sem.interprete, sem.provas) == (c.SEM_CREDITOS, "Banda do Baile", ["prova-v2"])
     assert 'canal "Canal de Fã"' in sem.classificacao.fundamento and "título do vídeo" in sem.vinculo
@@ -887,7 +891,8 @@ def test_youtube_nao_liga_pelo_sobrenome_e_presuncao_fica_a_confirmar(rel):
     coleta = pipeline.coletar_youtube(rel, Config(nomes_confirmados=["ZECA LIMA"]), ytm, recorrentes=["Fulano"],
                                       pares={"COISA FEITA": ["Fulano"]})
     assert ytm.lidos == ["v1", "v3"] and coleta.sem_vinculo_nao_abertos == 1  # o vídeo do homônimo de sobrenome nem é aberto
-    presumida, provada = coleta.gravacoes
+    pendencia, presumida, provada = coleta.gravacoes
+    assert (pendencia.classificacao.status, pendencia.interprete) == (c.HOMONIMA, "Oficial Beltrano Fulano")
     assert (presumida.classificacao.status, presumida.classificacao.presumido) == (c.SEM_CREDITOS, True)
     assert (provada.classificacao.status, provada.classificacao.revisar) == (c.SEM_CREDITOS, False)  # par provado em outra plataforma
     firmes, a_confirmar = provas.itens_da_peticao([coleta], "YOUTUBE")
@@ -1259,7 +1264,7 @@ def test_captura_sem_tela_inteira_continua_valendo_e_registra_o_motivo(tmp_path,
 
 def test_executar_liga_a_tela_inteira_so_durante_a_coleta_e_deixa_o_navegador_visivel(monkeypatch, rel, tmp_path):
     vistos = []
-    monkeypatch.setattr(pipeline, "_executar", lambda *a: vistos.append((captura.TELA_INTEIRA, a[-1])) or [])
+    monkeypatch.setattr(pipeline, "_executar", lambda *a, **k: vistos.append((captura.TELA_INTEIRA, a[-1])) or [])
     pipeline.executar(rel, Config(), tmp_path, mostrar_navegador=False, tela_inteira=True)
     pipeline.executar(rel, Config(), tmp_path, mostrar_navegador=False)
     assert vistos == [(True, True), (False, False)] and captura.TELA_INTEIRA is False
@@ -1285,3 +1290,310 @@ def test_captura_reabre_a_janela_minimizada_antes_de_fotografar(tmp_path):
     comandos.clear()
     captura.capturar(pagina_com_janela("normal"), tmp_path / "b", "LIGUE O RADIO", "Banda do Baile", "spotify", {})
     assert [c for c, _ in comandos] == ["Browser.getWindowForTarget"]  # janela aberta: não mexe nela
+
+
+# --- YouTube Music: vídeos, títulos escritos de outro jeito e medleys ------------------
+
+def test_youtube_busca_videos_de_todo_interprete_conhecido_e_tambem_so_pelo_titulo(rel):
+    pedidas = []
+
+    class Anota(YouTubeFalso):
+        def buscar(self, consulta, abas):
+            pedidas.append((consulta, abas))
+            return super().buscar(consulta, abas)
+
+    ytm = Anota(buscas={"COISA FEITA Cantora Original": [("v1", "Cantora Original - Coisa Feita (Clipe Oficial)", "Cantora Original", "9 mil visualizações", "Vídeo")],
+                        "COISA FEITA": [("v2", "Coisa Feita", "Outro Cantor", "Álbum", "Música")]},
+                leituras={"v1": _leitura("v1", "Cantora Original - Coisa Feita (Clipe Oficial)", "Cantora Original", MENU_SEM)})
+    coleta = pipeline.coletar_youtube(rel, Config(nomes_confirmados=["ZECA LIMA"]), ytm, recorrentes=["Banda do Baile"],
+                                      pares={"COISA FEITA": ["Cantora Original"]}, limite_de_obras=2)
+    da_obra = [p for p in pedidas if p[0].startswith("COISA FEITA")]
+    assert da_obra == [("COISA FEITA Banda do Baile", ("Músicas", "Vídeos")), ("COISA FEITA ZECA LIMA", ("Músicas", "Vídeos")),
+                       ("COISA FEITA Cantora Original", ("Músicas", "Vídeos")), ("COISA FEITA", ("Músicas", "Vídeos"))]
+    clipe = next(g for g in coleta.gravacoes if g.link.endswith("v1"))
+    assert (clipe.classificacao.status, clipe.classificacao.revisar, clipe.interprete) == (c.SEM_CREDITOS, False, "Cantora Original")
+    assert [g.classificacao.status for g in coleta.gravacoes if g.link.endswith("v2")] == [c.HOMONIMA]
+
+
+def test_youtube_reconhece_o_titulo_com_o_nome_do_artista_grudado():
+    rel = relatorio_de_teste()
+    nomes = ["Banda do Baile", "ZECA LIMA"]
+    for exibido, esperado in [
+        ("Banda do Baile- Coisa Feita", "Coisa Feita"),
+        ("Grupo banda do baile coisa feita", "coisa feita"),
+        ("Banda do Baile - Coisa Feita [Álbum As 10 Mais]", "Coisa Feita"),
+        ("Coisa Feita - Banda do Baile Dvd 10 anos 2008", "Coisa Feita"),
+        ("Zeca Lima: Coisa Feita", "Coisa Feita"),
+        ("Banda do Baile - Coisa Feita ( Vídeo Clipe Oficial ) Part. Outra Banda", "Coisa Feita"),
+        ("Banda do Baile - Coisa Feita (Part. Outra Banda)", "Coisa Feita (Part. Outra Banda)"),
+        ("Banda do Baile - Coisa Feita ( Part.Esp. Outra Banda ) 2016/2017", "Coisa Feita ( Part.Esp. Outra Banda )"),
+    ]:
+        assert pipeline._titulo_do_video(exibido, rel, nomes) == esperado, exibido
+    assert pipeline._titulo_do_video("Uma Música Completamente Diferente", rel, nomes) == "Uma Música Completamente Diferente"
+    # Dupla citada no título do vídeo de um fã: o "e" não pode parti-la ao meio.
+    assert pipeline._nome_dentro("Fulana e Beltrano", "Fulana & Beltrano - Coisa Feita") and pipeline._nome_dentro("Banda do Baile", "banda do baile ao vivo")
+    assert not pipeline._nome_dentro("Fulano", "Beltrano Fulano - Ligue o Rádio")  # nome de uma palavra só nunca casa assim
+    assert not pipeline._nome_dentro("Banda do Baile", "Banda Baile")
+
+
+def test_youtube_le_titulo_parecido_e_medley_de_interprete_conhecido_mas_deixa_a_revisar(rel):
+    ytm = YouTubeFalso(
+        buscas={"COISA FEITA Banda do Baile": [
+            ("v1", "Coisa Feitta", "Banda do Baile", "Álbum", "Música"),                      # título com letra a mais
+            ("v2", "Ligue o Rádio / Coisa Feita (Ao Vivo)", "Banda do Baile", "Álbum", "Música"),  # medley com a obra
+            ("v3", "Coisa Feitta", "Canal Qualquer", "100 visualizações", "Vídeo"),              # parecido e sem ligação: fica de fora
+        ]},
+        leituras={"v1": _leitura("v1", "Coisa Feitta", "Banda do Baile", MENU_SEM),
+                  "v2": _leitura("v2", "Ligue o Rádio / Coisa Feita (Ao Vivo)", "Banda do Baile", MENU_SEM)},
+    )
+    coleta = pipeline.coletar_youtube(rel, Config(nomes_confirmados=["ZECA LIMA"]), ytm, recorrentes=["Banda do Baile"])
+    por_video = {g.link[-2:]: g for g in coleta.gravacoes}
+    assert sorted(por_video) == ["v1", "v2", "v3"] and sorted(ytm.lidos) == ["v1", "v2"]
+    # O de canal desconhecido não é aberto: fica nas pendências, dizendo que o título é só parecido.
+    assert por_video["v3"].classificacao.status == c.HOMONIMA and "título parecido" in por_video["v3"].classificacao.fundamento
+    # Lidos e listados, mas nunca como resultado firme: título só parecido e medley pedem conferência.
+    assert (por_video["v1"].classificacao.status, por_video["v1"].classificacao.revisar) == (c.TITULO_APROXIMADO, True)
+    assert por_video["v1"].classificacao.sugestao == c.SEM_CREDITOS
+    assert (por_video["v2"].classificacao.status, por_video["v2"].classificacao.revisar) == (c.MEDLEY, True)
+    assert provas.itens_da_peticao([coleta], "YOUTUBE") == ([], [])
+
+
+def test_youtube_dupla_com_par_provado_sai_firme_mesmo_em_video_de_fa(rel):
+    # "Fulana e Beltrano": a divisão do nome em partes não pode desfazer a dupla na hora de conferir o par provado.
+    ytm = YouTubeFalso(
+        buscas={"COISA FEITA Fulana & Beltrano": [
+            ("v1", "Fulana e Beltrano - Coisa Feita", "Canal de Fã", "418 visualizações", "Vídeo"),
+            ("v2", "Coisa Feita - Fulana & Beltrano Dvd 10 anos", "Fulana e Beltrano", "695 visualizações", "Vídeo"),
+        ]},
+        leituras={"v1": _leitura("v1", "Fulana e Beltrano - Coisa Feita", "Canal de Fã", MENU_SEM),
+                  "v2": _leitura("v2", "Coisa Feita - Fulana & Beltrano Dvd 10 anos", "Fulana e Beltrano", MENU_SEM)},
+    )
+    coleta = pipeline.coletar_youtube(rel, Config(nomes_confirmados=["ZECA LIMA"]), ytm, recorrentes=["Banda do Baile"],
+                                      pares={"COISA FEITA": ["Fulana & Beltrano"]})
+    assert sorted((g.classificacao.status, g.classificacao.revisar, g.interprete) for g in coleta.gravacoes) == [
+        (c.SEM_CREDITOS, False, "Fulana & Beltrano"), (c.SEM_CREDITOS, False, "Fulana e Beltrano")]
+    assert pipeline._par_conhecido({"X": ["Fulana & Beltrano"]}, "X", "Fulana e Beltrano remixed by Outro")
+    assert not pipeline._par_conhecido({"X": ["Fulana & Beltrano"]}, "X", "Fulana")
+
+
+def test_youtube_nome_da_banda_parecido_com_titulo_de_obra_nao_vira_a_obra():
+    rel = relatorio_de_teste()   # tem a obra "COISA FEITA"; a banda conhecida se chama "Coisa Feitta"
+    nomes = ["Coisa Feitta"]
+    assert c.casar_titulo("Coisa Feitta", rel)[0] == "aproximado"
+    # "Banda - Outra Música": o nome da banda não pode ser lido como o título parecido de uma obra.
+    assert not pipeline._e_da_obra(pipeline._titulo_do_video("Coisa Feitta - Outra Música Qualquer", rel, nomes), "COISA FEITA", rel)
+    assert not pipeline._e_da_obra(pipeline._titulo_do_video("Currículo - Coisa Feitta", rel, nomes), "COISA FEITA", rel)
+    # Mas a banda cantando a obra continua valendo, pelo outro trecho do título.
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("Coisa Feitta - Ligue o Rádio", rel, nomes), "LIGUE O RADIO", rel) == "exato"
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("Coisa Feita", rel, nomes), "COISA FEITA", rel) == "exato"
+
+
+def test_youtube_titulo_comum_nao_enche_as_pendencias(rel, monkeypatch):
+    monkeypatch.setattr(pipeline, "PENDENCIAS_POR_OBRA", 2)
+    ytm = YouTubeFalso(buscas={
+        "COISA FEITA": [(f"a{i}", "Coisa Feita", f"Canal {i}", "", "Vídeo") for i in range(3)],
+        "LIGUE O RADIO": [(f"b{i}", "Ligue o Rádio", f"Canal {i}", "", "Vídeo") for i in range(2)],
+    }, leituras={})
+    coleta = pipeline.coletar_youtube(rel, Config(nomes_confirmados=["ZECA LIMA"]), ytm, recorrentes=["Banda do Baile"], limite_de_obras=2)
+    assert sorted(g.link[-2:] for g in coleta.gravacoes) == ["b0", "b1"]  # título raro: lista; título comum: só avisa
+    assert coleta.sem_vinculo_nao_abertos == 5 and any('"COISA FEITA" é um título comum' in a and "3 vídeos" in a for a in coleta.avisos)
+
+
+def test_youtube_abre_alguns_videos_de_cada_interprete_e_os_melhores_primeiro(rel):
+    famoso = [(f"f{i}", "Famoso - Coisa Feita (Cover)" if i == 0 else "Coisa Feita", "Canal de Fã" if i % 2 else "Famoso",
+               f"{i} mil visualizações", "Vídeo") for i in range(30)]
+    famoso = [(v, t if "Famoso" in t or canal == "Famoso" else "Famoso - Coisa Feita", canal, d, tipo) for v, t, canal, d, tipo in famoso]
+    ytm = YouTubeFalso(
+        buscas={"COISA FEITA Famoso": famoso,
+                "COISA FEITA Cantora Original": [("c1", "Coisa Feita", "Cantora Original", "Álbum • 3:00", "Música")]},
+        leituras=collections.defaultdict(lambda: _leitura("x", "Coisa Feita", "Famoso", MENU_SEM)),
+    )
+    ytm.leituras["c1"] = _leitura("c1", "Coisa Feita", "Cantora Original", MENU_SEM)
+    coleta = pipeline.coletar_youtube(rel, Config(nomes_confirmados=["ZECA LIMA"]), ytm, [], {"COISA FEITA": ["Famoso", "Cantora Original"]},
+                                      so_os_pares=True, por_interprete=3, limite_de_obras=2)
+    # O intérprete com 30 vídeos não toma o lugar da outra: três dele, um dela.
+    assert ytm.lidos[:2] == ["f28", "c1"] and len(ytm.lidos) == 4 and "c1" in ytm.lidos
+    # Dele, primeiro o canal próprio com mais visualizações; o cover fica para o fim e nem entra.
+    assert ytm.lidos == ["f28", "c1", "f26", "f24"] and "f0" not in ytm.lidos
+
+
+def test_youtube_le_o_numero_de_visualizacoes():
+    assert pipeline._visualizacoes("1,1 mi de visualizações • 7 mil marcações") == 1_100_000
+    assert pipeline._visualizacoes("58 mil visualizações") == 58_000 and pipeline._visualizacoes("369 visualizações • 9 marcações") == 369
+    assert pipeline._visualizacoes("Álbum Tal • 3:00") == 0 and pipeline._visualizacoes("") == 0
+
+
+def test_youtube_acha_o_titulo_da_obra_no_meio_das_sobras_do_titulo_do_video():
+    rel = relatorio_de_teste()
+    nomes = ["Fulano"]
+    # Três palavras ou mais: basta o título inteiro aparecer.
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("BANDA TAL - A DANCA DA PANELA [NOVA] setembro 2016", rel, []), "A DANCA DA PANELA", rel) == "exato"
+    # Duas palavras: só quando o vídeo também cita um nome conhecido.
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("Fulano Coisa Feita Video Music", rel, nomes), "COISA FEITA", rel) == "exato"
+    assert not pipeline._e_da_obra(pipeline._titulo_do_video("Que coisa feita de qualquer jeito", rel, nomes), "COISA FEITA", rel)
+    # Medley continua sendo medley, e não vira uma obra só.
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("Ligue o Rádio / Coisa Feita (Ao Vivo)", rel, nomes), "COISA FEITA", rel) == "medley"
+
+
+def test_youtube_numero_em_algarismo_casa_com_o_titulo_por_extenso():
+    rel = relatorio_de_teste()
+    rel.obras[0].titulo = "DEPOIS DAS TRES"
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("Depois das 3", rel, []), "DEPOIS DAS TRES", rel) == "exato"
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("Dupla Tal - Depois das 3 (Ao Vivo)", rel, []), "DEPOIS DAS TRES", rel) == "exato"
+
+
+def test_com_a_planilha_conferida_so_entra_quem_o_compositor_conferiu(rel):
+    def g(obra, interprete, status, revisar=False, creditos=(), autores=()):
+        return pipeline.Gravacao(plataforma="DEEZER", link=f"https://www.deezer.com/track/{obra[:2]}{interprete[:3]}", titulo=obra.title(),
+                                 interprete=interprete, obra=obra, creditos=list(creditos),
+                                 classificacao=c.Classificacao(status, "motivo", revisar=revisar, autores_reconhecidos=list(autores)))
+    coleta = pipeline.Coleta("DEEZER", interpretes_inferidos=[{"nome": "Presumido", "obras": 3, "com_autor": 3}], gravacoes=[
+        g("LIGUE O RADIO", "Banda do Baile", c.HOMONIMA),                      # conferido, sem crédito: vira firme
+        g("LIGUE O RADIO", "Presumido", c.SEM_CREDITOS, revisar=True),         # presumido pelo app, fora da planilha: sai da conta
+        g("COISA FEITA", "Outro Cantor", c.VIOLACAO, creditos=["Cida Dias"], autores=["CIDA DIAS"]),  # provado pelo crédito, fora da planilha
+        g("COISA FEITA", "Cantora Original", c.OK, creditos=["Zeca Lima"]),    # conferido e creditado: fica como está
+    ])
+    pipeline._so_os_conferidos(coleta, rel, Config(nomes_confirmados=["ZECA LIMA"]),
+                               {"LIGUE O RADIO": ["Banda do Baile"], "COISA FEITA": ["Cantora Original"]})
+    firme, presumido, fora, ok = [x.classificacao for x in coleta.gravacoes]
+    assert (firme.status, firme.revisar) == (c.SEM_CREDITOS, False) and coleta.gravacoes[0].vinculo == "intérprete conferido pelo compositor"
+    assert presumido.status == c.HOMONIMA and "não está na planilha conferida" in presumido.fundamento
+    assert fora.status == c.HOMONIMA and "vale perguntar ao compositor" in fora.fundamento  # não some: fica nas pendências, com o motivo
+    assert ok.status == c.OK and coleta.interpretes_inferidos == []
+    assert provas.itens_da_peticao([coleta], "DEEZER")[0][0]["interprete"] == "Banda do Baile" and len(provas.itens_da_peticao([coleta], "DEEZER")[0]) == 1
+
+
+# --- Amazon Music na web -------------------------------------------------------------
+
+from creditos import amazon as _amazon
+
+
+def test_amazon_le_resultados_da_busca_e_o_menu_da_faixa():
+    itens = [{"titulo": "Coisa Feita", "interprete": "Cantora Original", "endereco": "/albums/B0AAA11111?trackAsin=B0TTT11111"},
+             {"titulo": "Coisa Feita", "interprete": "Cantora Original", "endereco": "/albums/B0AAA22222?trackAsin=B0TTT11111"},  # repetida
+             {"titulo": "", "interprete": "X", "endereco": "/albums/B0AAA33333?trackAsin=B0TTT33333"},                          # sem título
+             {"titulo": "Um Álbum", "interprete": "Y", "endereco": "/albums/B0AAA44444"}]                                        # não é faixa
+    [cand] = _amazon.interpretar_resultados(itens)
+    assert (cand.album, cand.faixa, cand.titulo, cand.interprete) == ("B0AAA11111", "B0TTT11111", "Coisa Feita", "Cantora Original")
+    assert cand.link == "https://music.amazon.com.br/albums/B0AAA11111?trackAsin=B0TTT11111"
+    web = ["Ver álbum", "Ver artista", "Compartilhar esta música", "Reproduzir músicas semelhantes"]
+    assert _amazon.interpretar_menu(web) == "sem_creditos"
+    assert _amazon.interpretar_menu(["Adicionar à Playlist", *web]) == "sem_creditos"          # logado: mais itens, e ainda sem créditos
+    assert _amazon.interpretar_menu([*web, "Créditos"]) == "com_creditos"                       # se o site passar a mostrar
+    assert _amazon.interpretar_menu(["Biblioteca", "Baixadas"]) == "invalido" and _amazon.interpretar_menu([]) == "invalido"
+
+
+class AmazonFalsa:
+    """Busca e leitura com respostas fixas, no lugar do navegador."""
+    nav = type("Nav", (), {"navegacoes": 0})()
+
+    def __init__(self, buscas, leituras=None):
+        self.buscas, self.leituras, self.lidos = buscas, leituras or {}, []
+
+    def buscar(self, consulta):
+        return [_amazon.Candidato(*c_) for c_ in self.buscas.get(consulta, [])]
+
+    def ler(self, cand, obra):
+        self.lidos.append(cand.faixa)
+        return self.leituras.get(cand.faixa) or _amazon.Leitura(faixa=cand.faixa, link=cand.link, titulo=cand.titulo, interprete=cand.interprete,
+                                                                 album="Álbum Tal", menu=["Ver álbum", "Ver artista"], provas=[f"prova-{cand.faixa}"])
+
+
+def test_amazon_site_um_print_por_musica_de_cada_interprete_conhecido(rel):
+    web = AmazonFalsa(buscas={"COISA FEITA": [
+        ("A1", "T1", "Coisa Feita", "Cantora Original"), ("A2", "T2", "Coisa Feita (Ao Vivo)", "Cantora Original"),
+        ("A3", "T3", "Coisa Feita", "Cantora Original"),      # a terceira da mesma intérprete não entra
+        ("A4", "T4", "Coisa Feita", "Fulana & Beltrano"),     # outra intérprete conhecida: entra
+        ("A5", "T5", "Coisa Feita", "Cantor Famoso"),         # homônimo de quem não tem ligação: conta, não abre
+        ("A6", "T6", "Outra Música", "Cantora Original"),
+    ]})
+    coleta = pipeline.coletar_amazon(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, [],
+                                     {"COISA FEITA": ["Cantora Original", "Fulana e Beltrano"]}, limite_de_obras=2)
+    assert web.lidos == ["T1", "T2", "T4"] and coleta.sem_vinculo_nao_abertos == 1 and coleta.plataforma == "AMAZON - SITE"
+    primeira = coleta.gravacoes[0]
+    # O site não mostra compositor: com o intérprete ligado ao titular, é "sem créditos" firme, com o print do menu.
+    assert (primeira.classificacao.status, primeira.classificacao.revisar, primeira.provas) == (c.SEM_CREDITOS, False, ["prova-T1"])
+    assert "não existe tela de créditos" in primeira.classificacao.fundamento
+    assert primeira.link == "https://music.amazon.com.br/albums/A1?trackAsin=T1" and primeira.album == "Álbum Tal"
+    firmes, _ = provas.itens_da_peticao([coleta], "AMAZON - SITE")
+    assert len(firmes) == 3 and provas.NOMES["AMAZON - SITE"] == "Amazon Music (site)"
+
+
+def test_amazon_site_leitura_que_falha_nunca_vira_sem_creditos(rel):
+    falha = _amazon.Leitura(faixa="T1", link="https://music.amazon.com.br/albums/A1?trackAsin=T1", titulo="Coisa Feita",
+                            coleta="erro", erro="o menu de ações da faixa não abriu (ou abriu outro menu)")
+    web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original")]}, leituras={"T1": falha})
+    coleta = pipeline.coletar_amazon(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, [], {"COISA FEITA": ["Cantora Original"]}, limite_de_obras=2)
+    assert [g.classificacao.status for g in coleta.gravacoes] == [c.ERRO_TECNICO]
+
+
+def test_planilha_tem_as_duas_colunas_da_amazon(rel):
+    assert saida.PLATAFORMAS[saida.PLATAFORMAS.index("AMAZON") + 1] == "AMAZON - SITE"
+    assert saida._nao_coletada("AMAZON")[0] == "não coletado: aplicativo de desktop (print manual)"
+    assert "amazon" in pipeline.TODAS and "AMAZON - SITE" in pipeline.ORDEM
+
+
+# --- Amazon Music, aplicativo de desktop -------------------------------------------------
+
+from creditos import amazon_app as _amazon_app
+
+
+def test_amazon_app_le_o_menu_e_a_janela_de_creditos():
+    menu = ["Reproduzir a próxima", "Adicionar à fila", "Adicionar à playlist", "Compartilhar música", "Créditos",
+            "Reproduzir músicas semelhantes", "Fazer download"]
+    assert _amazon_app.interpretar_menu(menu) == "com_creditos"
+    assert _amazon_app.interpretar_menu([i for i in menu if i != "Créditos"]) == "sem_creditos"
+    assert _amazon_app.interpretar_menu(["Biblioteca", "Baixadas"]) == "invalido"  # não é o menu de uma faixa
+    blocos = [{"rotulo": "Compositores", "bloco": "Créditos\nCompositores\nZeca Lima, Cida Dias"}]
+    secoes = _amazon_app.interpretar_creditos(blocos)
+    assert secoes == {"Compositores": ["Zeca Lima", "Cida Dias"]} and _amazon_app.autores(secoes) == ["Zeca Lima", "Cida Dias"]
+    dois = [{"rotulo": "Compositores", "bloco": "Compositores\nZeca Lima\nLetristas\nCida Dias"},
+            {"rotulo": "Letristas", "bloco": "Compositores\nZeca Lima\nLetristas\nCida Dias"}]
+    assert _amazon_app.interpretar_creditos(dois) == {"Compositores": ["Zeca Lima"], "Letristas": ["Cida Dias"]}
+    assert _amazon_app.interpretar_creditos([{"rotulo": "Compositores", "bloco": "Compositores"}]) == {}  # janela sem nome nenhum
+    assert _amazon_app.interpretar_creditos([]) == {} and _amazon_app.autores({"Produtores": ["Alguém"]}) == []
+
+
+class AppFalso:
+    navegacoes = 0
+
+    def __init__(self, leituras, falha=None):
+        self.leituras, self.falha, self.lidos = leituras, falha, []
+
+    def ler(self, cand, obra):
+        if self.falha:
+            raise self.falha
+        self.lidos.append(cand.faixa)
+        return self.leituras[cand.faixa]
+
+
+def test_amazon_app_classifica_pelos_compositores_e_guarda_os_dois_prints(rel):
+    web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original"), ("A2", "T2", "Coisa Feita", "Fulana & Beltrano")]})
+    def lida(faixa, creditos):
+        return _amazon_app.Leitura(faixa=faixa, titulo="Coisa Feita", creditos=creditos, tem_item_de_creditos=True,
+                                   provas=[f"menu-{faixa}", f"creditos-{faixa}"])
+    app = AppFalso({"T1": lida("T1", ["Zeca Lima", "Cida Dias"]), "T2": lida("T2", ["Outro Autor"])})
+    coleta = pipeline.coletar_amazon_app(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, app, [],
+                                         {"COISA FEITA": ["Cantora Original", "Fulana e Beltrano"]}, limite_de_obras=2)
+    creditada, errada = coleta.gravacoes
+    assert coleta.plataforma == "AMAZON" and app.lidos == ["T1", "T2"]
+    assert creditada.classificacao.status == c.OK
+    assert (errada.classificacao.status, errada.provas) == (c.VIOLACAO, ["menu-T2", "creditos-T2"])  # dois prints por música
+    assert errada.link == "https://music.amazon.com.br/albums/A2?trackAsin=T2" and "aplicativo de desktop" in errada.classificacao.fundamento
+
+
+def test_amazon_app_sem_o_aplicativo_a_coleta_para_e_avisa_sem_inventar_nada(rel, tmp_path, monkeypatch):
+    web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original")]})
+    app = AppFalso({}, falha=_amazon_app.AplicativoIndisponivel("o aplicativo Amazon Music não foi encontrado neste computador"))
+    coleta = pipeline.coletar_amazon_app(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, app, [], {"COISA FEITA": ["Cantora Original"]}, limite_de_obras=2)
+    assert coleta.gravacoes == [] and "não foi encontrado" in coleta.interrompida and any("PAROU antes do fim" in a for a in coleta.avisos)
+    # Fora do Windows, ou sem o programa instalado, o próprio AmazonApp diz por quê, em vez de quebrar.
+    monkeypatch.setattr(_amazon_app.AmazonApp, "_responde", lambda self: False)
+    monkeypatch.setattr(_amazon_app.sys, "platform", "darwin")
+    with pytest.raises(_amazon_app.AplicativoIndisponivel, match="só existe no Windows"):
+        _amazon_app.AmazonApp(tmp_path).pagina
+    monkeypatch.setattr(_amazon_app.sys, "platform", "win32")
+    monkeypatch.setattr(_amazon_app, "caminho_do_aplicativo", lambda: None)
+    with pytest.raises(_amazon_app.AplicativoIndisponivel, match="não foi encontrado"):
+        _amazon_app.AmazonApp(tmp_path).pagina
+    assert provas.NOMES["AMAZON"] == "Amazon Music (aplicativo)" and "amazon_app" not in pipeline.TODAS  # só entra quando a pessoa marca

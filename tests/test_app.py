@@ -8,6 +8,10 @@ from streamlit.testing.v1 import AppTest
 
 from cantor.busca import Buscador, Resultado
 
+ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS = "1. Buscar intérpretes", "2. Verificar créditos e tirar prints"
+# A planilha que o compositor conferiu, já lida: sem ela a etapa 2 não coleta.
+CONFERIDOS = {"LIGUE O RADIO": ["Banda do Baile"], "COISA FEITA": ["Cantora Original"]}
+
 
 @pytest.fixture(autouse=True)
 def _isolado(tmp_path, monkeypatch):
@@ -108,6 +112,8 @@ def test_tela_de_importacao_mostra_resumo_nomes_artisticos_e_duplicidades():
 
     at = AppTest.from_file("../creditos_app.py", default_timeout=30)
     at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = ETAPA_DOS_PRINTS
+    at.session_state["conferidos"] = CONFERIDOS
     at.run()
     assert not at.exception
     assert {m.label: m.value for m in at.metric}["Obras lidas"] == "6"
@@ -138,8 +144,11 @@ def test_tela_coleta_e_oferece_planilha_e_pacote_de_provas(tmp_path, monkeypatch
     monkeypatch.setattr(pipeline, "executar", executar_falso)
     at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
     at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = ETAPA_DOS_PRINTS
+    at.session_state["conferidos"] = CONFERIDOS
     at.run()
-    assert at.multiselect[0].value == ["deezer", "youtube", "spotify", "tidal", "apple", "vagalume"]  # todas, por padrão
+    assert at.multiselect[0].value == ["deezer", "youtube", "spotify", "tidal", "apple", "vagalume", "amazon"]  # todas, por padrão
+    assert at.multiselect[0].options[-1] == "Amazon Music (aplicativo de desktop)"  # existe, mas vem desmarcado
     at.multiselect[0].set_value(["deezer", "spotify"]).run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
     assert not at.exception
@@ -174,6 +183,8 @@ def test_tela_pede_confirmacao_dos_interpretes_presumidos(tmp_path, monkeypatch)
     monkeypatch.setattr(pipeline, "executar", executar_falso)
     at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
     at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = ETAPA_DOS_PRINTS
+    at.session_state["conferidos"] = CONFERIDOS
     at.run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
     assert at.session_state["saidas"]["resumo"][0] == {"plataforma": "Spotify", "firmes": 0, "a_confirmar": 1}
@@ -199,16 +210,18 @@ def test_campo_de_quantas_obras_so_existe_para_quem_desenvolve(tmp_path, monkeyp
     def abrir():
         at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
         at.session_state["relatorio"] = relatorio_de_teste()
+        at.session_state["etapa"] = ETAPA_DOS_PRINTS
+        at.session_state["conferidos"] = CONFERIDOS
         return at.run()
 
     assert not abrir().number_input  # instalação normal: sempre todas as obras
     monkeypatch.setenv("QUEMCANTA_DEV", "1")
     at = abrir()
-    at.number_input[0].set_value(2).run()
+    at.number_input[0].set_value(1).run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
-    at.radio[0].set_value("as últimas").run()
+    next(r for r in at.radio if r.label == "Quais").set_value("as últimas").run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
-    assert limites == [2, -2]
+    assert limites == [1, -1]
 
 
 def _tela_de_creditos():
@@ -275,6 +288,8 @@ def test_coleta_mostra_barra_de_progresso_e_pode_ser_parada(tmp_path, monkeypatc
     monkeypatch.setattr(pipeline, "executar", executar_lento)
     at = _tela_de_creditos()
     at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = ETAPA_DOS_PRINTS
+    at.session_state["conferidos"] = CONFERIDOS
     at.run()
     _botao(at, "Coletar e classificar").click().run()
     assert not at.exception
@@ -307,7 +322,128 @@ def test_coleta_que_falha_mostra_o_erro_e_deixa_tentar_de_novo(tmp_path, monkeyp
     monkeypatch.setattr(pipeline, "executar", quebra)
     at = _tela_de_creditos()
     at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = ETAPA_DOS_PRINTS
+    at.session_state["conferidos"] = CONFERIDOS
     at.run()
     _botao(at, "Coletar e classificar").click().run()
     assert any("A coleta não terminou: RuntimeError: navegador não abriu" in e.value for e in at.error)
     assert "coletas" not in at.session_state
+
+
+def test_etapa_de_interpretes_devolve_so_a_planilha_de_obra_e_interprete(tmp_path, monkeypatch):
+    import io
+    import openpyxl
+    from creditos import classificador as c, interpretes, pipeline
+    from tests.test_creditos import relatorio_de_teste
+
+    monkeypatch.chdir(tmp_path)
+    chamadas = []
+
+    def executar_falso(relatorio, config, pasta, coautores=(), plataformas=None, prints=True, ao_avancar=None, **_):
+        chamadas.append((plataformas, prints, config.nomes_confirmados, list(coautores)))
+        ao_avancar("Deezer: lendo álbum 1/1")
+        def g(obra, interprete, status=c.OK):
+            return pipeline.Gravacao(plataforma="DEEZER", link=f"https://www.deezer.com/track/{len(obra)}{len(interprete)}", titulo=obra,
+                                     interprete=interprete, obra=obra, classificacao=c.Classificacao(status, "motivo"))
+        return [pipeline.Coleta("DEEZER", gravacoes=[
+            g("LIGUE O RADIO", "Banda do Baile"), g("LIGUE O RADIO", "Banda do Baile"), g("LIGUE O RADIO", "Fulana & Beltrano", c.SEM_CREDITOS),
+            g("LIGUE O RADIO", "Cantor Famoso", c.HOMONIMA),  # homônimo de terceiro: não é intérprete do titular
+            g("COISA FEITA; LIGUE O RADIO", "Fulana e Beltrano"),  # medley: conta para as duas obras; "e" e "&" são o mesmo nome
+        ])]
+
+    monkeypatch.setattr(pipeline, "executar", executar_falso)
+    at = _tela_de_creditos()
+    at.session_state["relatorio"] = relatorio_de_teste()
+    at.run()
+    # A primeira etapa é a de intérpretes: sem opções de plataforma, de print ou de navegador.
+    assert at.radio[0].value == ETAPA_DOS_INTERPRETES and not at.exception
+    assert "Coletar e classificar" not in [b.label for b in at.button] and not at.multiselect and not at.checkbox
+    _botao(at, "Buscar intérpretes").click().run()
+    assert not at.exception
+    assert chamadas == [(interpretes.PLATAFORMAS, False, ["ZECA LIMA", "ZECA DO BAILE"], ["CIDA DIAS"])]  # sem navegador, sem print
+    lista = at.session_state["lista_de_interpretes"]
+    assert lista[0] == ("LIGUE O RADIO", ["Banda do Baile", "Fulana & Beltrano"]) and lista[1] == ("COISA FEITA", ["Fulana e Beltrano"])
+    assert any("2 de 5 obras com intérprete encontrado" in cap.value for cap in at.caption)
+    # A planilha: nome do titular, cabeçalho, uma linha por par, e obra sem intérprete em branco. Nada além disso.
+    ws = openpyxl.load_workbook(io.BytesIO(interpretes.planilha(relatorio_de_teste(), lista))).active
+    linhas = [tuple(l) for l in ws.iter_rows(values_only=True)]
+    assert linhas[:5] == [("ZECA LIMA", None), ("Obras", "Intérpretes"), ("LIGUE O RADIO", "BANDA DO BAILE"),
+                          ("LIGUE O RADIO", "FULANA & BELTRANO"), ("COISA FEITA", "FULANA E BELTRANO")]
+    assert linhas[5:] == [("BAILE NA SERRA", None), ("A DANCA DA PANELA", None), ("DANCA DA PANELLA", None)] and ws.max_column == 2
+    # A etapa 2 continua lá, com a coleta de sempre.
+    at.radio[0].set_value(ETAPA_DOS_PRINTS).run()
+    assert "Buscar intérpretes" not in [b.label for b in at.button]
+    assert any("planilha de intérpretes conferida" in i.value for i in at.info)  # a etapa 2 pede a planilha conferida
+
+
+def test_planilha_de_interpretes_volta_a_ser_lida_depois_de_corrigida_pelo_compositor():
+    import io
+    import openpyxl
+    from creditos import interpretes
+    from tests.test_creditos import relatorio_de_teste
+
+    rel = relatorio_de_teste()
+    livro = openpyxl.load_workbook(io.BytesIO(interpretes.planilha(rel, [("LIGUE O RADIO", ["Banda do Baile"]), ("COISA FEITA", [])])))
+    ws = livro.active
+    ws.cell(4, 2, "Cantora Original")                       # o compositor preenche a obra que estava em branco
+    ws.append(["Ligue o Rádio", "banda do baile"])          # repete um par, com outra grafia
+    ws.append(["Ligue o Rádio", "Fulana & Beltrano"])       # acrescenta um intérprete
+    ws.append(["Música Que Não É Dele", "Alguém"])          # e uma obra que não está no relatório
+    saida = io.BytesIO(); livro.save(saida)
+    pares, fora = interpretes.ler_planilha(saida.getvalue(), rel)
+    assert pares == {"LIGUE O RADIO": ["BANDA DO BAILE", "Fulana & Beltrano"], "COISA FEITA": ["Cantora Original"]}
+    assert fora == ["Música Que Não É Dele"]
+
+
+def test_busca_de_interpretes_tem_barra_propria_e_nao_mistura_com_a_coleta(tmp_path, monkeypatch):
+    import time
+    from creditos import andamento, pipeline
+    from tests.test_creditos import relatorio_de_teste
+
+    monkeypatch.chdir(tmp_path)
+
+    def executar_lento(relatorio, config, pasta, coautores=(), ao_avancar=None, **_):
+        for i in range(1, 2000):
+            ao_avancar(f"Deezer: lendo álbum {i}/2000")
+            time.sleep(0.01)
+        return []
+
+    monkeypatch.setattr(pipeline, "executar", executar_lento)
+    at = _tela_de_creditos()
+    at.session_state["relatorio"] = relatorio_de_teste()
+    at.run()
+    _botao(at, "Buscar intérpretes").click().run()
+    tarefa = andamento.atual()
+    assert tarefa.viva and tarefa.dados["tipo"] == "interpretes" and tarefa.andamento.etapas == ["deezer", "apple"]  # sem etapa de prints
+    assert "Parar busca" in [b.label for b in at.button] and any("Deezer: em andamento · Apple Music: na fila" == cap.value for cap in at.caption)
+    # Na etapa 2, enquanto a busca roda, não dá para começar uma coleta.
+    at.radio[0].set_value(ETAPA_DOS_PRINTS).run()
+    assert "Coletar e classificar" not in [b.label for b in at.button] and any("busca de intérpretes em andamento" in i.value for i in at.info)
+    at.radio[0].set_value(ETAPA_DOS_INTERPRETES).run()
+    _botao(at, "Parar busca").click().run()
+    tarefa.linha.join(5)
+    at.run()
+    assert any("Busca interrompida" in w.value for w in at.warning) and andamento.atual() is None
+
+
+def test_etapa_dos_prints_so_coleta_com_a_planilha_conferida(tmp_path, monkeypatch):
+    from creditos import pipeline
+    from tests.test_creditos import relatorio_de_teste
+
+    monkeypatch.chdir(tmp_path)
+    recebidos = []
+    monkeypatch.setattr(pipeline, "executar", lambda *a, conferidos=None, **k: recebidos.append(conferidos) or [pipeline.Coleta("DEEZER")])
+    at = _tela_de_creditos()
+    at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = ETAPA_DOS_PRINTS
+    at.run()
+    # Sem a planilha conferida: explica o que falta e não oferece o botão de coletar.
+    assert not at.exception and "Coletar e classificar" not in [b.label for b in at.button]
+    assert any("planilha de intérpretes conferida" in i.value and "etapa 1" in i.value for i in at.info)
+    # Com ela: mostra o que foi lido, quantas obras ficam de fora, e a coleta recebe exatamente esses pares.
+    at.session_state["conferidos"] = CONFERIDOS
+    at.run()
+    assert any("2 intérpretes em 2 obras" in m.value and "outras 3 obras" in m.value for m in at.success)
+    assert any("para as 2 obras" in i.value for i in at.info)  # a estimativa de tempo conta só as obras com intérprete
+    _botao(at, "Coletar e classificar").click().run()
+    assert recebidos == [CONFERIDOS]

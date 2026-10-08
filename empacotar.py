@@ -16,7 +16,7 @@ from creditos.versao import VERSAO
 
 AQUI = Path(__file__).resolve().parent
 ENTRAM = ["creditos_app.py", "app.py", "avaliar.py", "requirements.txt", "README.md", "LEIA-ME.txt", "Instalar.cmd",
-          "Abrir Quem Canta.cmd", "atualizacao.json", "cantor", "creditos", ".streamlit", "exemplos"]
+          "Abrir Quem Canta.cmd", "Testar Amazon.cmd", "atualizacao.json", "cantor", "creditos", ".streamlit", "exemplos"]
 FORA = {"__pycache__", ".pytest_cache", ".DS_Store"}
 TEXTO_DO_WINDOWS = {".cmd", ".txt"}  # o Bloco de Notas e o cmd esperam fim de linha CRLF
 

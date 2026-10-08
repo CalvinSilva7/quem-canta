@@ -253,6 +253,23 @@ Etapa 1 (pronta): importar o relatório e classificar créditos.
 - `creditos/filtro.py` barra percentuais, CAE/IPI, códigos do cadastro, datas
   de contrato e de inclusão, editoras e CPF em qualquer texto que vá para fora.
 
+### As duas etapas
+
+A tela trabalha em duas etapas, como o escritório:
+
+1. **Buscar intérpretes** (`creditos/interpretes.py`): Deezer e Apple Music, sem navegador. Devolve uma planilha só
+   com obra e intérprete, para o compositor conferir e corrigir.
+2. **Verificar créditos e tirar prints**: exige a planilha de intérpretes conferida. O app verifica só os pares
+   (obra, intérprete) dela; não descobre nem presume intérprete.
+
+Plataformas da etapa 2: YouTube Music, Spotify, Tidal, Deezer, Vagalume, Apple Music e Amazon Music. A Amazon tem
+dois coletores: o site (`creditos/amazon.py`, sem login, um print do menu da faixa, que não tem item de créditos) e
+o aplicativo de desktop (`creditos/amazon_app.py`, só Windows, com a conta já logada no aplicativo; dois prints:
+o menu e a janela "Créditos"). O do aplicativo foi escrito sem um Windows para testar: `Testar Amazon.cmd` roda
+um diagnóstico que grava o que o aplicativo deixou ver.
+
+A barra de progresso e o botão de parar ficam em `creditos/andamento.py`; o print de tela inteira, em `creditos/tela.py`.
+
 ### Instalar no Windows e atualizar
 
 `python empacotar.py` monta `quem-canta-<versão>-windows.zip`. Quem recebe o zip
