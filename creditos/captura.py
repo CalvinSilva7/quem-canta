@@ -32,7 +32,8 @@ TELA_INTEIRA = False  # ligado pela coleta quando a pessoa pede o print de tela 
 FUSO = "America/Sao_Paulo"
 
 _CARIMBAR = """(texto) => {
-  document.getElementById('__carimbo_de_captura')?.remove();
+  // escrita antiga de propósito: o navegador embutido no aplicativo da Amazon Music não entende a abreviada
+  const anterior = document.getElementById('__carimbo_de_captura'); if (anterior) anterior.remove();
   const faixa = document.createElement('div');
   faixa.id = '__carimbo_de_captura';
   faixa.setAttribute('translate', 'no');
@@ -127,7 +128,7 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
     html = pagina.content().encode("utf-8")
     imagem = pagina.screenshot(type="png")
     tela, da_tela = _tela_inteira(pagina, imagem) if TELA_INTEIRA else (None, None)
-    pagina.evaluate("() => document.getElementById('__carimbo_de_captura')?.remove()")
+    pagina.evaluate("() => { const faixa = document.getElementById('__carimbo_de_captura'); if (faixa) faixa.remove(); }")
     (pasta / f"{base}.png").write_bytes(imagem)
     (pasta / f"{base}.html").write_bytes(html)
     registro = {

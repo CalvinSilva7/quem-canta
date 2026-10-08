@@ -439,6 +439,10 @@ class AmazonApp:
             raise
         except Exception as e:  # timeout, elemento que sumiu: erro técnico, nunca "sem créditos"
             leitura.coleta, leitura.erro = "erro", f"{type(e).__name__}: {str(e).splitlines()[0][:160]}"
+            try:
+                self.pagina.keyboard.press("Escape")  # não deixa menu nem janela abertos no aplicativo
+            except Exception:
+                pass
         if leitura.coleta == "ok":
             self.cache.mkdir(parents=True, exist_ok=True)
             arquivo.write_text(json.dumps(asdict(leitura), ensure_ascii=False), encoding="utf-8")

@@ -1700,3 +1700,12 @@ def test_amazon_app_navega_pelo_trecho_depois_do_cerquilha(tmp_path):
     with pytest.raises(_amazon_app.AplicativoIndisponivel, match="endereço interno"):
         app._ir_para("/albums/X")
     app._pagina = None
+
+
+def test_scripts_usados_no_aplicativo_da_amazon_servem_num_navegador_antigo():
+    """O navegador embutido no aplicativo é antigo: "?." e "??" derrubam o script inteiro (foi o que impediu o print)."""
+    import inspect
+    from creditos import captura as _captura
+    for modulo in (_captura, _amazon_app):
+        fonte = inspect.getsource(modulo)
+        assert "?." not in fonte and "??" not in fonte and "replaceAll" not in fonte
