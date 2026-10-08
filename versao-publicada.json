@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.6",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.6/quem-canta-0.5.6-windows.zip",
-  "sha256": "8668648d6f9b23c81f1e69f9c5d12ea8a59c74f95d3f371377c16f99bcec622e",
-  "notas": "Amazon Music (aplicativo): tenta abrir tambem a versao da Microsoft Store."
+  "versao": "0.5.7",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.7/quem-canta-0.5.7-windows.zip",
+  "sha256": "e49352622f8b14f60d676e9c5d3f10e78f3bbe403d192c4c48643b2b7ebf4b4c",
+  "notas": "Amazon Music (aplicativo): nova forma de conexao com o programa."
 }
