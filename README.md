@@ -259,8 +259,8 @@ A tela trabalha em duas etapas, como o escritório:
 
 1. **Buscar intérpretes** (`creditos/interpretes.py`): Deezer e Apple Music, sem navegador. Devolve uma planilha só
    com obra e intérprete, para o compositor conferir e corrigir.
-2. **Verificar créditos e tirar prints**: exige a planilha de intérpretes conferida. O app verifica só os pares
-   (obra, intérprete) dela; não descobre nem presume intérprete.
+2. **Verificar créditos e tirar prints**: a planilha de intérpretes conferida é opcional. Com ela, o app verifica
+   só os pares (obra, intérprete) dela, sem descobrir nem presumir intérprete; sem ela, descobre sozinho.
 
 Plataformas da etapa 2: YouTube Music, Spotify, Tidal, Deezer, Vagalume, Apple Music e Amazon Music. A Amazon tem
 dois coletores: o site (`creditos/amazon.py`, sem login, um print do menu da faixa, que não tem item de créditos) e

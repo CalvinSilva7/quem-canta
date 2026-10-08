@@ -9,7 +9,7 @@ from streamlit.testing.v1 import AppTest
 from cantor.busca import Buscador, Resultado
 
 ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS = "1. Buscar intérpretes", "2. Verificar créditos e tirar prints"
-# A planilha que o compositor conferiu, já lida: sem ela a etapa 2 não coleta.
+# A planilha que o compositor conferiu, já lida.
 CONFERIDOS = {"LIGUE O RADIO": ["Banda do Baile"], "COISA FEITA": ["Cantora Original"]}
 
 
@@ -372,8 +372,7 @@ def test_etapa_de_interpretes_devolve_so_a_planilha_de_obra_e_interprete(tmp_pat
     assert linhas[5:] == [("BAILE NA SERRA", None), ("A DANCA DA PANELA", None), ("DANCA DA PANELLA", None)] and ws.max_column == 2
     # A etapa 2 continua lá, com a coleta de sempre.
     at.radio[0].set_value(ETAPA_DOS_PRINTS).run()
-    assert "Buscar intérpretes" not in [b.label for b in at.button]
-    assert any("planilha de intérpretes conferida" in i.value for i in at.info)  # a etapa 2 pede a planilha conferida
+    assert "Buscar intérpretes" not in [b.label for b in at.button] and "Coletar e classificar" in [b.label for b in at.button]
 
 
 def test_planilha_de_interpretes_volta_a_ser_lida_depois_de_corrigida_pelo_compositor():
@@ -426,7 +425,7 @@ def test_busca_de_interpretes_tem_barra_propria_e_nao_mistura_com_a_coleta(tmp_p
     assert any("Busca interrompida" in w.value for w in at.warning) and andamento.atual() is None
 
 
-def test_etapa_dos_prints_so_coleta_com_a_planilha_conferida(tmp_path, monkeypatch):
+def test_etapa_dos_prints_usa_a_planilha_conferida_se_houver_e_funciona_sem_ela(tmp_path, monkeypatch):
     from creditos import pipeline
     from tests.test_creditos import relatorio_de_teste
 
@@ -437,13 +436,15 @@ def test_etapa_dos_prints_so_coleta_com_a_planilha_conferida(tmp_path, monkeypat
     at.session_state["relatorio"] = relatorio_de_teste()
     at.session_state["etapa"] = ETAPA_DOS_PRINTS
     at.run()
-    # Sem a planilha conferida: explica o que falta e não oferece o botão de coletar.
-    assert not at.exception and "Coletar e classificar" not in [b.label for b in at.button]
-    assert any("planilha de intérpretes conferida" in i.value and "etapa 1" in i.value for i in at.info)
-    # Com ela: mostra o que foi lido, quantas obras ficam de fora, e a coleta recebe exatamente esses pares.
+    # Sem a planilha: a coleta está liberada, e o app descobre os intérpretes sozinho. A tela só explica a diferença.
+    assert not at.exception and any("descobre sozinho" in cap.value for cap in at.caption)
+    assert any("para as 5 obras" in i.value for i in at.info)
+    _botao(at, "Coletar e classificar").click().run()
+    assert recebidos == [None]
+    # Com a planilha conferida: mostra o que foi lido, e a coleta recebe exatamente esses pares.
     at.session_state["conferidos"] = CONFERIDOS
     at.run()
     assert any("2 intérpretes em 2 obras" in m.value and "outras 3 obras" in m.value for m in at.success)
     assert any("para as 2 obras" in i.value for i in at.info)  # a estimativa de tempo conta só as obras com intérprete
     _botao(at, "Coletar e classificar").click().run()
-    assert recebidos == [CONFERIDOS]
+    assert recebidos == [None, CONFERIDOS]

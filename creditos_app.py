@@ -332,12 +332,13 @@ with area_da_coleta:
 
     if st.session_state.pop("aviso_de_confirmacao", False):
         st.success("Intérpretes confirmados. Clique em **Coletar e classificar** de novo: como tudo já foi lido, sai em instantes.")
-    # A coleta só anda com os intérpretes que o compositor conferiu: o app não decide sozinho quem canta.
+    # A planilha de intérpretes é opcional: com ela, a coleta usa só os pares conferidos; sem ela, o app descobre sozinho.
     from creditos import interpretes as _interpretes
 
     conferida = st.file_uploader(
-        "Planilha de intérpretes conferida pelo compositor (.xlsx)", type=["xlsx"], key="planilha_conferida",
-        help="A planilha da etapa 1, depois que o compositor conferiu e corrigiu: a obra na primeira coluna e o intérprete na segunda.",
+        "Planilha de intérpretes conferida pelo compositor (.xlsx, opcional)", type=["xlsx"], key="planilha_conferida",
+        help="A planilha da etapa 1, depois que o compositor conferiu e corrigiu: a obra na primeira coluna e o intérprete "
+        "na segunda. Com ela, o app verifica só esses intérpretes. Sem ela, ele descobre os intérpretes sozinho.",
     )
     if conferida is not None and st.session_state.get("conferida_id") != conferida.file_id:
         try:
@@ -359,10 +360,10 @@ with area_da_coleta:
             st.warning("Obras da planilha que não estão no relatório, e por isso ficam de fora: " + "; ".join(st.session_state.conferidos_fora))
     elif conferidos is not None:
         st.error("Nenhuma obra da planilha foi encontrada no relatório. Confira se a planilha é deste compositor.")
-    elif andamento.atual() is None:
-        st.info(
-            "Envie a planilha de intérpretes conferida pelo compositor para liberar a coleta. Se ainda não tem, faça a "
-            "**etapa 1** e mande a planilha para ele conferir."
+    else:
+        st.caption(
+            "Sem a planilha de intérpretes, o app descobre sozinho quem gravou cada obra. Com a planilha conferida pelo "
+            "compositor (etapa 1), ele verifica só os intérpretes dela, e o resultado fica mais certeiro."
         )
     NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
                              "apple": "Apple Music (controle)", "vagalume": "Vagalume", "amazon": "Amazon Music (site)",
@@ -440,7 +441,7 @@ with area_da_coleta:
     elif tarefa is not None and not tarefa.viva:
         recolher(tarefa)
         tarefa = None
-    if tarefa is None and not de_outra_etapa and conferidos and st.button("Coletar e classificar", type="primary"):
+    if tarefa is None and not de_outra_etapa and st.button("Coletar e classificar", type="primary"):
         from creditos import pipeline
         from creditos.classificador import Config
 
@@ -453,7 +454,7 @@ with area_da_coleta:
             lambda avisar: pipeline.executar(
                 relatorio, config, pasta_do_caso, coautores if len(coautores) <= 10 else [], ao_avancar=avisar,
                 limite_youtube=limite, plataformas=tuple(escolhidas), mostrar_navegador=mostrar_navegador,
-                tela_inteira=tela_inteira, conferidos=conferidos,
+                tela_inteira=tela_inteira, conferidos=conferidos or None,
             ),
             andamento.Andamento(titulos_do_relatorio, escolhidas), tipo="coleta", relatorio=relatorio, pasta=str(pasta_do_caso),
             conferidos=conferidos,
