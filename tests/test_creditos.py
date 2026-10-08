@@ -1673,3 +1673,27 @@ def test_cdp_trata_funcao_e_expressao_como_o_playwright():
     assert [p["type"] for m, p in enviados[-2:]] == ["keyDown", "keyUp"] and enviados[-1][1]["key"] == "Escape"
     pagina.clicar(10, 20)
     assert [p["type"] for m, p in enviados[-3:]] == ["mouseMoved", "mousePressed", "mouseReleased"]
+
+
+def test_amazon_app_navega_pelo_trecho_depois_do_cerquilha(tmp_path):
+    assert _amazon_app.e_de_pagina_unica("https://www.amazon.com.br/morpho/webapp/index.html#/")
+    assert _amazon_app.e_de_pagina_unica("https://www.amazon.com.br/morpho/webapp/index.html")
+    assert not _amazon_app.e_de_pagina_unica("https://music.amazon.com.br/albums/B0AAA11111")
+    feitos = []
+
+    class Pagina:
+        def __init__(self, url): self.url = url
+        def evaluate(self, script, *args): feitos.append(("script", args))
+        def goto(self, url, **_): feitos.append(("goto", url))
+
+    app = _amazon_app.AmazonApp(tmp_path)
+    app._pagina = Pagina("https://www.amazon.com.br/morpho/webapp/index.html#/")
+    app._ir_para("/albums/B0AAA11111?trackAsin=B0TTT11111")      # no aplicativo: troca o trecho, não carrega outro endereço
+    app._pagina = Pagina("https://music.amazon.com.br/")
+    app._ir_para("/albums/B0AAA11111?trackAsin=B0TTT11111")      # no site: o caminho vai no endereço
+    assert feitos == [("script", ("/albums/B0AAA11111?trackAsin=B0TTT11111",)),
+                      ("goto", "https://music.amazon.com.br/albums/B0AAA11111?trackAsin=B0TTT11111")]
+    app._pagina = Pagina("file:///C:/app/index.html")
+    with pytest.raises(_amazon_app.AplicativoIndisponivel, match="endereço interno"):
+        app._ir_para("/albums/X")
+    app._pagina = None

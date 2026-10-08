@@ -168,6 +168,12 @@ def caminho_do_aplicativo() -> Path | None:
     return None
 
 
+def e_de_pagina_unica(endereco: str) -> bool:
+    """O endereço é o de uma página só, que troca de tela pelo trecho depois do "#"? É assim no aplicativo de desktop."""
+    partes = urlsplit(endereco or "")
+    return "#" in (endereco or "") or partes.path.endswith(".html")
+
+
 def e_da_loja(caminho) -> bool:
     """O aplicativo veio da Microsoft Store? Esses ficam numa pasta protegida do Windows e costumam recusar ser abertos por outro programa."""
     return "windowsapps" in str(caminho or "").lower()
@@ -291,13 +297,31 @@ class AmazonApp:
                 raise AplicativoIndisponivel(f"não foi possível se conectar à tela do aplicativo ({type(e).__name__}: {str(e)[:200]})") from e
         return self._pagina
 
-    def _endereco(self, cand: Candidato) -> str:
-        """O endereço do álbum dentro do aplicativo, na mesma origem em que ele está rodando."""
-        origem = urlsplit(self.pagina.url)
-        if origem.scheme not in ("http", "https") or not origem.netloc:
-            raise AplicativoIndisponivel(
-                f'o aplicativo usa um endereço interno ("{self.pagina.url[:60]}") que esta versão do app não sabe navegar')
-        return f"{origem.scheme}://{origem.netloc}/albums/{cand.album}?trackAsin={cand.faixa}"
+    def _esperar_carregar(self, limite=75) -> int:
+        """Espera a tela do aplicativo montar os componentes da Amazon Music. Devolve quantos achou (zero: não carregou)."""
+        fim = time.monotonic() + limite
+        quantos = 0
+        while time.monotonic() < fim:
+            quantos = self.pagina.evaluate(_TODOS + ".filter(e => e.tagName.toLowerCase().startsWith('music-')).length; }") or 0
+            if quantos > 5:
+                return quantos
+            self.pagina.wait_for_timeout(1500)
+        return quantos
+
+    def _ir_para(self, caminho: str):
+        """Abre um caminho ("/albums/<álbum>?trackAsin=<faixa>") dentro do aplicativo.
+
+        O aplicativo é uma página só, que troca de tela pelo trecho depois do "#" do endereço
+        (".../webapp/index.html#/albums/..."): navegar é trocar esse trecho. Carregar outro endereço tiraria o
+        aplicativo da tela dele. Num navegador comum, com o site, o caminho vai no próprio endereço.
+        """
+        atual = urlsplit(self.pagina.url)
+        if atual.scheme not in ("http", "https") or not atual.netloc:
+            raise AplicativoIndisponivel(f'o aplicativo usa um endereço interno ("{self.pagina.url[:60]}") que esta versão do app não sabe navegar')
+        if e_de_pagina_unica(self.pagina.url):
+            self.pagina.evaluate("(caminho) => { location.hash = '#' + caminho; }", caminho)
+        else:
+            self.pagina.goto(f"{atual.scheme}://{atual.netloc}{caminho}")
 
     # --- leitura de uma faixa -------------------------------------------------
 
@@ -349,7 +373,9 @@ class AmazonApp:
         pagina.keyboard.press("Escape")  # fecha menu ou janela da faixa anterior
         time.sleep(3)  # sem pressa: o aplicativo é da conta do escritório
         self.navegacoes += 1
-        pagina.goto(self._endereco(cand))
+        if not self._esperar_carregar():
+            raise AplicativoIndisponivel("a tela do aplicativo não carregou")
+        self._ir_para(f"/albums/{cand.album}?trackAsin={cand.faixa}")
         linha = None
         limite = time.monotonic() + 30
         while linha is None and time.monotonic() < limite:
@@ -440,15 +466,18 @@ def diagnostico(destino=None, album="") -> Path:
         if pagina is not None:
             anotar(f"telas abertas: {app.telas}")
             tentar("endereço da tela principal", lambda: pagina.url)
+            tentar("esperar a tela carregar (componentes da Amazon Music)", app._esperar_carregar)
+            tentar("endereço depois de carregar", lambda: pagina.url)
             tentar("componentes da tela", lambda: pagina.evaluate(_TODOS + """.reduce((c, e) => { const t = e.tagName.toLowerCase();
                 if (t.includes('-')) c[t] = (c[t] || 0) + 1; return c; }, {}); }"""))
+            tentar("caminhos que a tela usa", lambda: pagina.evaluate(_TODOS + """.map(e => (e.getAttribute && (e.getAttribute('primary-href') || e.getAttribute('href'))) || '')
+                .filter(h => h && h.length < 90).filter((h, i, a) => a.indexOf(h) === i).slice(0, 14); }"""))
             tentar("texto da tela inicial", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:700])
             album = album or os.environ.get("QUEMCANTA_AMAZON_ALBUM", "") or tentar("um álbum da tela inicial", lambda: pagina.evaluate(
                 _TODOS + """.map(e => ((e.getAttribute && (e.getAttribute('primary-href') || e.getAttribute('href'))) || '').match(/\\/albums\\/([A-Z0-9]{8,})/))
                 .filter(Boolean).map(m => m[1])[0] || ''; }""")) or ""
-            cand = Candidato(album, "", "", "")
-            endereco = album and tentar("endereço do álbum de teste", lambda: app._endereco(cand).split("?")[0])
-            if endereco and tentar("abrir o álbum de teste", lambda: pagina.goto(endereco) or "pedido enviado"):
+            anotar(f"página única (navega pelo trecho depois do #): {e_de_pagina_unica(pagina.url)}")
+            if album and tentar("abrir o álbum de teste", lambda: app._ir_para(f"/albums/{album}") or f"pedido enviado: /albums/{album}"):
                 pagina.wait_for_timeout(8000)
                 tentar("endereço depois de abrir", lambda: pagina.url)
                 tentar("texto do álbum", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:700])
