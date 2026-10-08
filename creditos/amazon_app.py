@@ -64,16 +64,37 @@ class Leitura:
     lido_em: str = ""
 
 
-def _powershell(comando: str) -> list[str]:
-    """As linhas que um comando do PowerShell devolve. Fora do Windows, ou se o comando falhar, lista vazia."""
+def _powershell(comando: str, com_erros=False) -> list[str]:
+    """As linhas que um comando do PowerShell devolve. Fora do Windows, ou se o comando falhar, lista vazia.
+
+    `com_erros` junta as mensagens de erro do PowerShell às linhas: serve para dizer por que um comando não funcionou.
+    """
     if sys.platform != "win32":
         return []
     try:
-        saida = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", comando],
-                               capture_output=True, text=True, timeout=25, encoding="utf-8", errors="ignore").stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
+        resultado = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", comando],
+                                   capture_output=True, text=True, timeout=40, encoding="utf-8", errors="ignore")
+    except (OSError, subprocess.SubprocessError) as e:
+        return [f"{type(e).__name__}: {e}"] if com_erros else []
+    saida = resultado.stdout + ("\n" + resultado.stderr if com_erros else "")
     return [linha.strip().strip('"') for linha in saida.splitlines() if linha.strip()]
+
+
+def comando_da_loja(caminho, porta: int) -> str:
+    """O comando que abre a versão da Microsoft Store com a porta de depuração.
+
+    Aplicativo da loja não pode ser aberto por outro programa com uma instrução extra. O Windows tem um comando
+    próprio para isso, `Invoke-CommandInDesktopPackage`, que executa o programa dentro do pacote do aplicativo;
+    no Windows 10 atual e no 11 ele não exige o modo de desenvolvedor. O pacote e o identificador do aplicativo
+    são lidos do próprio Windows.
+    """
+    return (
+        "$pacote = Get-AppxPackage *AmazonMusic* | Select-Object -First 1; "
+        "$id = (($pacote | Get-AppxPackageManifest).Package.Applications.Application | Select-Object -First 1).Id; "
+        f"Invoke-CommandInDesktopPackage -PackageFamilyName $pacote.PackageFamilyName -AppId $id -Command '{caminho}' "
+        f"-Args '--remote-debugging-port={porta}'; "
+        'Write-Output "pacote: $($pacote.PackageFamilyName) | aplicativo: $id"'
+    )
 
 
 # Onde o Windows sabe dizer que o Amazon Music está: o programa aberto agora, o registro de programas instalados
@@ -176,7 +197,7 @@ class AmazonApp:
         self.cache = self.pasta / "leituras"
         self.avisar = ao_avancar or (lambda texto: None)
         self.so_o_que_ja_foi_lido, self.porta = so_o_que_ja_foi_lido, porta
-        self.navegacoes = 0
+        self.navegacoes, self.pela_loja = 0, []
         self._pw = self._navegador = self._pagina = None
 
     def __enter__(self):
@@ -209,17 +230,20 @@ class AmazonApp:
         caminho = caminho_do_aplicativo()
         if caminho is None:
             raise AplicativoIndisponivel(
-                "o aplicativo Amazon Music não foi encontrado neste computador. Instale-o pelo site da Amazon (não pela "
-                "Microsoft Store), abra uma vez e faça login com a conta do escritório")
+                "o aplicativo Amazon Music não foi encontrado neste computador. Instale-o, abra uma vez e faça login com a "
+                "conta do escritório")
         self.avisar("Amazon Music (aplicativo): abrindo o aplicativo")
         subprocess.run(["taskkill", "/IM", caminho.name, "/F"], capture_output=True)  # aberto sem a porta de depuração não serve
         time.sleep(2)
-        try:
-            subprocess.Popen([str(caminho), f"--remote-debugging-port={self.porta}"], close_fds=True)
-        except OSError as e:
-            raise AplicativoIndisponivel(
-                f"o Windows não deixou abrir o Amazon Music a partir de {caminho} ({type(e).__name__})"
-                + (". Esta é a versão da Microsoft Store: desinstale-a e instale a do site da Amazon" if e_da_loja(caminho) else "")) from e
+        if e_da_loja(caminho):
+            # A versão da loja só abre com instrução extra pelo comando do próprio Windows.
+            self.pela_loja = _powershell(comando_da_loja(caminho, self.porta), com_erros=True)
+            self.avisar("Amazon Music (aplicativo): abrindo pela Microsoft Store - " + " / ".join(self.pela_loja)[:300])
+        else:
+            try:
+                subprocess.Popen([str(caminho), f"--remote-debugging-port={self.porta}"], close_fds=True)
+            except OSError as e:
+                raise AplicativoIndisponivel(f"o Windows não deixou abrir o Amazon Music a partir de {caminho} ({type(e).__name__})") from e
         limite = time.monotonic() + 60
         while time.monotonic() < limite:
             if self._responde():
@@ -227,8 +251,8 @@ class AmazonApp:
                 return
             time.sleep(1.5)
         raise AplicativoIndisponivel(
-            "o aplicativo abriu, mas não aceitou a conexão do app (porta de depuração)"
-            + (". Esta é a versão da Microsoft Store, que não aceita: desinstale-a e instale a do site da Amazon" if e_da_loja(caminho)
+            "o Amazon Music não aceitou a conexão do app (porta de depuração)"
+            + (f", aberto pela Microsoft Store. O que o Windows respondeu: {' / '.join(self.pela_loja)[:300] or 'nada'}" if e_da_loja(caminho)
                else '. Rode o diagnóstico ("Testar Amazon.cmd") e mande o arquivo gerado para quem cuida do app'))
 
     @property

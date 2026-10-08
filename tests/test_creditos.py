@@ -1626,3 +1626,25 @@ def test_amazon_app_acha_o_programa_perguntando_ao_windows(tmp_path, monkeypatch
     assert not _amazon_app.e_da_loja(pasta / "Amazon Music.exe")
     monkeypatch.undo()
     assert sys.platform == "win32" or _amazon_app._powershell("Get-Date") == []  # fora do Windows, não pergunta nada
+
+
+def test_amazon_app_da_loja_e_aberto_pelo_comando_do_windows(tmp_path, monkeypatch):
+    loja = tmp_path / "WindowsApps" / "AmazonMobileLLC.AmazonMusic_9.5" 
+    loja.mkdir(parents=True)
+    (loja / "Amazon Music.exe").write_text("programa")
+    comando = _amazon_app.comando_da_loja(loja / "Amazon Music.exe", 9333)
+    assert "Invoke-CommandInDesktopPackage" in comando and "--remote-debugging-port=9333" in comando and "Get-AppxPackageManifest" in comando
+    # Com a versão da loja, o app não tenta abrir o programa direto (o Windows recusa): usa o comando, e diz o que ele respondeu.
+    pedidos, abertos = [], []
+    monkeypatch.setattr(_amazon_app.sys, "platform", "win32")
+    monkeypatch.setattr(_amazon_app, "caminho_do_aplicativo", lambda: loja / "Amazon Music.exe")
+    monkeypatch.setattr(_amazon_app, "_powershell", lambda cmd, com_erros=False: pedidos.append(cmd) or ["pacote: X | aplicativo: Y"])
+    monkeypatch.setattr(_amazon_app.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(_amazon_app.subprocess, "Popen", lambda *a, **k: abertos.append(a))
+    monkeypatch.setattr(_amazon_app.time, "sleep", lambda s: None)
+    relogio = iter(range(0, 100000, 30))
+    monkeypatch.setattr(_amazon_app.time, "monotonic", lambda: next(relogio))
+    monkeypatch.setattr(_amazon_app.AmazonApp, "_responde", lambda self: False)
+    with pytest.raises(_amazon_app.AplicativoIndisponivel, match="aberto pela Microsoft Store. O que o Windows respondeu: pacote: X"):
+        _amazon_app.AmazonApp(tmp_path)._abrir_o_aplicativo()
+    assert len(pedidos) == 1 and "Invoke-CommandInDesktopPackage" in pedidos[0] and abertos == []

@@ -54,7 +54,7 @@ A Amazon tem dois lugares, e o app trata cada um numa coluna da planilha:
   creditos; o app tira um print por musica, do menu da faixa.
 - "AMAZON": o aplicativo de desktop, onde aparece o item "Creditos". Sao
   dois prints por musica. Vem desmarcado em "Plataformas": precisa do
-  Amazon Music instalado neste computador (baixado do site da Amazon) e da
+  Amazon Music instalado neste computador (do site da Amazon ou da loja) e da
   conta do escritorio ja logada nele. O app fecha e abre o aplicativo para
   poder usa-lo; ele nao digita senha nem faz login.
   Antes de usar pela primeira vez, de dois cliques em "Testar Amazon.cmd":
