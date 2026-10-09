@@ -58,11 +58,27 @@ _ACHAR_LINHA = """([titulo, duracao]) => {
     const nome = l.querySelector('.album-song-name'); return nome && nome.textContent.trim() === titulo; });
   const linha = linhas.find(l => duracao && (l.innerText || '').includes(duracao)) || linhas[0];
   if (!linha) return null;
-  linha.scrollIntoView({block: 'center'});
+  // A faixa vai para o alto da tela, para o menu (que abre para baixo) e o cartão caberem sem aumentar a página.
+  // Numa faixa do fim do álbum não há para onde rolar: um espaço em branco depois da lista dá essa folga.
+  if (!document.getElementById('__quemcanta_folga')) {
+    const folga = document.createElement('div'); folga.id = '__quemcanta_folga'; folga.style.height = '900px';
+    linha.parentElement.appendChild(folga);
+  }
+  let rolavel = linha.parentElement;
+  while (rolavel && rolavel !== document.body && !(rolavel.scrollHeight > rolavel.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(rolavel).overflowY)))
+    rolavel = rolavel.parentElement;
+  if (!rolavel || rolavel === document.body) rolavel = document.scrollingElement;
+  // Só rola se a faixa ainda não estiver no lugar: rolar de novo logo antes do clique fecharia o menu recém-aberto.
+  const antes = rolavel.scrollTop;
+  if (linha.getAttribute('data-quemcanta-rolagem') !== String(antes)) {
+    linha.scrollIntoView({block: 'start'});
+    rolavel.scrollBy(0, -130);
+    linha.setAttribute('data-quemcanta-rolagem', String(rolavel.scrollTop));
+  }
   const botao = linha.querySelector('.cm-icon-more-vertical');
   if (!botao) return {sem_botao: true};
   const q = botao.getBoundingClientRect();
-  return {x: q.x + q.width / 2, y: q.y + q.height / 2, repetidas: linhas.length};
+  return {x: q.x + q.width / 2, y: q.y + q.height / 2, repetidas: linhas.length, moveu: rolavel.scrollTop !== antes};
 }"""
 # O menu aberto: os itens, onde está o de informações e se o menu inteiro cabe na tela.
 _LER_MENU = """() => {
@@ -306,7 +322,7 @@ class Claro:
             if getattr(self, "_tamanho_de_antes", None):
                 pagina.set_viewport_size(self._tamanho_de_antes)
                 self._tamanho_de_antes = None
-            pagina.evaluate("() => { document.documentElement.style.zoom = ''; }")
+            pagina.evaluate("() => { document.documentElement.style.zoom = ''; const f = document.getElementById('__quemcanta_folga'); if (f) f.remove(); }")
         except Exception:
             pass
 
@@ -315,9 +331,12 @@ class Claro:
         pagina.keyboard.press("Escape")
         pagina.mouse.click(640, 30)  # fora de qualquer menu: fecha o que estiver aberto
         pagina.wait_for_timeout(500)
-        pagina.evaluate(_ACHAR_LINHA, [cand.titulo, cand.duracao])
-        pagina.wait_for_timeout(500)
-        onde = pagina.evaluate(_ACHAR_LINHA, [cand.titulo, cand.duracao])  # de novo: a lista se ajeita depois de rolar
+        onde = None
+        for _ in range(4):  # até a lista parar de se mexer: clicar com ela ainda rolando fecha o menu
+            onde = pagina.evaluate(_ACHAR_LINHA, [cand.titulo, cand.duracao])
+            pagina.wait_for_timeout(700)
+            if not onde or not onde.get("moveu"):
+                break
         if not onde or onde.get("sem_botao"):
             return None
         pagina.mouse.click(onde["x"], onde["y"])
