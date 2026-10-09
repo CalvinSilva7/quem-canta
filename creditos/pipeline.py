@@ -220,7 +220,7 @@ def _par_conhecido(pares: dict, titulo: str, interprete: str) -> bool:
     if any(c.mesmo_artista(parte, n) for n in conhecidos for parte in c.partes_do_interprete(interprete)):
         return True
     # Dupla de nomes de uma palavra só ("Fulano e Beltrano"): a divisão em partes a desfaz; compara o nome inteiro.
-    return any(_palavras(n) == _palavras(interprete) or _nome_dentro(n, interprete) for n in conhecidos)
+    return any(_palavras(n) == _palavras(interprete) or _nome_dentro(n, interprete) or _mesma_grafia(n, interprete) for n in conhecidos)
 
 
 def _citado(nome: str, titulo_do_video: str) -> bool:
@@ -386,7 +386,7 @@ def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obr
                     continue
                 vistos.add(cand.faixa)
                 elo = next((n for n in ligados if any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(cand.interprete))
-                            or _nome_dentro(n, cand.interprete)), "")
+                            or _nome_dentro(n, cand.interprete) or _mesma_grafia(n, cand.interprete)), "")
                 if not elo:
                     coleta.sem_vinculo_nao_abertos += 1
                 elif len(por_nome.setdefault(tuple(_palavras(elo)), [])) < por_interprete:
@@ -756,6 +756,13 @@ def _escolher_videos(candidatos: list, por_interprete: int, por_obra: int) -> li
 def _palavras(texto) -> list[str]:
     """As palavras do texto, sem acento nem pontuação, com "&" lido como "e"."""
     return normalizar(str(texto or "").replace("&", " e ")).split()
+
+
+def _mesma_grafia(a: str, b: str) -> bool:
+    """O mesmo nome, a menos de letra dobrada ("Rodolfo" e "Rodolffo", "Jefferson" e "Jeffersson") e de "e" por "&"."""
+    import re
+    sem_dobras = lambda nome: [re.sub(r"(.)\1+", r"\1", palavra) for palavra in _palavras(nome)]
+    return bool(_palavras(a)) and sem_dobras(a) == sem_dobras(b)
 
 
 def _nome_dentro(nome: str, texto: str) -> bool:

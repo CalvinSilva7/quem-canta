@@ -1735,3 +1735,18 @@ def test_pdf_de_provas_do_aplicativo_da_amazon_leva_os_dois_prints_de_cada_music
         g.plataforma = "YOUTUBE"
     with pdfplumber.open(io.BytesIO(provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path)[0])) as lido:
         assert len(lido.pages) == 3
+
+
+def test_ajustes_do_teste_com_o_gabarito_da_amazon_no_aplicativo():
+    import pandas as pd
+    from creditos import ubc
+    # letra dobrada não faz outro artista; nome diferente continua diferente
+    assert pipeline._mesma_grafia("Israel e Rodolfo", "Israel & Rodolffo") and pipeline._mesma_grafia("Jefferson e Emerson", "Jeffersson e Emerson")
+    assert not pipeline._mesma_grafia("Ana", "Anna Maria") and not pipeline._mesma_grafia("", "")
+    assert pipeline._par_conhecido({"COISA FEITA": ["Israel e Rodolfo"]}, "COISA FEITA", "Israel & Rodolffo")
+    # o aviso "Créditos indisponíveis" da janela não é nome de autor: a faixa fica sem crédito, e não com crédito errado
+    secoes = _amazon_app.interpretar_creditos([{"rotulo": "Compositores", "bloco": "Compositores\n\nCréditos indisponíveis"}])
+    assert secoes == {} and _amazon_app.autores(secoes) == []
+    # relatório em planilha, sem coluna de código: cada obra tem o seu identificador, e não um em branco igual para todas
+    rel = ubc.ler_planilha(pd.DataFrame([{"Título": "UMA", "Compositor": "ZECA LIMA"}, {"Título": "OUTRA", "Compositor": "ZECA LIMA"}]))
+    assert len({o.codigo for o in rel.obras}) == 2 and all(o.codigo for o in rel.obras)

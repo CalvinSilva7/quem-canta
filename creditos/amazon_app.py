@@ -41,6 +41,8 @@ ITENS_DE_OUTRO_MENU = ("criar uma playlist", "minhas curtidas", "create playlist
 # Itens pelos quais se reconhece um menu de faixa aberto na tela (os do aplicativo e os do site).
 SINAIS_DE_MENU = ("adicionar a fila", "adicionar a playlist", "compartilhar musica", "reproduzir a proxima", "creditos",
                   "ver album", "ver artista", "compartilhar esta musica")
+# O que a janela de créditos escreve no lugar dos nomes quando a Amazon não tem o crédito.
+SEM_CREDITO_NA_JANELA = ("creditos indisponiveis", "credito indisponivel", "credits unavailable", "credits not available")
 ROTULOS_DE_AUTOR = ("compositor", "letrista", "autor", "songwriter", "composer", "lyricist", "writer")
 
 # O texto de cada rótulo da janela de créditos e do bloco em volta dele.
@@ -91,7 +93,11 @@ _ACHAR_LINHA = "(titulo, rolar) => { " + _BASE + r""" const alvo = limpo(titulo)
   return null; }"""
 # Nos resultados da busca as músicas não vêm em linhas com duração, e sim em blocos pequenos (capa, título, artista).
 # Acha o bloco pelo título e o guarda como "linha", para os passos seguintes servirem igual.
-_ACHAR_ITEM = "(titulo) => { " + _BASE + r""" const alvo = limpo(titulo);
+_ACHAR_ITEM = "(titulo, artista) => { " + _BASE + r""" const alvo = limpo(titulo);
+  // com o artista informado, o bloco precisa trazer o nome dele: o mesmo título aparece com vários intérpretes
+  const nomes = limpo(artista || '').split(/[^a-z0-9]+/).filter(p => p.length > 1 && !['feat', 'part', 'ft'].includes(p));
+  const do_artista = (bloco) => { const texto = ' ' + limpo(folhas(bloco).map(proprio).join(' ')).replace(/[^a-z0-9]+/g, ' ') + ' ';
+    return !nomes.length || nomes.every(p => texto.includes(' ' + p + ' ')); };
   const guardado = window.__quemcanta_alvo;
   const iguais = anda(document).filter(x => proprio(x) && visivel(x) && limpo(proprio(x)) === alvo);
   for (const e of (guardado && iguais.includes(guardado) ? [guardado] : []).concat(iguais)) {
@@ -100,7 +106,7 @@ _ACHAR_ITEM = "(titulo) => { " + _BASE + r""" const alvo = limpo(titulo);
     for (let i = 0; i < 10 && pai(atual); i++) { atual = pai(atual); const r = atual.getBoundingClientRect();
       if (r.height > 140 || r.width > innerWidth * 0.6) break;
       if (folhas(atual).length >= 2 && r.width >= 180) bloco = atual; }
-    if (bloco) { const r = bloco.getBoundingClientRect();
+    if (bloco && do_artista(bloco)) { const r = bloco.getBoundingClientRect();
       bloco.scrollIntoView({block: 'center'}); window.__quemcanta_linha = bloco;
       return {titulo: centro(e), bloco: (folhas(bloco).map(proprio).join(' | ')).slice(0, 160), largura: Math.round(r.width), classe: (bloco.className || '').toString().slice(0, 60)}; }
   }
@@ -174,6 +180,7 @@ class Leitura:
     album: str = ""
     menu: list[str] = field(default_factory=list)
     tem_item_de_creditos: bool = False
+    caminho: str = ""  # vazio: a faixa foi aberta na lista do álbum; senão, por onde ela foi achada
     creditos: list[str] = field(default_factory=list)
     secoes: dict = field(default_factory=dict)
     provas: list[str] = field(default_factory=list)
@@ -301,6 +308,8 @@ def interpretar_creditos(blocos) -> dict:
         for linha in linhas[linhas.index(rotulo) + 1:]:
             if normalizar(linha).startswith(ROTULOS_DE_AUTOR) or normalizar(linha) in ("creditos", "credits"):
                 break
+            if normalizar(linha).startswith(SEM_CREDITO_NA_JANELA):  # o aviso da própria Amazon, e não um nome
+                continue
             nomes += [n.strip() for n in linha.split(",") if n.strip()]
         if nomes:
             secoes.setdefault(rotulo, [])
@@ -322,6 +331,7 @@ class AmazonApp:
         self.avisar = ao_avancar or (lambda texto: None)
         self.so_o_que_ja_foi_lido, self.porta = so_o_que_ja_foi_lido, porta
         self.navegacoes, self.pela_loja, self.telas, self.botoes_vistos, self.caminho_que_funcionou = 0, [], [], [], ""
+        self.o_que_houve_com_o_album, self.o_que_houve_com_a_busca = "", ""
         self._pagina = None
 
     def __enter__(self):
@@ -508,8 +518,31 @@ class AmazonApp:
                     self.caminho_que_funcionou = caminho.split(cand.album)[0]
                     return linha
             if pagina.evaluate(_ACHAR_LINHA, "", False):  # o álbum abriu e tem faixas: a procurada não está nele
+                self.o_que_houve_com_o_album = "o álbum abriu, mas a lista de faixas não traz esse título"
                 return None
+        self.o_que_houve_com_o_album = "o álbum não abriu pelo endereço dele"
         return None
+
+    def _menu_pela_busca(self, cand: Candidato) -> list[str]:
+        """Procura a música pela busca do próprio aplicativo e abre o menu dela ali mesmo, nos resultados.
+
+        Só vale o resultado com o mesmo título e com o nome do intérprete no mesmo bloco.
+        """
+        from urllib.parse import quote
+
+        pagina = self.pagina
+        self._ir_para("/search/" + quote(f"{cand.titulo} {cand.interprete}", safe=""))
+        achado, limite = None, time.monotonic() + 25
+        while not achado and time.monotonic() < limite:
+            pagina.wait_for_timeout(1500)
+            achado = pagina.evaluate(_ACHAR_ITEM, cand.titulo, cand.interprete)
+        if not achado:
+            self.o_que_houve_com_a_busca = "não mostrou essa música com esse intérprete"
+            return []
+        pagina.wait_for_timeout(900)
+        itens = self._abrir_o_menu_da_guardada()
+        self.o_que_houve_com_a_busca = "achou a música, mas o menu dela não abriu" + (f" (itens vistos: {', '.join(itens)[:100]})" if itens else "")
+        return itens
 
     def _ler(self, leitura: Leitura, cand: Candidato, obra: str):
         pagina = self.pagina
@@ -520,12 +553,19 @@ class AmazonApp:
             raise AplicativoIndisponivel("a tela do aplicativo não carregou")
         linha = self._abrir_album(cand)
         if linha is None:
-            leitura.coleta, leitura.erro = "indisponivel", "a faixa não apareceu na lista do álbum dentro do aplicativo"
-            return
-        pagina.wait_for_timeout(1200)
-        pagina.evaluate(_ACHAR_LINHA, cand.titulo)  # rola de novo, com a lista já carregada
-        pagina.wait_for_timeout(900)
-        itens = self._abrir_o_menu(cand.titulo)
+            # O álbum do site nem sempre abre no aplicativo (ou abre sem a faixa): procura a música pela busca dele.
+            motivo = self.o_que_houve_com_o_album
+            itens = self._menu_pela_busca(cand)
+            if interpretar_menu(itens) == "invalido":
+                leitura.coleta = "indisponivel"
+                leitura.erro = f"a faixa não foi achada no aplicativo: {motivo}; e a busca do aplicativo {self.o_que_houve_com_a_busca}"
+                return
+            leitura.caminho = "busca do aplicativo"
+        else:
+            pagina.wait_for_timeout(1200)
+            pagina.evaluate(_ACHAR_LINHA, cand.titulo)  # rola de novo, com a lista já carregada
+            pagina.wait_for_timeout(900)
+            itens = self._abrir_o_menu(cand.titulo)
         leitura.menu = itens
         resultado = interpretar_menu(itens)
         if resultado == "invalido":
@@ -533,7 +573,8 @@ class AmazonApp:
             leitura.erro = "o menu de ações da faixa não abriu no aplicativo" + (
                 f" (itens vistos: {', '.join(itens)[:120]})" if itens else f" (botões da linha: {', '.join(self.botoes_vistos)[:160]})")
             return
-        exibido = {"titulo": cand.titulo, "interprete": cand.interprete, "itens_do_menu": itens}
+        exibido = {"titulo": cand.titulo, "interprete": cand.interprete, "itens_do_menu": itens,
+                   "tela": "resultados da busca do aplicativo" if leitura.caminho else "lista de faixas do álbum"}
         if resultado == "sem_creditos":
             exibido["constatacao"] = 'o menu da faixa no aplicativo não tem o item "Créditos"'
             leitura.provas.append(captura.capturar(pagina, self.pasta, obra, cand.interprete, "amazon-app", exibido, "menu")["captura"])

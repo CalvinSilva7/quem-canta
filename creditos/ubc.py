@@ -51,11 +51,12 @@ def ler_planilha(df: pd.DataFrame) -> Relatorio:
     donos = Counter(celula(l, "compositor") for _, l in df.iterrows() if celula(l, "compositor"))
     if donos:
         relatorio.nome_titular = donos.most_common(1)[0][0]
-    for _, linha in df.iterrows():
+    for numero, (_, linha) in enumerate(df.iterrows(), start=1):
         if not celula(linha, "titulo"):
             continue
         obra = Obra(
-            codigo=celula(linha, "codigo"), iswc=celula(linha, "iswc"), titulo=celula(linha, "titulo"),
+            # sem código na planilha, vale o número da linha: obras com o código em branco seriam tratadas como uma só
+            codigo=celula(linha, "codigo") or f"linha-{numero}", iswc=celula(linha, "iswc"), titulo=celula(linha, "titulo"),
             situacao=_SITUACOES.get(normalizar(celula(linha, "situacao")), celula(linha, "situacao").upper()),
             inclusao=celula(linha, "inclusao"),
         )
