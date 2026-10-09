@@ -395,7 +395,9 @@ class YouTubeMusic:
         if not arquivo.exists():
             return None
         dados = json.loads(arquivo.read_text(encoding="utf-8"))
-        return Leitura(**{k: v for k, v in dados.items() if k != "v"}) if dados.get("v") == VERSAO_DA_LEITURA else None
+        if dados.get("v") != VERSAO_DA_LEITURA or not (captura.serve(self.pasta, dados.get("provas")) or self.so_o_que_ja_foi_lido):
+            return None  # leitura de outra versão, ou print tirado sem a tela inteira com ela pedida agora
+        return Leitura(**{k: v for k, v in dados.items() if k != "v"})
 
     def _para_cache(self, leitura: Leitura):
         self.cache.mkdir(parents=True, exist_ok=True)

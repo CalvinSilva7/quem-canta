@@ -144,8 +144,8 @@ class Spotify:
         arquivo = self.cache / f"{cand.faixa}.json"
         if arquivo.exists():
             dados = json.loads(arquivo.read_text(encoding="utf-8"))
-            if dados.pop("v", None) == VERSAO_DA_LEITURA:
-                return Leitura(**dados)
+            if dados.pop("v", None) == VERSAO_DA_LEITURA and (captura.serve(self.pasta, dados.get("provas")) or self.so_o_que_ja_foi_lido):
+                return Leitura(**dados)  # print tirado sem a tela inteira, com ela pedida agora, é refeito
         leitura = Leitura(faixa=cand.faixa, titulo=cand.titulo, interprete=cand.interprete, album=cand.album,
                           lido_em=captura.agora().isoformat(timespec="seconds"))
         if self.so_o_que_ja_foi_lido:

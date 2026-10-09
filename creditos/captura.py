@@ -102,15 +102,39 @@ def texto_do_carimbo(url, quando: datetime, identificador, data_do_servidor="") 
     return "\n".join(partes)
 
 
+def _serve_a_ficha(pasta, ficha: dict) -> bool:
+    """Com o print de tela inteira pedido, só serve a captura feita nesse modo: a que traz a foto do monitor, ou a
+    que tentou e registrou por que não deu. A que foi tirada sem a opção é refeita. Sem a opção, qualquer uma serve."""
+    if not TELA_INTEIRA:
+        return True
+    tela = ficha.get("arquivos", {}).get("tela", "")
+    return bool(tela and (Path(pasta) / tela).is_file()) or "tela_inteira" in ficha
+
+
+def serve(pasta, provas) -> bool:
+    """As capturas guardadas (nomes-base) servem para esta coleta? Ver `_serve_a_ficha`. Lista vazia serve."""
+    for base in provas or []:
+        arquivo = Path(pasta) / f"{base}.json"
+        try:
+            ficha = json.loads(arquivo.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not _serve_a_ficha(pasta, ficha):
+            return False
+    return True
+
+
 def capturas_guardadas(pasta) -> list[dict]:
-    """As fichas (.json) das capturas já salvas na pasta, cada uma só se o PNG ainda estiver lá."""
+    """As fichas (.json) das capturas já salvas na pasta, cada uma só se o PNG ainda estiver lá (e, com o print de
+    tela inteira pedido, só as feitas nesse modo)."""
     fichas = []
     for arquivo in sorted(Path(pasta).glob("*.json")):
         try:
             ficha = json.loads(arquivo.read_text(encoding="utf-8"))
         except ValueError:
             continue
-        if isinstance(ficha, dict) and "captura" in ficha and (Path(pasta) / ficha.get("arquivos", {}).get("png", "")).is_file():
+        if (isinstance(ficha, dict) and "captura" in ficha and (Path(pasta) / ficha.get("arquivos", {}).get("png", "")).is_file()
+                and _serve_a_ficha(pasta, ficha)):
             fichas.append(ficha)
     return fichas
 

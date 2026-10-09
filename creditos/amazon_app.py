@@ -449,7 +449,9 @@ class AmazonApp:
         """Abre a faixa no aplicativo, fotografa o menu e a janela de créditos. Leitura completa fica guardada."""
         arquivo = self.cache / f"{cand.faixa}.json"
         if arquivo.exists():
-            return Leitura(**json.loads(arquivo.read_text(encoding="utf-8")))
+            guardada = Leitura(**json.loads(arquivo.read_text(encoding="utf-8")))
+            if captura.serve(self.pasta, guardada.provas) or self.so_o_que_ja_foi_lido:  # print sem tela inteira é refeito
+                return guardada
         leitura = Leitura(faixa=cand.faixa, link=cand.link, titulo=cand.titulo, interprete=cand.interprete,
                           lido_em=captura.agora().isoformat(timespec="seconds"))
         if self.so_o_que_ja_foi_lido:
