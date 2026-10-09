@@ -428,7 +428,7 @@ def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo,
     """Amazon Music no aplicativo de desktop: as faixas são achadas pela busca do site (`amazon`) e abertas no
     aplicativo (`aplicativo`), que é onde aparece o item "Créditos" com os compositores. Dois prints por música."""
     from types import SimpleNamespace
-    from .amazon_app import AplicativoIndisponivel
+    from .amazon_app import SEM_CREDITO_NA_JANELA, AplicativoIndisponivel
     from .captura import PaginaTraduzida
     from .navegador import Bloqueio
 
@@ -441,7 +441,9 @@ def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo,
         for i, (cand, titulo, consulta) in enumerate(fila, start=1):
             avisar(f"{nome}: lendo faixa {i}/{len(fila)}")
             leitura = aplicativo.ler(cand, titulo)
-            faixa = SimpleNamespace(titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=leitura.creditos,
+            # leitura guardada por versão antiga pode trazer, como se fosse nome, o aviso "Créditos indisponíveis" da janela
+            creditos = [n for n in leitura.creditos if not normalizar(n).startswith(SEM_CREDITO_NA_JANELA)]
+            faixa = SimpleNamespace(titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=creditos,
                                     link=cand.link, coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
                                     nota="lido no aplicativo de desktop da Amazon Music; o link é o da mesma faixa no site")
             lidas.append((faixa, SimpleNamespace(titulo=leitura.album, fornecedor="", lancamento=""), f'busca "{consulta}"'))
