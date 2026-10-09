@@ -1818,3 +1818,15 @@ def test_claro_procura_pela_pagina_do_artista_quando_a_busca_nao_traz_a_faixa(re
     (g,) = coleta.gravacoes
     assert falsa.pedidos == ["Banda do Baile"] and g.interprete == "Banda do Baile" and g.link.endswith("/album/77/BR#faixa-77n3")
     assert g.creditos == ["Fulano de Tal", "Beltrano"] and g.classificacao.status == c.VIOLACAO  # a barra também separa os nomes
+
+
+def test_limpar_o_guardado_apaga_so_as_pastas_das_plataformas_escolhidas(tmp_path):
+    caso = tmp_path / "casos" / "fulano"
+    for nome in ("spotify/leituras", "claro", "deezer", "amazon-site", "apple-music"):
+        (caso / nome).mkdir(parents=True)
+        (caso / nome / "a.json").write_text("{}")
+    (tmp_path / "perfil-claro").mkdir()  # a sessão logada fica fora do caso
+    assert sorted(pipeline.limpar_o_guardado(caso, ["spotify", "claro", "tidal"])) == ["claro", "spotify"]
+    assert not (caso / "spotify").exists() and not (caso / "claro").exists()
+    assert (caso / "deezer").exists() and (caso / "amazon-site").exists() and (tmp_path / "perfil-claro").exists()
+    assert sorted(pipeline.limpar_o_guardado(caso, ["apple", "amazon"])) == ["amazon-site", "apple-music"]

@@ -445,6 +445,32 @@ with area_da_coleta:
         "guardado: se parar no meio ou coletar de novo, continua de onde estava."
     )
 
+    with st.expander("Recomeçar do zero (apagar o que foi guardado)"):
+        st.markdown(
+            "O app guarda o que já leu e os prints que já tirou, para não repetir trabalho. Para **tirar tudo de novo** "
+            "(depois de uma atualização do app, ou para mudar o formato do print), apague aqui o que foi guardado das "
+            "plataformas marcadas acima. Vale só para este compositor."
+        )
+        com_algo = [p for p in escolhidas if any((pasta_do_caso / n).is_dir() for n in _pipeline.PASTAS_DO_CASO.get(p, []))]
+        if not com_algo:
+            st.caption("Não há nada guardado das plataformas marcadas.")
+        else:
+            st.write("Será apagado: " + ", ".join(NOMES_DAS_PLATAFORMAS[p] for p in com_algo) + ".")
+            if {"deezer", "apple"} & set(com_algo):
+                st.warning("A Deezer e a Apple Music também guardam o que a **busca de intérpretes** leu. Apagando, uma busca "
+                           "longa terá de ser refeita.")
+            confirmado = st.checkbox("Sim, apagar as leituras e os prints dessas plataformas. Isso não pode ser desfeito.", key="confirma_limpeza")
+            ocupado = andamento.atual() is not None and andamento.atual().viva
+            if st.button("Apagar o que foi guardado", disabled=not confirmado or ocupado):
+                apagadas = _pipeline.limpar_o_guardado(pasta_do_caso, com_algo)
+                st.session_state.pop("coletas", None)
+                st.session_state.pop("saidas", None)
+                st.session_state.pop("confirma_limpeza", None)
+                st.session_state.aviso_de_limpeza = len(apagadas)
+                st.rerun()
+    if st.session_state.pop("aviso_de_limpeza", None):
+        st.success("Apagado. A próxima coleta lê e fotografa tudo de novo nessas plataformas.")
+
     def recolher(tarefa):
         """Pega o resultado da coleta que terminou (ou diz por que não terminou) e libera o botão de coletar."""
         andamento.encerrar()

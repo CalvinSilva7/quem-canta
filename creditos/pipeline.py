@@ -473,6 +473,29 @@ def coletar_claro(relatorio: Relatorio, config: Config, claro, recorrentes=(), p
     return coleta
 
 
+# As pastas em que cada plataforma guarda, dentro do caso, o que leu e os prints que tirou.
+PASTAS_DO_CASO = {"deezer": ["deezer"], "apple": ["apple", "apple-music"], "youtube": ["youtube"], "spotify": ["spotify"],
+                  "tidal": ["tidal"], "vagalume": ["vagalume"], "amazon": ["amazon-site"], "amazon_app": ["amazon-app"], "claro": ["claro"]}
+
+
+def limpar_o_guardado(pasta_do_caso, plataformas) -> list[str]:
+    """Apaga o que as plataformas escolhidas guardaram neste caso (leituras e prints). Devolve as pastas apagadas.
+
+    Só mexe nas pastas dessas plataformas, dentro da pasta do caso: outros casos, as outras plataformas e a sessão
+    logada da Claro Música (que fica fora do caso) não são tocados.
+    """
+    import shutil
+
+    apagadas = []
+    for plataforma in plataformas:
+        for nome in PASTAS_DO_CASO.get(plataforma, []):
+            pasta = Path(pasta_do_caso) / nome
+            if pasta.is_dir():
+                shutil.rmtree(pasta)
+                apagadas.append(nome)
+    return apagadas
+
+
 def perfil_da_claro(pasta_do_caso) -> Path:
     """Onde o navegador do app guarda a sessão da Claro Música: na pasta de dados, fora de qualquer caso."""
     return Path(pasta_do_caso).parent.parent / "perfil-claro"

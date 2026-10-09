@@ -465,3 +465,27 @@ def test_as_duas_abas_aparecem_antes_de_enviar_qualquer_arquivo():
     assert at.button_group[0].value == ETAPA_DOS_INTERPRETES and any("planilha de intérpretes" in c.value for c in at.caption)
     at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
     assert any("lista da petição" in c.value for c in at.caption) and any("Envie o relatório" in i.value for i in at.info)
+
+
+def test_botao_de_apagar_o_guardado_pede_confirmacao_e_limpa_so_o_marcado(tmp_path, monkeypatch):
+    from creditos import pipeline
+    from tests.test_creditos import relatorio_de_teste
+
+    monkeypatch.chdir(tmp_path)
+    at = _tela_de_creditos()
+    at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = ETAPA_DOS_PRINTS
+    at.session_state["conferidos"] = CONFERIDOS
+    at.run()
+    assert not at.exception and any("Não há nada guardado" in cap.value for cap in at.caption)
+    import os
+
+    apagados = []
+    monkeypatch.setattr(pipeline, "limpar_o_guardado", lambda caso, plataformas: apagados.append(list(plataformas)) or ["spotify"])
+    monkeypatch.setattr(Path, "is_dir", lambda self: self.name == "spotify" or os.path.isdir(self))
+    at.run()
+    botao = _botao(at, "Apagar o que foi guardado")
+    assert botao.disabled and apagados == []  # sem marcar a confirmação, nada é apagado
+    next(c for c in at.checkbox if "Sim, apagar" in c.label).check().run()
+    _botao(at, "Apagar o que foi guardado").click().run()
+    assert apagados == [["spotify"]] and any("Apagado" in m.value for m in at.success)
