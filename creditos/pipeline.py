@@ -1133,10 +1133,16 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
         # A Claro Música só mostra o catálogo a quem está logado: usa um navegador à parte, com o perfil em que a
         # pessoa fez o login. As outras plataformas seguem no navegador limpo, sem sessão nenhuma.
         from .claro import Claro
-        with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
-                       perfil=perfil_da_claro(pasta)) as nav_da_claro:
-            coletas.append(ajustar(coletar_claro(relatorio, config, Claro(nav_da_claro, pasta / "claro", so_o_que_ja_foi_lido),
-                                                 recorrentes, pares, limite, ao_avancar=ao_avancar)))
+        from .navegador import PerfilEmUso
+        try:
+            with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
+                           perfil=perfil_da_claro(pasta)) as nav_da_claro:
+                coletas.append(ajustar(coletar_claro(relatorio, config, Claro(nav_da_claro, pasta / "claro", so_o_que_ja_foi_lido),
+                                                     recorrentes, pares, limite, ao_avancar=ao_avancar)))
+        except PerfilEmUso as e:  # não derruba as outras plataformas: a Claro fica parada, com o motivo
+            parada = Coleta("CLARO")
+            _parar(parada, e)
+            coletas.append(parada)
     for coleta in coletas:  # o que já foi fotografado em outra rodada é reaproveitado
         if coleta.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME"):
             reaproveitar_prints(coleta, pasta / coleta.plataforma.lower().replace(" ", "-"),

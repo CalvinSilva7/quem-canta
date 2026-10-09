@@ -64,6 +64,10 @@ def sinal_de_bloqueio(url: str, texto: str = "") -> str:
     return next((f'a página pede verificação humana ou login ("{sinal}")' for sinal in _BLOQUEIO_NO_TEXTO if sinal in limpo), "")
 
 
+class PerfilEmUso(Exception):
+    """O perfil com a sessão guardada está aberto em outra janela do navegador do app."""
+
+
 class Navegador:
     """Uso: `with Navegador(filtro) as nav: nav.ir(url); nav.pagina...`"""
 
@@ -90,9 +94,16 @@ class Navegador:
             argumentos = (["--lang=pt-BR", "--disable-features=Translate", "--mute-audio"] + tamanho_da_janela()
                           + ([FORA_DA_TELA] if self.escondido else []))
             if self.perfil:
-                contexto = self._navegador = self._pw.chromium.launch_persistent_context(
-                    str(self.perfil), headless=not self.visivel, args=argumentos, **tamanho_da_pagina(), locale="pt-BR",
-                    timezone_id=captura.FUSO)
+                try:
+                    contexto = self._navegador = self._pw.chromium.launch_persistent_context(
+                        str(self.perfil), headless=not self.visivel, args=argumentos, **tamanho_da_pagina(), locale="pt-BR",
+                        timezone_id=captura.FUSO)
+                except Exception as e:
+                    # O perfil só pode estar aberto em uma janela por vez: o caso comum é a janela de login ainda aberta.
+                    self._pw.stop()
+                    self._pw = None
+                    raise PerfilEmUso("o navegador com a sessão guardada já está aberto em outra janela. Feche a janela de login "
+                                      f"(e qualquer outra janela do navegador do app) e colete de novo [{type(e).__name__}]") from e
             else:
                 self._navegador = self._pw.chromium.launch(headless=not self.visivel, args=argumentos)
                 contexto = self._navegador.new_context(**tamanho_da_pagina(), locale="pt-BR", timezone_id=captura.FUSO)
@@ -103,6 +114,7 @@ class Navegador:
     def __exit__(self, *erro):
         if self._navegador:
             self._navegador.close()
+        if self._pw:
             self._pw.stop()
 
     def ir(self, url, pausa=(2, 4)):
