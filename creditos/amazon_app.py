@@ -65,8 +65,11 @@ _BASE = r"""const anda = (raiz) => { let s = []; for (const e of raiz.querySelec
     if (r.right <= 0 || r.left >= innerWidth) return false;
     const estilo = getComputedStyle(e); if (estilo.visibility === 'hidden' || estilo.display === 'none') return false;
     let topo = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-    while (topo && topo.shadowRoot && topo.shadowRoot.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
-           && topo.shadowRoot.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) !== topo) topo = topo.shadowRoot.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    // desce pelos componentes, no máximo 8 níveis: sem o limite, dois componentes que apontam um para o outro travariam a tela
+    for (let n = 0; n < 8 && topo && topo.shadowRoot; n++) {
+      const dentro = topo.shadowRoot.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      if (!dentro || dentro === topo || !topo.shadowRoot.contains(dentro)) break;
+      topo = dentro; }
     return !!topo && (topo === e || e.contains(topo) || (topo.contains(e) && topo.getBoundingClientRect().height <= r.height + 30)); };
   const avistas = (raiz) => anda(raiz).filter(e => proprio(e) && avista(e));
 """
@@ -337,6 +340,15 @@ class AmazonApp:
     def __enter__(self):
         return self
 
+    def _registrar(self, texto: str):
+        """Anota o passo, com a hora, em `registro.log` na pasta das capturas. Nunca derruba a coleta."""
+        try:
+            self.pasta.mkdir(parents=True, exist_ok=True)
+            with open(self.pasta / "registro.log", "a", encoding="utf-8") as arquivo:
+                arquivo.write(f"{captura.agora().isoformat(timespec='seconds')} {texto}\n")
+        except OSError:
+            pass
+
     def __exit__(self, *erro):
         if self._pagina is not None:
             self._pagina.fechar()  # só desfaz a conexão: o aplicativo continua aberto, com a conta logada
@@ -449,10 +461,12 @@ class AmazonApp:
             raise
         except Exception as e:  # timeout, elemento que sumiu: erro técnico, nunca "sem créditos"
             leitura.coleta, leitura.erro = "erro", f"{type(e).__name__}: {str(e).splitlines()[0][:160]}"
+            self._registrar(f"falhou: {leitura.erro}")
             try:
                 self.pagina.keyboard.press("Escape")  # não deixa menu nem janela abertos no aplicativo
             except Exception:
                 pass
+        self._registrar(f"fim: {leitura.coleta} {leitura.erro}".strip())
         if leitura.coleta == "ok":
             self.cache.mkdir(parents=True, exist_ok=True)
             arquivo.write_text(json.dumps(asdict(leitura), ensure_ascii=False), encoding="utf-8")
@@ -549,6 +563,7 @@ class AmazonApp:
         return itens
 
     def _ler(self, leitura: Leitura, cand: Candidato, obra: str):
+        self._registrar(f'--- faixa "{cand.titulo}" de "{cand.interprete}" (álbum {cand.album})')
         pagina = self.pagina
         pagina.keyboard.press("Escape")  # fecha menu ou janela da faixa anterior
         time.sleep(3)  # sem pressa: o aplicativo é da conta do escritório
@@ -557,11 +572,14 @@ class AmazonApp:
             self._ir_para("/home")
             if not self._esperar_carregar(limite=60):
                 raise AplicativoIndisponivel("a tela do aplicativo não carregou")
+        self._registrar("tela carregada; abrindo o álbum")
         linha = self._abrir_album(cand)
+        self._registrar(f"álbum: {'linha da faixa achada' if linha else self.o_que_houve_com_o_album}")
         if linha is None:
             # O álbum do site nem sempre abre no aplicativo (ou abre sem a faixa): procura a música pela busca dele.
             motivo = self.o_que_houve_com_o_album
             itens = self._menu_pela_busca(cand)
+            self._registrar(f"busca do aplicativo: {len(itens)} itens de menu; {self.o_que_houve_com_a_busca}")
             if interpretar_menu(itens) == "invalido":
                 leitura.coleta = "indisponivel"
                 leitura.erro = f"a faixa não foi achada no aplicativo: {motivo}; e a busca do aplicativo {self.o_que_houve_com_a_busca}"
@@ -574,6 +592,7 @@ class AmazonApp:
             itens = self._abrir_o_menu(cand.titulo)
         leitura.menu = itens
         resultado = interpretar_menu(itens)
+        self._registrar(f"menu: {resultado}")
         if resultado == "invalido":
             leitura.coleta = "erro"
             leitura.erro = "o menu de ações da faixa não abriu no aplicativo" + (
@@ -592,12 +611,14 @@ class AmazonApp:
         if not item:
             leitura.coleta, leitura.erro = "erro", 'o item "Créditos" sumiu do menu antes do clique'
             return
+        self._registrar("print do menu tirado; clicando em Créditos")
         pagina.clicar(item["x"], item["y"])
         blocos = []
         limite = time.monotonic() + 15
         while not blocos and time.monotonic() < limite:
             pagina.wait_for_timeout(700)
             blocos = pagina.evaluate(_LER_CREDITOS)
+        self._registrar(f"janela de créditos: {len(blocos)} blocos")
         leitura.secoes = interpretar_creditos(blocos)
         leitura.creditos = autores(leitura.secoes)
         texto = normalizar(pagina.evaluate(_LER_TEXTO))
