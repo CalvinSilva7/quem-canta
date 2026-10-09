@@ -504,11 +504,13 @@ class AmazonApp:
         return pagina.evaluate(_LER_MENU_ABERTO, list(SINAIS_DE_MENU)) or []
 
     def _abrir_album(self, cand: Candidato) -> dict | None:
-        """Abre o álbum no aplicativo e acha a linha da faixa. Tenta os formatos de endereço que o aplicativo pode usar."""
+        """Abre o álbum no aplicativo e acha a linha da faixa.
+
+        Usa só o formato de endereço que o próprio aplicativo mostra ao abrir um álbum. Os do site não servem nele:
+        deixam a tela vazia, e a faixa ficava mais de um minuto sendo tentada à toa.
+        """
         pagina = self.pagina
-        # O primeiro formato é o que o próprio aplicativo mostra ao abrir um álbum; os outros são os do site.
-        for caminho in (f"/album/detail/{cand.album}?id={cand.album}&asin={cand.album}", f"/albums/{cand.album}?trackAsin={cand.faixa}",
-                        f"/albums/{cand.album}", f"/album/{cand.album}"):
+        for caminho in (f"/album/detail/{cand.album}?id={cand.album}&asin={cand.album}",):
             self._ir_para(caminho)
             limite = time.monotonic() + 20
             while time.monotonic() < limite:
@@ -531,6 +533,8 @@ class AmazonApp:
         from urllib.parse import quote
 
         pagina = self.pagina
+        self._ir_para("/home")  # um álbum que não abriu pode deixar a tela vazia: parte de uma tela que existe
+        pagina.wait_for_timeout(3500)
         self._ir_para("/search/" + quote(f"{cand.titulo} {cand.interprete}", safe=""))
         achado, limite = None, time.monotonic() + 25
         while not achado and time.monotonic() < limite:
@@ -549,8 +553,10 @@ class AmazonApp:
         pagina.keyboard.press("Escape")  # fecha menu ou janela da faixa anterior
         time.sleep(3)  # sem pressa: o aplicativo é da conta do escritório
         self.navegacoes += 1
-        if not self._esperar_carregar():
-            raise AplicativoIndisponivel("a tela do aplicativo não carregou")
+        if not self._esperar_carregar(limite=20):  # ficou numa tela vazia da faixa anterior: volta ao início
+            self._ir_para("/home")
+            if not self._esperar_carregar(limite=60):
+                raise AplicativoIndisponivel("a tela do aplicativo não carregou")
         linha = self._abrir_album(cand)
         if linha is None:
             # O álbum do site nem sempre abre no aplicativo (ou abre sem a faixa): procura a música pela busca dele.
