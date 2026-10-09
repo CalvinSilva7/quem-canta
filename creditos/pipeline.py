@@ -615,15 +615,38 @@ def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar
         _parar(coleta, e)
 
 
+# O elemento é o que está por cima no ponto central dele? (um painel que deslizou para fora continua na página)
+_POR_CIMA = """(e) => { const r = e.getBoundingClientRect(); if (!r.width || !r.height) return false;
+  const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !!t && (t === e || e.contains(t) || t.contains(e)); }"""
+
+
 def abrir_creditos_da_deezer(navegador):
-    """Na página da faixa: recusa os cookies, abre o menu e o painel "Consulte créditos musicais"."""
+    """Na página da faixa: recusa os cookies, abre o menu e o painel "Consulte créditos musicais".
+
+    Só devolve com o painel à vista. O menu abre com animação: clicar no item cedo demais não abre o painel e ainda
+    rola a página, e o print sairia sem os créditos. Por isso espera o item aparecer, confere o painel e tenta de novo.
+    """
     import re
     pagina = navegador.pagina
     navegador.clicar_se_houver('[data-testid="gdpr-btn-refuse-all"]')
-    pagina.get_by_role("button", name="Exibir menu").first.click()
-    pagina.get_by_text(re.compile(r"cr[eé]ditos musicais", re.I)).first.click()
-    pagina.wait_for_timeout(1800)
-    navegador.conferir()
+    item = pagina.get_by_text(re.compile(r"cr[eé]ditos musicais", re.I)).first
+    voltar = pagina.get_by_text(re.compile(r"^\s*voltar\s*$", re.I))
+    for _ in range(3):
+        pagina.evaluate("() => window.scrollTo(0, 0)")
+        pagina.wait_for_timeout(500)
+        pagina.get_by_role("button", name="Exibir menu").first.click()
+        item.wait_for(state="visible", timeout=8000)
+        pagina.wait_for_timeout(900)  # a animação do menu
+        item.click()
+        pagina.wait_for_timeout(1800)
+        # painel aberto: o item do menu saiu de cena e o cabeçalho "Voltar" do painel é o que está por cima
+        # (o menu e o painel deslizam um sobre o outro: os dois continuam "visíveis" para o navegador)
+        if not item.evaluate(_POR_CIMA) and any(voltar.nth(n).evaluate(_POR_CIMA) for n in range(voltar.count())):
+            navegador.conferir()
+            return
+        pagina.keyboard.press("Escape")
+        pagina.wait_for_timeout(700)
+    raise RuntimeError("o painel de créditos da Deezer não abriu")
 
 
 def pagina_da_musica_na_apple(link: str) -> str:
