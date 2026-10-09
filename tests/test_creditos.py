@@ -1750,3 +1750,47 @@ def test_ajustes_do_teste_com_o_gabarito_da_amazon_no_aplicativo():
     # relatório em planilha, sem coluna de código: cada obra tem o seu identificador, e não um em branco igual para todas
     rel = ubc.ler_planilha(pd.DataFrame([{"Título": "UMA", "Compositor": "ZECA LIMA"}, {"Título": "OUTRA", "Compositor": "ZECA LIMA"}]))
     assert len({o.codigo for o in rel.obras}) == 2 and all(o.codigo for o in rel.obras)
+
+
+def test_claro_le_a_lista_da_busca_e_o_cartao_de_informacoes(rel):
+    from types import SimpleNamespace
+    from creditos import claro as _claro
+
+    itens = [{"faixa": "50360898", "album": "6455627", "titulo": "Coisa Feita (Ao Vivo)", "artistas": ["Banda do Baile"], "nome_do_album": "Ao Vivo", "duracao": "02:44"},
+             {"faixa": "50360898", "album": "6455627", "titulo": "Coisa Feita (Ao Vivo)", "artistas": ["Banda do Baile"]},  # repetida
+             {"faixa": "", "album": "1", "titulo": "Sem faixa"}]
+    (cand,) = _claro.interpretar_resultados(itens)
+    assert (cand.album, cand.faixa, cand.interprete, cand.duracao) == ("6455627", "50360898", "Banda do Baile", "02:44")
+    assert cand.link == "https://www.claromusica.com/album/6455627/BR#faixa-50360898"
+    # o cartão: as duas primeiras linhas são o cabeçalho; rótulo sem valor fica vazio
+    cartao = ["Coisa Feita (Ao Vivo)", "Banda do Baile", "Música", "Coisa Feita (Ao Vivo)", "Duração", "02:44", "Artista", "Banda do Baile",
+              "Autores", "Zeca Lima, Cida Dias", "Álbum", "Ao Vivo", "Gravadora", "Selo Tal", "Ano", "2018"]
+    lido = _claro.interpretar_cartao(cartao)
+    assert _claro.autores(lido) == ["Zeca Lima", "Cida Dias"] and _claro.campo(lido, "gravadora") == "Selo Tal" and _claro.campo(lido, "musica") == "Coisa Feita (Ao Vivo)"
+    sem = _claro.interpretar_cartao(["Música", "Coisa Feita", "Autores", "Álbum", "Ao Vivo"])
+    assert _claro.autores(sem) == [] and _claro.campo(sem, "album") == "Ao Vivo"
+
+    class ClaroFalsa:
+        nav = SimpleNamespace(navegacoes=3)
+        def __init__(self, creditos, falha=None):
+            self.creditos, self.falha, self.consultas = creditos, falha, []
+        def buscar(self, consulta):
+            self.consultas.append(consulta)
+            return [cand] if consulta == "COISA FEITA" else []
+        def ler(self, c_, obra):
+            if self.falha:
+                raise self.falha
+            return _claro.Leitura(faixa=c_.faixa, titulo=c_.titulo, creditos=self.creditos, album="Ao Vivo", gravadora="Selo Tal", ano="2018",
+                                  provas=["coisa-feita_claro_informacoes"])
+
+    pares, cfg = {"COISA FEITA": ["Banda do Baile"]}, Config(nomes_confirmados=["ZECA LIMA"])
+    falsa = ClaroFalsa(["Fulano de Tal"])
+    coleta = pipeline.coletar_claro(rel, cfg, falsa, pares=pares)
+    (g,) = coleta.gravacoes
+    assert coleta.plataforma == "CLARO" and g.classificacao.status == c.VIOLACAO and g.provas == ["coisa-feita_claro_informacoes"]
+    assert all(" " not in q.replace("COISA FEITA", "").strip() or q in [o.titulo for o in rel.obras] for q in falsa.consultas)  # só por título
+    assert pipeline.coletar_claro(rel, cfg, ClaroFalsa(["Zeca Lima"]), pares=pares).gravacoes[0].classificacao.status == c.OK
+    assert pipeline.coletar_claro(rel, cfg, ClaroFalsa([]), pares=pares).gravacoes[0].classificacao.status == c.SEM_CREDITOS
+    # sem a sessão logada, a coleta para e avisa, sem inventar resultado
+    parada = pipeline.coletar_claro(rel, cfg, ClaroFalsa([], falha=_claro.SemLogin("a Claro Música não está logada")), pares=pares)
+    assert parada.interrompida and not parada.gravacoes and "não está logada" in parada.avisos[-1]

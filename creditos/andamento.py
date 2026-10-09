@@ -12,10 +12,10 @@ import time
 
 from . import pipeline
 
-ETAPAS = ["deezer", "apple", "vagalume", "youtube", "spotify", "tidal", "amazon", "amazon_app"]  # a ordem em que a coleta acontece
+ETAPAS = ["deezer", "apple", "vagalume", "youtube", "claro", "spotify", "tidal", "amazon", "amazon_app"]  # a ordem em que a coleta acontece
 PRINTS = "prints"
 NOMES = {"deezer": "Deezer", "apple": "Apple Music", "vagalume": "Vagalume", "youtube": "YouTube Music",
-         "spotify": "Spotify", "tidal": "Tidal", "amazon": "Amazon Music", "amazon_app": "Amazon Music (aplicativo)", PRINTS: "Prints das provas"}
+         "spotify": "Spotify", "tidal": "Tidal", "amazon": "Amazon Music", "amazon_app": "Amazon Music (aplicativo)", "claro": "Claro Música", PRINTS: "Prints das provas"}
 _PELO_NOME = {nome.lower(): etapa for etapa, nome in NOMES.items()}
 # Que pedaço de cada etapa cada tipo de aviso ocupa: (palavra do aviso, começo, fim).
 FASES = {
@@ -26,6 +26,7 @@ FASES = {
     "spotify": [("buscando", 0.0, 0.3), ("lendo faixa", 0.3, 1.0)],
     "tidal": [("procurando", 0.0, 0.5), ("lendo álbum", 0.5, 0.9), ("print", 0.9, 1.0)],
     "amazon": [("buscando", 0.0, 0.4), ("lendo faixa", 0.4, 1.0)],
+    "claro": [("buscando", 0.0, 0.4), ("lendo faixa", 0.4, 1.0)],
     "amazon_app": [("buscando", 0.0, 0.2), ("abrindo", 0.2, 0.25), ("lendo faixa", 0.25, 1.0)],
     PRINTS: [("print", 0.0, 1.0)],
 }

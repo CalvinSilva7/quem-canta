@@ -370,7 +370,8 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
     return coleta
 
 
-def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, nome) -> list:
+def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, nome,
+                    so_o_titulo=False) -> list:
     """As faixas da Amazon Music a abrir: [(candidato, título da obra, consulta)]. A busca é a do site, que não pede
     login e funciona melhor só com o título; por isso vai o título e, depois, o título com cada intérprete.
     De cada intérprete entram até `por_interprete` faixas por obra."""
@@ -380,7 +381,12 @@ def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obr
     for i, (base, titulo) in enumerate(titulos, start=1):
         avisar(f"{nome}: buscando {i}/{len(titulos)}")
         ligados, por_nome = _ligados(relatorio, config, recorrentes, pares, titulo), {}
-        for consulta in [titulo, *_consultas(titulo, principais, pares)[:-1]]:
+        # `so_o_titulo`: a busca já devolve a lista inteira de músicas com aquele título (Claro Música). Só quando um
+        # intérprete da obra não aparece nela (título comum demais) é que vai a busca do título com o nome dele.
+        consultas = [titulo, *([f"{titulo} {n}" for n in pares.get(titulo, [])] if so_o_titulo else _consultas(titulo, principais, pares)[:-1])]
+        for consulta in consultas:
+            if so_o_titulo and consulta != titulo and all(tuple(_palavras(n)) in por_nome for n in pares.get(titulo, [])):
+                continue
             for cand in amazon.buscar(consulta):
                 if cand.faixa in vistos or not _e_da_obra(_titulo_do_video(cand.titulo, relatorio, ligados), titulo, relatorio) == "exato":
                     continue
@@ -423,6 +429,43 @@ def coletar_amazon(relatorio: Relatorio, config: Config, amazon, recorrentes=(),
     return coleta
 
 
+def coletar_claro(relatorio: Relatorio, config: Config, claro, recorrentes=(), pares=None, limite_de_obras=None,
+                  por_interprete=2, ao_avancar=None) -> Coleta:
+    """Claro Música: acha a faixa de cada intérprete ligado ao titular pela lista de músicas da busca, abre o
+    álbum e lê os autores no cartão de informações da faixa. É um print por música. Exige a sessão logada."""
+    from types import SimpleNamespace
+    from .captura import PaginaTraduzida
+    from .claro import SemLogin, autores as autores_do_cartao
+    from .navegador import Bloqueio
+
+    inicio, pares, avisar = time.monotonic(), pares or {}, ao_avancar or (lambda texto: None)
+    coleta = Coleta("CLARO", sementes=_principais(relatorio, config, recorrentes))
+    lidas = []
+    try:
+        fila = _fila_da_amazon(relatorio, config, claro, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar,
+                               "Claro Música", so_o_titulo=True)
+        for i, (cand, titulo, consulta) in enumerate(fila, start=1):
+            avisar(f"Claro Música: lendo faixa {i}/{len(fila)}")
+            leitura = claro.ler(cand, titulo)
+            # os autores saem sempre do cartão guardado: assim uma leitura antiga ganha as correções da separação dos nomes
+            creditos = autores_do_cartao(leitura.informacoes) if leitura.informacoes else leitura.creditos
+            faixa = SimpleNamespace(titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=creditos,
+                                    link=cand.link, coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
+                                    nota='lido em "Informações e créditos", no menu da faixa')
+            lidas.append((faixa, SimpleNamespace(titulo=leitura.album, fornecedor=leitura.gravadora, lancamento=leitura.ano),
+                          f'busca "{consulta}"'))
+    except (Bloqueio, PaginaTraduzida, SemLogin) as e:
+        _parar(coleta, e)
+    _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
+    coleta.albuns_lidos, coleta.requisicoes, coleta.segundos = len(lidas), claro.nav.navegacoes, time.monotonic() - inicio
+    return coleta
+
+
+def perfil_da_claro(pasta_do_caso) -> Path:
+    """Onde o navegador do app guarda a sessão da Claro Música: na pasta de dados, fora de qualquer caso."""
+    return Path(pasta_do_caso).parent.parent / "perfil-claro"
+
+
 def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo, recorrentes=(), pares=None, limite_de_obras=None,
                        por_interprete=2, ao_avancar=None) -> Coleta:
     """Amazon Music no aplicativo de desktop: as faixas são achadas pela busca do site (`amazon`) e abertas no
@@ -455,11 +498,12 @@ def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo,
 
 
 def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), pares=None, limite_de_obras=None,
-                  ao_avancar=None, nomes_no_maximo=8) -> Coleta:
+                  ao_avancar=None, nomes_no_maximo=8, so_os_pares=False) -> Coleta:
     """Tidal: percorre a discografia de quem grava o titular e lê a página de créditos de cada álbum.
 
-    Depois de classificar, volta às faixas sem crédito ou com crédito errado e tira o print da página de
-    créditos, com a faixa contornada.
+    Depois de classificar, volta às faixas sem crédito ou com crédito errado e tira o print da tela do tocador,
+    com a aba de créditos aberta. Com `so_os_pares` (planilha conferida pelo compositor), são percorridos todos
+    os intérpretes da planilha, sem o limite de nomes e sem os nomes do próprio titular.
     """
     from .captura import PaginaTraduzida
     from .navegador import Bloqueio
@@ -471,6 +515,8 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
     for titulo in titulos.values():  # mais os intérpretes que outra plataforma já mostrou para as obras buscadas
         interpretes += [n for n in pares.get(titulo, []) if n not in interpretes]
     coleta.sementes = list({normalizar(n): n for n in reversed(interpretes)}.values())[::-1][:nomes_no_maximo]
+    if so_os_pares:
+        coleta.sementes = list({normalizar(n): n for titulo in titulos.values() for n in pares.get(titulo, [])}.values())
     lidas, de_onde = [], {}
     try:
         albuns = {}
@@ -498,7 +544,8 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
         for g in coleta.gravacoes:
             if g.classificacao.status in c.NEGATIVOS and not g.provas:
                 album_id, faixa = de_onde[g.link]
-                guardada = ja_tiradas.get((f"https://tidal.com/album/{album_id}/credits", str(faixa.numero)))
+                # só o print no formato do tocador (endereço da faixa): o antigo, da página de créditos do álbum, é refeito
+                guardada = ja_tiradas.get((f"https://tidal.com/album/{album_id}/track/{faixa.id}", str(faixa.numero)))
                 if guardada:
                     g.provas.append(guardada)
         negativas = [] if getattr(tidal, "so_o_que_ja_foi_lido", False) else [
@@ -962,8 +1009,8 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
 # Tempo da primeira coleta, medido nos dois primeiros casos (um de 47 e um de 119 títulos, 10 a 20 obras cada).
 # Segundos por obra em cada plataforma, mais um tempo fixo. É uma ordem de grandeza, não uma promessa: depende
 # de quantas gravações cada obra tem e de quantos intérpretes aparecem.
-SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0, "amazon": 25, "amazon_app": 35}
-SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 420, "vagalume": 30, "amazon": 20, "amazon_app": 60}
+SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0, "amazon": 25, "amazon_app": 35, "claro": 25}
+SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 420, "vagalume": 30, "amazon": 20, "amazon_app": 60, "claro": 20}
 
 
 def estimar_minutos(obras: int, plataformas) -> int:
@@ -985,7 +1032,7 @@ def texto_da_estimativa(minutos: int) -> str:
 
 
 TODAS = ("deezer", "apple", "youtube", "spotify", "tidal", "vagalume", "amazon")
-ORDEM = ["YOUTUBE", "SPOTIFY", "TIDAL", "DEEZER", "VAGALUME", "AMAZON", "AMAZON - SITE", "APPLE MUSIC"]  # a das colunas da planilha
+ORDEM = ["YOUTUBE", "SPOTIFY", "TIDAL", "DEEZER", "CLARO", "VAGALUME", "AMAZON", "AMAZON - SITE", "APPLE MUSIC"]  # a das colunas da planilha
 
 
 def executar(relatorio: Relatorio, config: Config, pasta, nomes_dos_coautores=(), youtube=False, limite_youtube=None,
@@ -1070,6 +1117,14 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                           visivel=not so_o_que_ja_foi_lido, so_o_que_ja_foi_lido=so_o_que_ja_foi_lido) as ytm:
             coletas.append(coletar_youtube(relatorio, config, ytm, recorrentes, pares, por_obra, ao_avancar, limite,
                                            so_os_pares=conferidos is not None))
+    if "claro" in pedidas:
+        # A Claro Música só mostra o catálogo a quem está logado: usa um navegador à parte, com o perfil em que a
+        # pessoa fez o login. As outras plataformas seguem no navegador limpo, sem sessão nenhuma.
+        from .claro import Claro
+        with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
+                       perfil=perfil_da_claro(pasta)) as nav_da_claro:
+            coletas.append(ajustar(coletar_claro(relatorio, config, Claro(nav_da_claro, pasta / "claro", so_o_que_ja_foi_lido),
+                                                 recorrentes, pares, limite, ao_avancar=ao_avancar)))
     for coleta in coletas:  # o que já foi fotografado em outra rodada é reaproveitado
         if coleta.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME"):
             reaproveitar_prints(coleta, pasta / coleta.plataforma.lower().replace(" ", "-"),
@@ -1087,7 +1142,8 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
             if "tidal" in pedidas:
                 from .tidal import Tidal
                 coletas.append(ajustar(coletar_tidal(relatorio, config, Tidal(nav, pasta / "tidal", so_o_que_ja_foi_lido),
-                                                     recorrentes, pares, limite, ao_avancar=ao_avancar)))
+                                                     recorrentes, pares, limite, ao_avancar=ao_avancar,
+                                                     so_os_pares=conferidos is not None)))
             if "amazon" in pedidas:
                 from .amazon import AmazonWeb
                 coletas.append(ajustar(coletar_amazon(relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido),

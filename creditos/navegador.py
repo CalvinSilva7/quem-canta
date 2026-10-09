@@ -67,8 +67,10 @@ def sinal_de_bloqueio(url: str, texto: str = "") -> str:
 class Navegador:
     """Uso: `with Navegador(filtro) as nav: nav.ir(url); nav.pagina...`"""
 
-    def __init__(self, filtro=None, visivel=True, ao_avancar=None, escondido=False):
-        self.filtro, self.visivel, self.escondido = filtro, visivel, escondido
+    def __init__(self, filtro=None, visivel=True, ao_avancar=None, escondido=False, perfil=None):
+        # `perfil`: pasta em que o navegador guarda a sessão de um site (o login que a pessoa fez nele). Sem isso,
+        # cada coleta abre um navegador limpo, sem sessão nenhuma.
+        self.filtro, self.visivel, self.escondido, self.perfil = filtro, visivel, escondido, perfil
         self.avisar = ao_avancar or (lambda texto: None)
         self.navegacoes = 0
         self._ultima = 0.0
@@ -85,14 +87,17 @@ class Navegador:
 
             preparar_asyncio()
             self._pw = sync_playwright().start()
-            self._navegador = self._pw.chromium.launch(
-                headless=not self.visivel,
-                args=["--lang=pt-BR", "--disable-features=Translate", "--mute-audio"] + tamanho_da_janela()
-                + ([FORA_DA_TELA] if self.escondido else []),
-            )
-            contexto = self._navegador.new_context(**tamanho_da_pagina(), locale="pt-BR", timezone_id=captura.FUSO)
+            argumentos = (["--lang=pt-BR", "--disable-features=Translate", "--mute-audio"] + tamanho_da_janela()
+                          + ([FORA_DA_TELA] if self.escondido else []))
+            if self.perfil:
+                contexto = self._navegador = self._pw.chromium.launch_persistent_context(
+                    str(self.perfil), headless=not self.visivel, args=argumentos, **tamanho_da_pagina(), locale="pt-BR",
+                    timezone_id=captura.FUSO)
+            else:
+                self._navegador = self._pw.chromium.launch(headless=not self.visivel, args=argumentos)
+                contexto = self._navegador.new_context(**tamanho_da_pagina(), locale="pt-BR", timezone_id=captura.FUSO)
             contexto.add_init_script(f"({captura.TRAVA_DE_TRADUCAO})()")
-            self._pagina = contexto.new_page()
+            self._pagina = (contexto.pages[0] if self.perfil and contexto.pages else contexto.new_page())
         return self._pagina
 
     def __exit__(self, *erro):

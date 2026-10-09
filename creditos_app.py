@@ -381,15 +381,29 @@ with area_da_coleta:
         )
     NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
                              "apple": "Apple Music (controle)", "vagalume": "Vagalume", "amazon": "Amazon Music (site)",
-                             "amazon_app": "Amazon Music (aplicativo de desktop)"}
+                             "amazon_app": "Amazon Music (aplicativo de desktop)", "claro": "Claro Música (com login)"}
     from creditos import pipeline as _pipeline
 
     escolhidas = st.multiselect(
-        "Plataformas", list(NOMES_DAS_PLATAFORMAS), default=[p for p in NOMES_DAS_PLATAFORMAS if p != "amazon_app"],
+        "Plataformas", list(NOMES_DAS_PLATAFORMAS), default=[p for p in NOMES_DAS_PLATAFORMAS if p not in ("amazon_app", "claro")],
         format_func=NOMES_DAS_PLATAFORMAS.get,
         help="A Deezer roda sempre. O aplicativo de desktop da Amazon Music vem desmarcado: só funciona no Windows, com o "
-        "aplicativo instalado e a conta do escritório já logada nele.",
+        "aplicativo instalado e a conta do escritório já logada nele. A Claro Música também vem desmarcada: só mostra as "
+        "músicas a quem está logado.",
     )
+    if "claro" in escolhidas:
+        st.warning(
+            "**Claro Música:** o site só mostra as músicas a quem está logado. Clique no botão abaixo **uma vez**: abre uma "
+            "janela do navegador do app na Claro Música. Faça o login nela (o app não digita nem guarda senha) e **feche a "
+            "janela**. A sessão fica guardada neste computador para as próximas coletas."
+        )
+        if st.button("Entrar na Claro Música", disabled=andamento.atual() is not None and andamento.atual().viva):
+            import threading
+
+            from creditos import claro as _claro
+
+            threading.Thread(target=_claro.entrar, args=(_pipeline.perfil_da_claro(pasta_do_caso),), daemon=True).start()
+            st.info("Janela aberta. Faça o login na Claro Música, feche a janela e só então clique em **Coletar e classificar**.")
     if "amazon_app" in escolhidas:
         st.warning(
             "**Amazon Music (aplicativo de desktop):** é no aplicativo que a Amazon mostra o compositor. O app vai **fechar e "

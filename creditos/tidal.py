@@ -23,6 +23,32 @@ VERSAO_DA_LEITURA = 1
 ROTULOS_DE_AUTOR = ("composer", "lyricist", "compositor", "letrista", "writer", "author", "autor")
 ROTULOS_DE_FORNECEDOR = ("producer", "produtor", "music publisher", "editora musical")
 
+# A aba "Créditos" do tocador: cada grupo tem o papel num título e os nomes logo abaixo, separados por vírgula.
+_LER_TOCADOR = """() => [...document.querySelectorAll('[class*="_creditGroup_"]')].map(grupo => {
+  const rotulo = grupo.querySelector('h3, h4, [class*="marketText"]');
+  const nome = rotulo ? rotulo.textContent.trim() : '';
+  const resto = (grupo.innerText || '').split('\\n').map(l => l.trim()).filter(l => l && l !== nome).join(', ');
+  return [nome, resto.split(',').map(n => n.trim()).filter(Boolean)];
+})"""
+
+# O tocador ocupa a tela inteira, e a faixa de carimbo do print cobriria a linha das abas ("Créditos"). Antes do
+# print, o tocador é empurrado para baixo o bastante para a faixa caber em cima dele; depois volta ao lugar.
+_ABRIR_ESPACO = """(altura) => {
+  let e = document.querySelector('[data-test="toggle-credits"]');
+  while (e && e !== document.body) {
+    const r = e.getBoundingClientRect(), posicao = getComputedStyle(e).position;
+    if ((posicao === 'fixed' || posicao === 'absolute') && r.width >= innerWidth - 4 && r.height >= innerHeight - 4) {
+      e.setAttribute('data-quemcanta-estilo', e.getAttribute('style') || '');
+      e.style.top = altura + 'px'; e.style.height = 'calc(100% - ' + altura + 'px)'; e.style.bottom = '0';
+      return true;
+    }
+    e = e.parentElement;
+  }
+  return false;
+}"""
+_FECHAR_ESPACO = """() => { for (const e of document.querySelectorAll('[data-quemcanta-estilo]')) {
+  e.setAttribute('style', e.getAttribute('data-quemcanta-estilo')); e.removeAttribute('data-quemcanta-estilo'); } }"""
+
 _LER_ALBUM = """() => ({
   titulo: document.querySelector('[data-test="title"]')?.textContent.trim() || '',
   artista: document.querySelector('[data-test="grid-item-detail-text-title-artist"]')?.textContent.trim() || '',
@@ -192,15 +218,58 @@ class Tidal:
             raise ValueError(f"a página aberta ({pagina.url}) não é a do álbum {album_id}")
 
     def capturar(self, album_id: str, faixa: Faixa, obra: str) -> str:
-        """Print da página de créditos do álbum, rolada até a faixa e com ela contornada. Devolve o nome-base."""
-        self._abrir(album_id)
-        if not self.nav.pagina.evaluate(_DESTACAR, faixa.numero):
-            raise ValueError(f"a faixa {faixa.numero} não está na página de créditos")
-        self.nav.pagina.wait_for_timeout(500)
-        exibido = {"titulo": faixa.titulo, "interprete": faixa.interprete, "creditos": faixa.papeis, "faixa_no_album": faixa.numero}
-        if not faixa.creditos:
-            exibido["constatacao"] = "a faixa contornada não traz COMPOSER nem LYRICIST na página de créditos do álbum"
-        return captura.capturar(self.nav.pagina, self.pasta, obra, faixa.interprete, "tidal", exibido, "creditos")["captura"]
+        """Print da tela do tocador com a aba "Créditos" aberta, que é o formato do escritório. Devolve o nome-base.
+
+        Sem login o Tidal toca uma prévia de 30 segundos, e é o que basta: a faixa é posta para tocar na lista do
+        álbum, o tocador é aberto em tela cheia e a aba de créditos mostra Composer, Lyricist e os demais papéis.
+        O print só sai se o tocador estiver com a faixa pedida e se os autores da aba forem os mesmos que tinham
+        sido lidos na página de créditos do álbum.
+        """
+        if not faixa.id:
+            raise ValueError("a faixa não tem endereço próprio no Tidal")
+        pagina = self.nav.pagina
+        self.nav.ir(f"{SITE}album/{album_id}/track/{faixa.id}", pausa=(3, 5))
+        linha = pagina.locator(f'[data-test="tracklist-row"][data-track-id="{faixa.id}"]').first
+        linha.wait_for(state="attached", timeout=30000)
+        pagina.wait_for_timeout(1500)
+        self.nav.clicar_se_houver(nome="Rejeitar|Reject")
+        linha.scroll_into_view_if_needed()
+        linha.hover()
+        pagina.wait_for_timeout(500)
+        linha.locator('[data-test="play-button"]').first.click()
+        pagina.wait_for_timeout(3000)
+        pagina.keyboard.press("Escape")  # o convite para criar conta, que aparece por cima
+        pagina.wait_for_timeout(1000)
+        self.nav.conferir(pagina.evaluate("document.body.innerText.slice(0, 1500)"))
+        tocando = pagina.locator('[data-test="footer-track-title"]').first.inner_text(timeout=15000).strip()
+        # A página de créditos dá o título sem a versão ("(Ao Vivo)") e o tocador dá com ela: vale o começo igual,
+        # e a linha da faixa pedida precisa ser a que a lista marca como tocando.
+        if not normalizar(tocando).startswith(normalizar(faixa.titulo)) or linha.get_attribute("data-test-is-playing") == "false":
+            raise ValueError(f'o tocador mostra "{tocando}", e não a faixa pedida')
+        pagina.locator('[data-test="player-details-toggle-now-playing"]').first.click()
+        pagina.wait_for_timeout(2000)
+        pagina.locator('[data-test="toggle-credits"]').first.click()
+        pagina.mouse.move(700, 90)  # tira o mouse de cima dos nomes, para não abrir cartão de artista no print
+        pagina.wait_for_timeout(2000)
+        papeis = {rotulo: nomes for rotulo, nomes in pagina.evaluate(_LER_TOCADOR) if rotulo}
+        na_tela = [n for rotulo, nomes in papeis.items() if normalizar(rotulo) in ROTULOS_DE_AUTOR for n in nomes]
+        if {normalizar(n) for n in na_tela} != {normalizar(n) for n in faixa.creditos}:
+            raise ValueError("a aba de créditos do tocador mostra autores diferentes dos lidos na página de créditos do álbum")
+        exibido = {"titulo": faixa.titulo, "interprete": faixa.interprete, "creditos": papeis, "faixa_no_album": faixa.numero,
+                   "tocando": tocando}
+        if not na_tela:
+            exibido["constatacao"] = "a aba de créditos do tocador não traz COMPOSER nem LYRICIST para esta faixa"
+        pagina.evaluate(_ABRIR_ESPACO, 60)
+        pagina.wait_for_timeout(600)
+        try:
+            base = captura.capturar(pagina, self.pasta, obra, faixa.interprete, "tidal", exibido, "creditos")["captura"]
+        finally:
+            pagina.evaluate(_FECHAR_ESPACO)
+        try:  # para a prévia, para o som não seguir tocando durante o resto da coleta
+            pagina.locator('[data-test="play-controls"] [data-test="pause"], [data-test="pause"]').first.click(timeout=2000)
+        except Exception:
+            pass
+        return base
 
 
 def _bloqueios():
