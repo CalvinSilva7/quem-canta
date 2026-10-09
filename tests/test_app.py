@@ -147,7 +147,8 @@ def test_tela_coleta_e_oferece_planilha_e_pacote_de_provas(tmp_path, monkeypatch
     at.session_state["etapa"] = ETAPA_DOS_PRINTS
     at.session_state["conferidos"] = CONFERIDOS
     at.run()
-    assert at.multiselect[0].value == ["deezer", "youtube", "spotify", "tidal", "apple", "vagalume", "amazon"]  # todas, por padrão
+    # todas as que não pedem conta, por padrão; a Apple Music e o Vagalume não entram na coleta de prints
+    assert at.multiselect[0].value == ["deezer", "youtube", "spotify", "tidal", "palco", "amazon"]
     # o aplicativo da Amazon e a Claro Música (que pede login) existem, mas vêm desmarcados
     assert at.multiselect[0].options[-2:] == ["Amazon Music (aplicativo de desktop)", "Claro Música (com login)"]
     at.multiselect[0].set_value(["deezer", "spotify"]).run()

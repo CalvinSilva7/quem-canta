@@ -379,8 +379,10 @@ with area_da_coleta:
             "**Falta a planilha de intérpretes conferida.** Envie no campo acima a planilha da aba \"Buscar intérpretes\", depois "
             "de conferida pelo compositor. A coleta de prints só começa com ela: é ela que diz quem gravou cada obra."
         )
+    # A Apple Music e o Vagalume não entram na coleta de prints: o escritório não usa prints dessas duas. A Apple
+    # Music continua valendo na busca de intérpretes, na outra aba.
     NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
-                             "apple": "Apple Music (controle)", "vagalume": "Vagalume", "amazon": "Amazon Music (site)",
+                             "palco": "Palco MP3", "amazon": "Amazon Music (site)",
                              "amazon_app": "Amazon Music (aplicativo de desktop)", "claro": "Claro Música (com login)"}
     from creditos import pipeline as _pipeline
 

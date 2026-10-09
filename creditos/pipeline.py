@@ -473,9 +473,43 @@ def coletar_claro(relatorio: Relatorio, config: Config, claro, recorrentes=(), p
     return coleta
 
 
+def coletar_palco(relatorio: Relatorio, config: Config, palco, recorrentes=(), pares=None, limite_de_obras=None,
+                  por_interprete=2, ao_avancar=None) -> Coleta:
+    """Palco MP3: acha a música de cada intérprete ligado ao titular pela busca do site e lê a linha "Composição:"
+    da página dela. Um print por música; dois quando o site corta a linha (a página de créditos mostra o resto)."""
+    from types import SimpleNamespace
+    from .captura import PaginaTraduzida
+    from .navegador import Bloqueio
+
+    inicio, pares, avisar = time.monotonic(), pares or {}, ao_avancar or (lambda texto: None)
+    coleta = Coleta("PALCO MP3", sementes=_principais(relatorio, config, recorrentes))
+    lidas = []
+    try:
+        fila = _fila_da_amazon(relatorio, config, palco, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, "Palco MP3")
+        for i, (cand, titulo, consulta) in enumerate(fila, start=1):
+            avisar(f"Palco MP3: lendo faixa {i}/{len(fila)}")
+            leitura = palco.ler(cand, titulo)
+            # No Palco quem publica escreve o título como quer ("03 Tal Música - Banda Tal 2014"). A faixa já foi
+            # aceita na busca pelo título limpo; é ele que vale para classificar, e o exibido fica na observação.
+            exibido = leitura.titulo or cand.titulo
+            limpo = _titulo_do_video(exibido, relatorio, _ligados(relatorio, config, recorrentes, pares, titulo))
+            faixa = SimpleNamespace(titulo=limpo if _e_da_obra(limpo, titulo, relatorio) == "exato" else exibido,
+                                    interprete=leitura.interprete or cand.interprete,
+                                    creditos=leitura.creditos, link=cand.link, coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
+                                    nota='lido na linha "Composição:" da página da música' + (
+                                        "; a página corta a linha, e os nomes vieram dos dados dela (ver o print dos créditos)" if leitura.cortada else "")
+                                    + (f'; título como aparece no Palco MP3: "{exibido}"' if normalizar(exibido) != normalizar(limpo) else ""))
+            lidas.append((faixa, SimpleNamespace(titulo="", fornecedor="", lancamento=""), f'busca "{consulta}"'))
+    except (Bloqueio, PaginaTraduzida) as e:
+        _parar(coleta, e)
+    _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
+    coleta.albuns_lidos, coleta.requisicoes, coleta.segundos = len(lidas), palco.nav.navegacoes, time.monotonic() - inicio
+    return coleta
+
+
 # As pastas em que cada plataforma guarda, dentro do caso, o que leu e os prints que tirou.
 PASTAS_DO_CASO = {"deezer": ["deezer"], "apple": ["apple", "apple-music"], "youtube": ["youtube"], "spotify": ["spotify"],
-                  "tidal": ["tidal"], "vagalume": ["vagalume"], "amazon": ["amazon-site"], "amazon_app": ["amazon-app"], "claro": ["claro"]}
+                  "tidal": ["tidal"], "vagalume": ["vagalume"], "amazon": ["amazon-site"], "amazon_app": ["amazon-app"], "claro": ["claro"], "palco": ["palco-mp3"]}
 
 
 def limpar_o_guardado(pasta_do_caso, plataformas) -> list[str]:
@@ -1044,8 +1078,8 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
 # Tempo da primeira coleta, medido nos dois primeiros casos (um de 47 e um de 119 títulos, 10 a 20 obras cada).
 # Segundos por obra em cada plataforma, mais um tempo fixo. É uma ordem de grandeza, não uma promessa: depende
 # de quantas gravações cada obra tem e de quantos intérpretes aparecem.
-SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0, "amazon": 25, "amazon_app": 35, "claro": 25}
-SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 420, "vagalume": 30, "amazon": 20, "amazon_app": 60, "claro": 20}
+SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0, "amazon": 25, "amazon_app": 35, "claro": 25, "palco": 25}
+SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 420, "vagalume": 30, "amazon": 20, "amazon_app": 60, "claro": 20, "palco": 20}
 
 
 def estimar_minutos(obras: int, plataformas) -> int:
@@ -1066,8 +1100,8 @@ def texto_da_estimativa(minutos: int) -> str:
     return f"cerca de {horas}h{resto:02d}" if resto else f"cerca de {horas} hora{'s' if horas > 1 else ''}"
 
 
-TODAS = ("deezer", "apple", "youtube", "spotify", "tidal", "vagalume", "amazon")
-ORDEM = ["YOUTUBE", "SPOTIFY", "TIDAL", "DEEZER", "CLARO", "VAGALUME", "AMAZON", "AMAZON - SITE", "APPLE MUSIC"]  # a das colunas da planilha
+TODAS = ("deezer", "apple", "youtube", "spotify", "tidal", "vagalume", "amazon", "palco")
+ORDEM = ["YOUTUBE", "SPOTIFY", "TIDAL", "DEEZER", "CLARO", "PALCO MP3", "VAGALUME", "AMAZON", "AMAZON - SITE", "APPLE MUSIC"]  # a das colunas da planilha
 
 
 def executar(relatorio: Relatorio, config: Config, pasta, nomes_dos_coautores=(), youtube=False, limite_youtube=None,
@@ -1170,7 +1204,7 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
         if coleta.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME"):
             reaproveitar_prints(coleta, pasta / coleta.plataforma.lower().replace(" ", "-"),
                                 pagina_da_musica_na_apple if coleta.plataforma == "APPLE MUSIC" else None)
-    com_tela = pedidas & {"spotify", "tidal", "amazon", "amazon_app"}
+    com_tela = pedidas & {"spotify", "tidal", "amazon", "amazon_app", "palco"}
     falta_print = prints and not so_o_que_ja_foi_lido and any(
         g.classificacao.status in c.NEGATIVOS and not g.provas for k in coletas if k.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME")
         for g in k.gravacoes)
@@ -1185,6 +1219,10 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                 coletas.append(ajustar(coletar_tidal(relatorio, config, Tidal(nav, pasta / "tidal", so_o_que_ja_foi_lido),
                                                      recorrentes, pares, limite, ao_avancar=ao_avancar,
                                                      so_os_pares=conferidos is not None)))
+            if "palco" in pedidas:
+                from .palco import Palco
+                coletas.append(ajustar(coletar_palco(relatorio, config, Palco(nav, pasta / "palco-mp3", so_o_que_ja_foi_lido),
+                                                     recorrentes, pares, limite, ao_avancar=ao_avancar)))
             if "amazon" in pedidas:
                 from .amazon import AmazonWeb
                 coletas.append(ajustar(coletar_amazon(relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido),

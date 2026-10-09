@@ -170,12 +170,12 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
 
 
 # Plataformas em que a prova de cada música são todos os prints tirados, e não só o primeiro.
-TODOS_OS_PRINTS = {"AMAZON"}
+TODOS_OS_PRINTS = {"AMAZON", "PALCO MP3"}
 # Onde cada plataforma guarda as capturas (dentro da pasta do caso) e como ela se chama nos documentos.
 PASTAS = {"YOUTUBE": "youtube", "SPOTIFY": "spotify", "TIDAL": "tidal", "DEEZER": "deezer", "VAGALUME": "vagalume",
-          "APPLE MUSIC": "apple-music", "AMAZON - SITE": "amazon-site", "AMAZON": "amazon-app", "CLARO": "claro"}
+          "APPLE MUSIC": "apple-music", "AMAZON - SITE": "amazon-site", "AMAZON": "amazon-app", "CLARO": "claro", "PALCO MP3": "palco-mp3"}
 NOMES = {"YOUTUBE": "YouTube Music", "SPOTIFY": "Spotify", "TIDAL": "Tidal", "DEEZER": "Deezer", "VAGALUME": "Vagalume",
-         "APPLE MUSIC": "Apple Music", "AMAZON - SITE": "Amazon Music (site)", "AMAZON": "Amazon Music (aplicativo)", "CLARO": "Claro Música"}
+         "APPLE MUSIC": "Apple Music", "AMAZON - SITE": "Amazon Music (site)", "AMAZON": "Amazon Music (aplicativo)", "CLARO": "Claro Música", "PALCO MP3": "Palco MP3"}
 
 
 def pacote(relatorio, coletas, pasta_do_caso, planilha: bytes) -> tuple[bytes, list[dict], list[str]]:

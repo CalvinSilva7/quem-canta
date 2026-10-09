@@ -173,6 +173,13 @@ def comparar_nome(exibido, nome_civil, pseudonimos=(), confirmados=(), a_confirm
     conhecidos = set(civil) | {t for n in [*pseudonimos, *confirmados] for t in _termos(n)}
     if len(termos) >= 2 and set(termos) <= conhecidos:
         return "variante"
+    # Nome artístico de uma palavra só, seguido de um sobrenome que o relatório não traz ("Fulano" no relatório,
+    # "Fulano Souza" no crédito): pode ser o mesmo autor. Não confirma nem nega: fica como variante, para alguém
+    # conferir. Só vale para nome artístico de uma palavra: com duas ou mais, o acréscimo costuma ser outra coisa
+    # (o nome de uma banda, por exemplo).
+    artisticos = [_termos(n) for n in [*pseudonimos, *confirmados] if n and len(_termos(n)) == 1]
+    if len(termos) >= 2 and any(termos[:1] == nome for nome in artisticos):
+        return "variante"
     if any(semelhanca(alvo, n) >= GRAFIA_PARECIDA for n in oficiais if n):
         return "grafia"
     if len(termos) >= 2:

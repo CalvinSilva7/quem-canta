@@ -1830,3 +1830,41 @@ def test_limpar_o_guardado_apaga_so_as_pastas_das_plataformas_escolhidas(tmp_pat
     assert not (caso / "spotify").exists() and not (caso / "claro").exists()
     assert (caso / "deezer").exists() and (caso / "amazon-site").exists() and (tmp_path / "perfil-claro").exists()
     assert sorted(pipeline.limpar_o_guardado(caso, ["apple", "amazon"])) == ["amazon-site", "apple-music"]
+
+
+def test_palco_mp3_le_a_busca_e_a_linha_de_composicao(rel):
+    from types import SimpleNamespace
+    from creditos import palco as _palco
+
+    itens = [{"endereco": "/bandadobaile/coisa-feita/", "titulo": "Coisa Feita", "artista": "Banda do Baile"},
+             {"endereco": "/bandadobaile/coisa-feita", "titulo": "Coisa Feita", "artista": "Banda do Baile"},  # repetido
+             {"endereco": "/mp3/forro/", "titulo": "Estilo", "artista": "Forró"}, {"endereco": "/bandadobaile/", "titulo": "Banda do Baile"}]
+    (cand,) = [c_ for c_ in _palco.interpretar_resultados(itens) if c_.endereco.startswith("/bandadobaile/coisa")]
+    assert cand.link == "https://www.palcomp3.com.br/bandadobaile/coisa-feita/" and cand.faixa == "bandadobaile--coisa-feita"
+    # linha inteira: vale como está; "Desconhecido" não é nome
+    assert _palco.interpretar_linha("Zeca Lima, Cida Dias.", None) == (["Zeca Lima", "Cida Dias"], False, "")
+    assert _palco.interpretar_linha("Desconhecido.", None)[0] == [] and _palco.interpretar_linha("", None) == ([], False, "")
+    # linha cortada pelo site: vale a lista dos dados da página, se começar pelo que aparece; senão é erro, não palpite
+    html = 'x \\"musicID\\":77,\\"composer\\":\\"Zeca Lima, Cida Dias, Fulano de Tal\\",\\"title\\":\\"Coisa Feita\\" y \\"musicID\\":78,\\"composer\\":null,\\"title\\":\\"Outra\\"'
+    assert _palco.compositor_nos_dados(html, "77") == "Zeca Lima, Cida Dias, Fulano de Tal" and _palco.compositor_nos_dados(html, "78") == ""
+    assert _palco.compositor_nos_dados(html, "99") is None
+    assert _palco.interpretar_linha("Zeca Li...", _palco.compositor_nos_dados(html, "77")) == (["Zeca Lima", "Cida Dias", "Fulano de Tal"], True, "")
+    nomes, cortada, erro = _palco.interpretar_linha("Outro No...", _palco.compositor_nos_dados(html, "77"))
+    assert nomes == [] and cortada and "cortada" in erro
+
+    class PalcoFalso:
+        nav = SimpleNamespace(navegacoes=2)
+        def __init__(self, creditos, cortada=False):
+            self.creditos, self.cortada = creditos, cortada
+        def buscar(self, consulta):
+            return [cand]
+        def ler(self, c_, obra):
+            return _palco.Leitura(faixa=c_.faixa, titulo=c_.titulo, interprete="Banda do Baile", creditos=self.creditos, cortada=self.cortada,
+                                  provas=["musica"] + (["creditos"] if self.cortada else []))
+
+    pares, cfg = {"COISA FEITA": ["Banda do Baile"]}, Config(nomes_confirmados=["ZECA LIMA"])
+    (g,) = pipeline.coletar_palco(rel, cfg, PalcoFalso(["Fulano de Tal"], cortada=True), pares=pares).gravacoes
+    assert g.plataforma == "PALCO MP3" and g.classificacao.status == c.VIOLACAO and g.provas == ["musica", "creditos"]
+    assert pipeline.coletar_palco(rel, cfg, PalcoFalso(["Zeca Lima"]), pares=pares).gravacoes[0].classificacao.status == c.OK
+    assert pipeline.coletar_palco(rel, cfg, PalcoFalso([]), pares=pares).gravacoes[0].classificacao.status == c.SEM_CREDITOS
+    assert "PALCO MP3" in provas.TODOS_OS_PRINTS and provas.PASTAS["PALCO MP3"] == "palco-mp3"
