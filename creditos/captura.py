@@ -42,6 +42,15 @@ _CARIMBAR = """(texto) => {
     'white-space:pre-wrap;word-break:break-all;pointer-events:none';
   faixa.textContent = texto;
   document.documentElement.appendChild(faixa);
+  // Uma janela modal da página (os créditos do Spotify, por exemplo) fica numa camada acima de tudo e escurece o
+  // resto, inclusive esta faixa. Como "popover", a faixa entra nessa mesma camada, por cima da janela, e sai nítida.
+  try {
+    if (faixa.showPopover) {
+      faixa.setAttribute('popover', 'manual');
+      faixa.style.cssText += ';inset:0 0 auto 0;margin:0;width:auto;height:auto;max-width:none;border:0;border-bottom:2px solid #b00000;overflow:visible';
+      faixa.showPopover();
+    }
+  } catch (e) {}
 }"""
 _TRADUZIDA = """() => document.documentElement.className.includes('translated-') ||
   !!document.querySelector('font[style*="vertical-align"]')"""
