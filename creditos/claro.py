@@ -38,6 +38,20 @@ _LER_RESULTADOS = """() => [...document.querySelectorAll('tr.song')].map(l => {
           nome_do_album: celula('album') ? celula('album').textContent.trim() : '',
           duracao: celula('duration') ? celula('duration').textContent.trim() : ''};
 })"""
+# A lista de artistas da busca: o código e o nome de cada um.
+_LER_ARTISTAS = """() => [...document.querySelectorAll('td[id^="artist-"]')].filter(c => /^artist-\\d+$/.test(c.id))
+  .map(c => [c.id.slice(7), (c.getAttribute('title') || c.textContent || '').trim()])"""
+# Os álbuns que a página do artista mostra: o código e o nome.
+_LER_ALBUNS = """() => { const vistos = {}; for (const a of document.querySelectorAll('a[href*="/album/"]')) {
+  const codigo = ((a.getAttribute('href') || '').match(/\\/album\\/(\\d+)/) || [])[1]; const nome = a.textContent.trim();
+  if (codigo && (nome || !(codigo in vistos))) vistos[codigo] = nome || vistos[codigo] || ''; }
+  return Object.entries(vistos); }"""
+# As faixas da página de um álbum: número, título, artistas e duração.
+_LER_FAIXAS = """() => [...document.querySelectorAll('.list-content-row')].map(l => ({
+  numero: ((l.querySelector('.song-numbered') || {}).textContent || '').trim(),
+  titulo: ((l.querySelector('.album-song-name') || {}).textContent || '').trim(),
+  artistas: [...l.querySelectorAll('.cd-artist-name a')].map(a => a.textContent.trim()).filter(Boolean),
+  duracao: ((l.querySelector('.song-duration') || {}).textContent || '').trim()}))"""
 # A linha da faixa na página do álbum (pelo título e, havendo, pela duração) e onde está o botão de opções dela.
 _ACHAR_LINHA = """([titulo, duracao]) => {
   const linhas = [...document.querySelectorAll('.list-content-row')].filter(l => {
@@ -194,6 +208,59 @@ class Claro:
         self.cache.mkdir(parents=True, exist_ok=True)
         arquivo.write_text(json.dumps(guardadas, ensure_ascii=False), encoding="utf-8")
         return candidatos
+
+    # --- último recurso: pela página do artista ------------------------------------
+
+    def _guardado(self, nome: str) -> dict:
+        arquivo = self.cache / f"{nome}.json"
+        return json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else {}
+
+    def _guardar(self, nome: str, dados: dict):
+        self.cache.mkdir(parents=True, exist_ok=True)
+        (self.cache / f"{nome}.json").write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+
+    def _lista(self, nome_do_cache: str, chave: str, endereco: str, esperar: str, script: str) -> list:
+        """Abre uma página de lista, lê com o script e guarda; lista vazia não é guardada (pode ter sido falha)."""
+        guardado = self._guardado(nome_do_cache)
+        if chave in guardado:
+            return guardado[chave]
+        if self.so_o_que_ja_foi_lido:
+            return []
+        pagina = self.nav.pagina
+        self.nav.ir(endereco, pausa=(4, 7))
+        try:
+            pagina.wait_for_selector(esperar, timeout=20000)
+            pagina.wait_for_timeout(1500)
+        except Exception:
+            self.nav.conferir(pagina.evaluate("document.body.innerText.slice(0, 1500)"))
+        self.conferir_login()
+        itens = pagina.evaluate(script)
+        if itens:
+            guardado[chave] = itens
+            self._guardar(nome_do_cache, guardado)
+        return itens
+
+    def buscar_pelo_artista(self, nome: str, mesmo_artista, e_da_obra, albuns_no_maximo=25, no_maximo=2) -> list[Candidato]:
+        """Quando a busca por título não traz a faixa do intérprete (título comum demais): acha o artista pelo nome,
+        abre os álbuns que a página dele mostra e procura neles a faixa da obra.
+
+        `mesmo_artista(nome exibido)` diz se o artista é o procurado; `e_da_obra(título exibido)`, se a faixa é a obra.
+        Os álbuns com o título da obra no nome são abertos primeiro. Só entram artistas e faixas aprovados por elas.
+        """
+        achados = []
+        artistas = [(codigo, exibido) for codigo, exibido in self._lista("_artistas", nome, SITE + "predictiveDetail/artists/" + quote(nome, safe=""),
+                                                                         'td[id^="artist-"]', _LER_ARTISTAS) if mesmo_artista(exibido)]
+        for codigo, exibido in artistas[:2]:
+            albuns = self._lista("_albuns_do_artista", codigo, f"{SITE}artist/{codigo}/BR", 'a[href*="/album/"]', _LER_ALBUNS)
+            albuns = sorted(albuns, key=lambda a: not e_da_obra(a[1]))[:albuns_no_maximo]  # primeiro os que levam o nome da obra
+            for album, nome_do_album in albuns:
+                for faixa in self._lista("_faixas_do_album", album, f"{SITE}album/{album}/BR", ".list-content-row", _LER_FAIXAS):
+                    if faixa.get("titulo") and e_da_obra(faixa["titulo"]):
+                        achados.append(Candidato(album, f"{album}n{faixa.get('numero') or len(achados)}", faixa["titulo"],
+                                                 " & ".join(faixa.get("artistas") or []) or exibido, nome_do_album, faixa.get("duracao") or ""))
+                if len(achados) >= no_maximo:
+                    return achados[:no_maximo]
+        return achados
 
     def ler(self, cand: Candidato, obra: str) -> Leitura:
         """Abre o álbum, o menu da faixa e o cartão de informações, e tira o print. Leitura completa fica guardada."""

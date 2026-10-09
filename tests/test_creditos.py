@@ -1794,3 +1794,27 @@ def test_claro_le_a_lista_da_busca_e_o_cartao_de_informacoes(rel):
     # sem a sessão logada, a coleta para e avisa, sem inventar resultado
     parada = pipeline.coletar_claro(rel, cfg, ClaroFalsa([], falha=_claro.SemLogin("a Claro Música não está logada")), pares=pares)
     assert parada.interrompida and not parada.gravacoes and "não está logada" in parada.avisos[-1]
+
+
+def test_claro_procura_pela_pagina_do_artista_quando_a_busca_nao_traz_a_faixa(rel):
+    from types import SimpleNamespace
+    from creditos import claro as _claro
+
+    class ClaroFalsa:
+        nav = SimpleNamespace(navegacoes=0)
+        def __init__(self):
+            self.pedidos = []
+        def buscar(self, consulta):  # título comum demais: a busca não devolve a faixa do intérprete
+            return [_claro.Candidato("1", "9", "Coisa Feita", "Outro Cantor")]
+        def buscar_pelo_artista(self, nome, mesmo_artista, e_da_obra, no_maximo=2):
+            self.pedidos.append(nome)
+            assert mesmo_artista("Banda do Baile") and not mesmo_artista("Banda do Bairro") and e_da_obra("Coisa Feita (Ao Vivo)") and not e_da_obra("Outra Coisa")
+            return [_claro.Candidato("77", "77n3", "Coisa Feita (Ao Vivo)", "Banda do Baile")]
+        def ler(self, cand, obra):
+            return _claro.Leitura(faixa=cand.faixa, titulo=cand.titulo, informacoes={"Autores": "Fulano de Tal / Beltrano"}, provas=["print"])
+
+    falsa = ClaroFalsa()
+    coleta = pipeline.coletar_claro(rel, Config(nomes_confirmados=["ZECA LIMA"]), falsa, pares={"COISA FEITA": ["Banda do Baile"]})
+    (g,) = coleta.gravacoes
+    assert falsa.pedidos == ["Banda do Baile"] and g.interprete == "Banda do Baile" and g.link.endswith("/album/77/BR#faixa-77n3")
+    assert g.creditos == ["Fulano de Tal", "Beltrano"] and g.classificacao.status == c.VIOLACAO  # a barra também separa os nomes

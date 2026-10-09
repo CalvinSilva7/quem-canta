@@ -397,6 +397,18 @@ def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obr
                     coleta.sem_vinculo_nao_abertos += 1
                 elif len(por_nome.setdefault(tuple(_palavras(elo)), [])) < por_interprete:
                     por_nome[tuple(_palavras(elo))].append((cand, titulo, consulta))
+        if so_o_titulo and hasattr(amazon, "buscar_pelo_artista"):
+            # Último recurso, para o intérprete da obra que a busca não trouxe: a página do artista e os álbuns dele.
+            for n in pares.get(titulo, []):
+                if por_nome.get(tuple(_palavras(n))):
+                    continue
+                mesmo = lambda exibido, n=n: (any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(exibido))
+                                              or _nome_dentro(n, exibido) or _mesma_grafia(n, exibido))
+                da_obra = lambda exibido, ligados=ligados: _e_da_obra(_titulo_do_video(exibido, relatorio, ligados), titulo, relatorio) == "exato"
+                for cand in amazon.buscar_pelo_artista(n, mesmo, da_obra, no_maximo=por_interprete):
+                    if cand.faixa not in vistos:
+                        vistos.add(cand.faixa)
+                        por_nome.setdefault(tuple(_palavras(n)), []).append((cand, titulo, f"página do artista {n}"))
         fila += [item for grupo in por_nome.values() for item in grupo]
     return fila
 
