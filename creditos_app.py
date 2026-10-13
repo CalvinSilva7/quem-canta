@@ -389,7 +389,7 @@ with area_da_coleta:
     escolhidas = st.multiselect(
         "Plataformas", list(NOMES_DAS_PLATAFORMAS), default=[p for p in NOMES_DAS_PLATAFORMAS if p not in ("amazon_app", "claro")],
         format_func=NOMES_DAS_PLATAFORMAS.get,
-        help="A Deezer roda sempre. O aplicativo de desktop da Amazon Music vem desmarcado: só funciona no Windows, com o "
+        help="Só as plataformas marcadas são verificadas. O aplicativo de desktop da Amazon Music vem desmarcado: só funciona no Windows, com o "
         "aplicativo instalado e a conta do escritório já logada nele. A Claro Música também vem desmarcada: só mostra as "
         "músicas a quem está logado.",
     )
@@ -497,7 +497,9 @@ with area_da_coleta:
     elif tarefa is not None and not tarefa.viva:
         recolher(tarefa)
         tarefa = None
-    if tarefa is None and not de_outra_etapa and conferidos and st.button("Coletar e classificar", type="primary"):
+    if not escolhidas:
+        st.warning("Marque pelo menos uma plataforma para coletar.")
+    if tarefa is None and not de_outra_etapa and conferidos and escolhidas and st.button("Coletar e classificar", type="primary"):
         from creditos import pipeline
         from creditos.classificador import Config
 

@@ -1173,8 +1173,8 @@ SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tida
 
 
 def estimar_minutos(obras: int, plataformas) -> int:
-    """Minutos estimados para a primeira coleta de `obras` títulos nas plataformas pedidas (a Deezer roda sempre)."""
-    pedidas = set(plataformas) | {"deezer"}
+    """Minutos estimados para a primeira coleta de `obras` títulos nas plataformas pedidas."""
+    pedidas = set(plataformas)
     segundos = sum(SEGUNDOS_POR_OBRA.get(p, 0) * obras + SEGUNDOS_FIXOS.get(p, 0) for p in pedidas)
     return max(1, round(segundos / 60))
 
@@ -1255,13 +1255,13 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
         nomes_dos_coautores = []  # sem descoberta: os intérpretes já vieram conferidos
     ajustar = (lambda coleta: _so_os_conferidos(coleta, relatorio, config, conferidos)) if conferidos is not None else (lambda coleta: coleta)
     filtro = filtro_do_relatorio(relatorio, config)
-    deezer = Deezer(filtro=filtro, cache=pasta / "deezer")
-    coletas = [ajustar(coletar_deezer(relatorio, config, deezer, nomes_dos_coautores, ao_avancar=ao_avancar,
-                                      limite_de_obras=limite if plataformas is not None else None))]
-    if sem_interprete:
-        coletas[0].avisos.append(
-            f"{len(sem_interprete)} obras estão sem intérprete na planilha conferida e não foram verificadas: "
-            + "; ".join(sem_interprete[:40]) + ("…" if len(sem_interprete) > 40 else ""))
+    # Sem a planilha conferida, é a Deezer que descobre os intérpretes para as outras plataformas: roda sempre. Com a
+    # planilha, os intérpretes já vêm dela, e a Deezer só roda se tiver sido pedida, como qualquer outra.
+    coletas = []
+    if "deezer" in pedidas or conferidos is None:
+        deezer = Deezer(filtro=filtro, cache=pasta / "deezer")
+        coletas.append(ajustar(coletar_deezer(relatorio, config, deezer, nomes_dos_coautores, ao_avancar=ao_avancar,
+                                              limite_de_obras=limite if plataformas is not None else None)))
     recorrentes, pares = ([], dict(conferidos)) if conferidos is not None else interpretes_conhecidos(coletas)
     if "apple" in pedidas:
         from .apple import AppleMusic
@@ -1342,7 +1342,12 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                         capturar_paginas(coleta, nav, pasta / coleta.plataforma.lower().replace(" ", "-"), preparos[coleta.plataforma],
                                          ao_avancar, pagina_da_musica_na_apple if coleta.plataforma == "APPLE MUSIC" else None,
                                          reclassificar)
-    return sorted(coletas, key=lambda k: ORDEM.index(k.plataforma) if k.plataforma in ORDEM else 99)
+    coletas = sorted(coletas, key=lambda k: ORDEM.index(k.plataforma) if k.plataforma in ORDEM else 99)
+    if sem_interprete and coletas:
+        coletas[0].avisos.append(
+            f"{len(sem_interprete)} obras estão sem intérprete na planilha conferida e não foram verificadas: "
+            + "; ".join(sem_interprete[:40]) + ("…" if len(sem_interprete) > 40 else ""))
+    return coletas
 
 
 def main():

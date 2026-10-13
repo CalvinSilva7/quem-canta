@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 13/10/2026, versão 0.5.45. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 13/10/2026, versão 0.5.46. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
@@ -198,7 +198,6 @@ Trabalho proposto e não feito:
 - Palco MP3: limpar "®" e sobras do título (a letra de diferença no nome do intérprete conferido entrou na 0.5.38)
   ("Open Bar"). Refazer o teste com o gabarito de 2024: as páginas "fora do ar" devem ser lidas agora.
 - Decidir se a forma enxuta da consulta (sem "feat" e sem o "e") vale também para as outras plataformas.
-- Deezer roda sempre, mesmo desmarcada; com a planilha conferida ela não é necessária.
 - Resumo no fim de cada coleta dizendo se foi completa.
 - Material de apoio para o pessoal do escritório (um Claude Project): descreve a versão 0.4.2.
 - Carimbo do tempo (RFC 3161) nos prints e uma tela "Conferir um print": discutidos, não aprovados.

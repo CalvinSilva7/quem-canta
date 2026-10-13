@@ -940,7 +940,7 @@ from creditos import atualizacao
 def test_estimativa_de_tempo_cresce_com_obras_e_plataformas_e_nao_finge_precisao():
     todas = pipeline.estimar_minutos(119, pipeline.TODAS)
     assert todas > pipeline.estimar_minutos(119, ("deezer", "apple")) > pipeline.estimar_minutos(10, ("deezer", "apple"))
-    assert pipeline.estimar_minutos(10, ()) == pipeline.estimar_minutos(10, ("deezer",))  # a Deezer roda sempre
+    assert pipeline.estimar_minutos(119, ("spotify",)) < pipeline.estimar_minutos(119, ("deezer", "spotify"))  # a Deezer só conta se marcada
     assert pipeline.texto_da_estimativa(3) == "cerca de 3 minutos" and pipeline.texto_da_estimativa(1) == "cerca de 1 minuto"
     assert pipeline.texto_da_estimativa(22) == "cerca de 20 minutos"
     assert pipeline.texto_da_estimativa(171) == "cerca de 2h50" and pipeline.texto_da_estimativa(118) == "cerca de 2 horas"
@@ -2017,3 +2017,17 @@ def test_musica_com_nome_de_aviso_de_bloqueio_nao_para_a_coleta(monkeypatch):
     # o aviso de verdade continua parando, e o desvio para a página de login também
     assert navegador.sinal_de_bloqueio("https://open.spotify.com/track/x", "Verify you are human to continue")
     assert navegador.sinal_de_bloqueio("https://accounts.spotify.com/login", pagina)
+
+
+def test_com_a_planilha_conferida_a_deezer_so_roda_se_estiver_marcada(monkeypatch, rel, tmp_path):
+    chamadas = []
+    monkeypatch.setattr(pipeline, "coletar_deezer", lambda *a, **k: chamadas.append(1) or pipeline.Coleta("DEEZER"))
+    conferidos = {"COISA FEITA": ["Banda do Baile"]}
+    # desmarcada: não é lida, não aparece no resultado, não tira print
+    assert pipeline.executar(rel, Config(), tmp_path, plataformas=(), prints=False, conferidos=conferidos) == [] and chamadas == []
+    # marcada: roda, e é nela que vai o aviso das obras sem intérprete na planilha
+    coletas = pipeline.executar(rel, Config(), tmp_path, plataformas=("deezer",), prints=False, conferidos=conferidos)
+    assert [k.plataforma for k in coletas] == ["DEEZER"] and chamadas == [1] and any("sem intérprete" in a for a in coletas[0].avisos)
+    # sem a planilha conferida, a Deezer continua sendo a base da descoberta: roda mesmo sem estar na lista
+    pipeline.executar(rel, Config(), tmp_path, plataformas=(), prints=False)
+    assert chamadas == [1, 1]

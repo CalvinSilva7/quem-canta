@@ -42,7 +42,7 @@ class Andamento:
     """Recebe os avisos da coleta (é o `ao_avancar` dela) e responde quanto já foi feito."""
 
     def __init__(self, obras: int, plataformas, agora=time.monotonic, prints=True):
-        pedidas = set(plataformas) | {"deezer"}
+        pedidas = set(plataformas)
         self.etapas = [e for e in ETAPAS if e in pedidas] + ([PRINTS] if prints else [])
         self.pesos = {e: pipeline.SEGUNDOS_POR_OBRA.get(e, 0) * obras + pipeline.SEGUNDOS_FIXOS.get(e, 0) for e in self.etapas}
         if prints:
