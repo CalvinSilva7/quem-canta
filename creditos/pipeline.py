@@ -388,11 +388,13 @@ def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obr
             if so_o_titulo and consulta != titulo and all(tuple(_palavras(n)) in por_nome for n in pares.get(titulo, [])):
                 continue
             for cand in amazon.buscar(consulta):
-                if cand.faixa in vistos or not _e_da_obra(_titulo_do_video(cand.titulo, relatorio, ligados), titulo, relatorio) == "exato":
+                # o título é limpo também do nome do artista daquele resultado ("Banda Tal - Música")
+                if cand.faixa in vistos or not _e_da_obra(_titulo_do_video(cand.titulo, relatorio, [*ligados, cand.interprete]), titulo, relatorio) == "exato":
                     continue
                 vistos.add(cand.faixa)
                 elo = next((n for n in ligados if any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(cand.interprete))
-                            or _nome_dentro(n, cand.interprete) or _mesma_grafia(n, cand.interprete)), "")
+                            or _nome_dentro(n, cand.interprete) or _mesma_grafia(n, cand.interprete)
+                            or (n in pares.get(titulo, []) and _palavra_do_nome(n, cand.interprete))), "")
                 if not elo:
                     coleta.sem_vinculo_nao_abertos += 1
                 elif len(por_nome.setdefault(tuple(_palavras(elo)), [])) < por_interprete:
@@ -492,7 +494,7 @@ def coletar_palco(relatorio: Relatorio, config: Config, palco, recorrentes=(), p
             # No Palco quem publica escreve o título como quer ("03 Tal Música - Banda Tal 2014"). A faixa já foi
             # aceita na busca pelo título limpo; é ele que vale para classificar, e o exibido fica na observação.
             exibido = leitura.titulo or cand.titulo
-            limpo = _titulo_do_video(exibido, relatorio, _ligados(relatorio, config, recorrentes, pares, titulo))
+            limpo = _titulo_do_video(exibido, relatorio, [*_ligados(relatorio, config, recorrentes, pares, titulo), cand.interprete])
             faixa = SimpleNamespace(titulo=limpo if _e_da_obra(limpo, titulo, relatorio) == "exato" else exibido,
                                     interprete=leitura.interprete or cand.interprete,
                                     creditos=leitura.creditos, link=cand.link, coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
@@ -881,6 +883,13 @@ def _mesma_grafia(a: str, b: str) -> bool:
     import re
     sem_dobras = lambda nome: [re.sub(r"(.)\1+", r"\1", palavra) for palavra in _palavras(nome)]
     return bool(_palavras(a)) and sem_dobras(a) == sem_dobras(b)
+
+
+def _palavra_do_nome(nome: str, exibido: str) -> bool:
+    """Nome de uma palavra só (de 5 letras ou mais) que é uma das palavras do nome exibido: "Fulanos" e "Forró Fulanos".
+    Só serve para o intérprete que o compositor conferiu para aquela obra, e sempre junto do título exato."""
+    palavras = _palavras(nome)
+    return len(palavras) == 1 and len(palavras[0]) >= 5 and palavras[0] in _palavras(exibido)
 
 
 def _nome_dentro(nome: str, texto: str) -> bool:

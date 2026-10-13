@@ -23,7 +23,8 @@ from . import captura
 
 SITE = "https://www.palcomp3.com.br/"
 PLATAFORMA = "PALCO MP3"
-SEM_AUTOR = ("desconhecido", "desconhecida", "nao informado", "nao informada", "sem informacao", "-")
+# O que o site escreve na linha de composição quando ninguém informou o compositor.
+SEM_AUTOR = ("desconhecido", "desconhecida", "nao informado", "nao informada", "sem informacao", "adicionar composicao", "nao menciona", "-")
 
 # A caixa de busca: os resultados são links "/<artista>/<música>/" com o título e o artista no mesmo bloco.
 _LER_RESULTADOS = """() => {
@@ -246,8 +247,29 @@ class Palco:
         pagina.wait_for_timeout(2500)
         self.nav.clicar_se_houver(nome="Ok, entendi")
         lido = pagina.evaluate(_LER_MUSICA)
+        parada = None
         if cand.endereco.strip("/").lower() not in pagina.url.lower():
-            # O site leva alguns endereços de música para outra música do mesmo artista (a pedida saiu do ar).
+            # Em algumas músicas o tocador do site pula para a seguinte e a página troca junto, em menos de um segundo.
+            # A página da música pedida existe: aberta sem os scripts do site (sem o tocador), ela fica parada.
+            import time
+            from .navegador import tamanho_da_pagina
+
+            time.sleep(4)
+            parada = pagina.context.browser.new_context(java_script_enabled=False, locale="pt-BR", timezone_id=captura.FUSO, **tamanho_da_pagina())
+            pagina = parada.new_page()
+            self.nav.navegacoes += 1
+            pagina.goto(cand.link, wait_until="domcontentloaded", timeout=60000)
+            pagina.wait_for_timeout(2500)
+            lido = pagina.evaluate(_LER_MUSICA)
+        try:
+            self._registrar(leitura, cand, obra, pagina, lido, sem_scripts=parada is not None)
+        finally:
+            if parada is not None:
+                parada.close()
+
+    def _registrar(self, leitura: Leitura, cand: Candidato, obra: str, pagina, lido: dict, sem_scripts: bool):
+        """Confere a página aberta, lê a linha de composição e tira o print (e o dos créditos, se a linha vier cortada)."""
+        if cand.endereco.strip("/").lower() not in pagina.url.lower():
             leitura.coleta = "indisponivel"
             leitura.erro = f'o Palco MP3 não mantém a página desta música: leva para outra ("{lido["titulo"]}")'
             return
@@ -260,17 +282,22 @@ class Palco:
         if erro:
             leitura.coleta, leitura.erro = "erro", erro
             return
-        self.nav.conferir()
+        if not sem_scripts:
+            self.nav.conferir()
         pagina.evaluate("() => window.scrollTo(0, 0)")
         pagina.mouse.move(8, 400)
         pagina.wait_for_timeout(600)
         exibido = {"titulo": leitura.titulo, "interprete": leitura.interprete, "linha_de_composicao": leitura.linha,
                    "compositores": leitura.creditos, "linha_cortada_pelo_site": leitura.cortada}
+        if sem_scripts:
+            exibido["como_foi_aberta"] = ("sem os scripts do site: com eles o tocador pula para outra música e a página troca junto; "
+                                          "o conteúdo é o que o servidor do Palco MP3 envia para este endereço")
         if not leitura.creditos:
             exibido["constatacao"] = "a página da música não traz nome nenhum na linha de composição"
         leitura.provas.append(captura.capturar(pagina, self.pasta, obra, leitura.interprete, "palco-mp3", exibido, "musica")["captura"])
         if leitura.cortada and lido["ver_tudo"]:
             # A página corta os nomes: o segundo print é o da página de créditos, que mostra todos.
+            pagina = self.nav.pagina  # a página de créditos precisa dos scripts dela: vai no navegador de sempre
             self.nav.ir(lido["ver_tudo"], pausa=(4, 7))
             for _ in range(15):  # ela confere os créditos aos poucos, com um aviso de andamento
                 pagina.wait_for_timeout(3000)

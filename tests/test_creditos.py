@@ -1868,3 +1868,17 @@ def test_palco_mp3_le_a_busca_e_a_linha_de_composicao(rel):
     assert pipeline.coletar_palco(rel, cfg, PalcoFalso(["Zeca Lima"]), pares=pares).gravacoes[0].classificacao.status == c.OK
     assert pipeline.coletar_palco(rel, cfg, PalcoFalso([]), pares=pares).gravacoes[0].classificacao.status == c.SEM_CREDITOS
     assert "PALCO MP3" in provas.TODOS_OS_PRINTS and provas.PASTAS["PALCO MP3"] == "palco-mp3"
+
+
+def test_ajustes_do_segundo_teste_do_palco_mp3(rel):
+    from creditos import palco as _palco
+    from creditos.classificador import comparar_nome
+
+    # o nome artístico escrito junto ou separado é o mesmo nome
+    assert comparar_nome("ZecaDoBaile", "ZECA LIMA", ["ZECA DO BAILE"]) == "igual" and comparar_nome("Zeca do Baile", "ZECA LIMA", ["ZECA DO BAILE"]) == "igual"
+    assert comparar_nome("ZecaDoBairro", "ZECA LIMA", ["ZECA DO BAILE"]) != "igual"
+    # o que o site escreve quando ninguém informou o compositor não é nome de autor
+    assert _palco.interpretar_linha("Adicionar composição", None) == ([], False, "")
+    # intérprete conferido de uma palavra dentro do nome exibido; palavra curta ou nome de duas palavras não valem por aqui
+    assert pipeline._palavra_do_nome("FULANOS", "Forró Fulanos") and not pipeline._palavra_do_nome("ANA", "Ana Maria")
+    assert not pipeline._palavra_do_nome("Banda Tal", "Banda Tal Oficial") and not pipeline._palavra_do_nome("FULANOS", "Fulanosa")

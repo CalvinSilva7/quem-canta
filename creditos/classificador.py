@@ -165,6 +165,9 @@ def comparar_nome(exibido, nome_civil, pseudonimos=(), confirmados=(), a_confirm
     oficiais = [nome_civil, *pseudonimos, *confirmados]
     if alvo in {normalizar(n) for n in oficiais if n}:
         return "igual"
+    # O mesmo nome artístico escrito junto ou separado ("Di Tal" e "DiTal") é o mesmo nome, e não grafia errada.
+    if alvo.replace(" ", "") in {normalizar(n).replace(" ", "") for n in [*pseudonimos, *confirmados] if n}:
+        return "igual"
     termos, civil = _termos(exibido), _termos(nome_civil)
     if len(termos) >= 2 and civil and termos[0] == civil[0] and set(termos) <= set(civil):
         return "abreviado"
