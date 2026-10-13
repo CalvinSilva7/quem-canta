@@ -683,8 +683,11 @@ def test_pdf_de_provas_tem_indice_e_um_print_por_pagina_e_recusa_imagem_alterada
     pdf, avisos = provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path, "YouTube Music")
     with pdfplumber.open(io.BytesIO(pdf)) as lido:
         paginas = [p.extract_text() for p in lido.pages]
-    assert len(paginas) == 3 and "Coleta de provas - YouTube Music" in paginas[0] and "SEM CAPTURA" in paginas[0]
+    assert len(paginas) == 5 and "Coleta de provas - YouTube Music" in paginas[0] and "SEM CAPTURA" in paginas[0]
     assert "1 - Música: Coisa Feita" in paginas[1] and "3 - Música: Ligue o Radio" in paginas[2]
+    # segunda parte: o que depende de conferência, fora da contagem, com o print e o motivo da dúvida
+    assert "A confirmar antes de usar" in paginas[3] and "não entram na contagem" in paginas[3] and "C1" in paginas[3]
+    assert "C1 - Música: A Danca da Panela" in paginas[4] and "A confirmar antes de usar." in paginas[4] and "motivo" in paginas[4]
     assert avisos == ["2 (Danca da Panella / Banda do Baile): sem captura de tela"]
     (tmp_path / "prova-1.png").write_bytes(b"imagem trocada depois")
     _, avisos = provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path)
@@ -1726,7 +1729,7 @@ def test_pdf_de_provas_do_aplicativo_da_amazon_leva_os_dois_prints_de_cada_music
     pdf, avisos = provas.pdf_de_provas(rel, [coleta], "AMAZON", tmp_path, "Amazon Music (aplicativo)")
     with pdfplumber.open(io.BytesIO(pdf)) as lido:
         paginas = [p.extract_text() for p in lido.pages]
-    assert len(paginas) == 4 and "3 (1 de 2)" in paginas[0] and "3 (2 de 2)" in paginas[0]
+    assert len(paginas) == 6 and "3 (1 de 2)" in paginas[0] and "3 (2 de 2)" in paginas[0] and "A confirmar antes de usar" in paginas[4]
     assert "Ligue o Radio" in paginas[2] and "(1 de 2)" in paginas[2] and "prova-1.png" in paginas[2]
     assert "Ligue o Radio" in paginas[3] and "(2 de 2)" in paginas[3] and "prova-3.png" in paginas[3]
     # nas outras plataformas continua um print por música
@@ -1734,7 +1737,7 @@ def test_pdf_de_provas_do_aplicativo_da_amazon_leva_os_dois_prints_de_cada_music
     for g in coleta.gravacoes:
         g.plataforma = "YOUTUBE"
     with pdfplumber.open(io.BytesIO(provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path)[0])) as lido:
-        assert len(lido.pages) == 3
+        assert len(lido.pages) == 5  # 3 da parte firme e 2 da parte "a confirmar"
 
 
 def test_ajustes_do_teste_com_o_gabarito_da_amazon_no_aplicativo():
