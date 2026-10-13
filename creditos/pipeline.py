@@ -273,6 +273,15 @@ def _consultas(titulo: str, principais, pares: dict) -> list[str]:
     return [f"{titulo} {n}" for n in [*principais, *da_obra]] + [titulo]
 
 
+def _consulta_enxuta(consulta: str) -> str:
+    """A mesma consulta sem as palavras que atrapalham a busca de algumas plataformas: "feat", "part." e o "e" ou "&"
+    das duplas. No Spotify, "Música Fulano Feat Beltrano" e "Música Fulano e Beltrano" não trazem a faixa;
+    "Música Fulano Beltrano" traz, em primeiro lugar."""
+    import re
+    limpa = re.sub(r"(?i)\b(feat|ft|part|participa[cç][aã]o)\b\.?", " ", consulta)
+    return " ".join(p for p in re.sub(r"[&,]", " ", limpa).split() if p.lower() != "e")
+
+
 def _principais(relatorio: Relatorio, config: Config, recorrentes) -> list[str]:
     do_titular = [n for n in dict.fromkeys([relatorio.pseudonimo_titular, *config.nomes_confirmados]) if n]
     return [n for n in dict.fromkeys([*recorrentes[:1], *config.interpretes[:2], *do_titular[:1]]) if n]
@@ -346,7 +355,10 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
         for i, (base, titulo) in enumerate(titulos, start=1):
             avisar(f"Spotify: buscando {i}/{len(titulos)}")
             ligados, abertos = _ligados(relatorio, config, recorrentes, pares, titulo), 0
-            for consulta in _consultas(titulo, principais, pares)[:-1]:  # sem a busca só pelo título: traria só homônimos
+            consultas = _consultas(titulo, principais, pares)[:-1]  # sem a busca só pelo título: traria só homônimos
+            # mais a forma enxuta de cada uma, quando muda alguma coisa (ver `_consulta_enxuta`)
+            consultas = list(dict.fromkeys(q for consulta in consultas for q in (consulta, _consulta_enxuta(consulta))))
+            for consulta in consultas:
                 for cand in spotify.buscar(consulta):
                     if cand.faixa in vistos or c._titulo_base(cand.titulo) != base:
                         continue

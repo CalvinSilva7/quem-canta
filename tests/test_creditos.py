@@ -1899,3 +1899,10 @@ def test_spotify_pessoa_com_dois_papeis_nao_corta_a_lista_de_autores():
     assert secoes == {"Artista": ["Banda do Baile"], "Composição e letra": ["Cida Dias", "Zeca Lima"],
                       "Produção e engenharia": ["Fulano de Tal"], "Fontes": ["Selo Tal"]}
     assert spotify.autores_e_fornecedor(secoes) == (["Cida Dias", "Zeca Lima"], "Selo Tal")
+
+
+def test_consulta_enxuta_tira_feat_e_o_e_das_duplas():
+    assert pipeline._consulta_enxuta("COISA FEITA Fulano de Tal Feat Beltrano e Sicrano") == "COISA FEITA Fulano de Tal Beltrano Sicrano"
+    assert pipeline._consulta_enxuta("COISA FEITA Fulano & Beltrano") == "COISA FEITA Fulano Beltrano"
+    assert pipeline._consulta_enxuta("COISA FEITA Banda do Baile") == "COISA FEITA Banda do Baile"  # nada a tirar: fica igual
+    assert pipeline._consulta_enxuta("ESTE E AQUELE Fulano part. Beltrano") == "ESTE AQUELE Fulano Beltrano"
