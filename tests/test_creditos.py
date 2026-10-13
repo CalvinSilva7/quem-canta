@@ -681,6 +681,9 @@ def test_lista_da_peticao_so_conta_o_que_esta_firme(rel, tmp_path):
     assert "https://music.youtube.com/watch?v=v2" in firme.rows[0].cells[1]._tc.xml and "w:hyperlink" in firme.rows[0].cells[1]._tc.xml
     assert "https://music.youtube.com/watch?v=v2" in [r.target_ref for r in lido.part.rels.values() if r.is_external]
     assert duvida.rows[0].cells[0].text.startswith("C1-Música: A DANCA DA PANELA")
+    # O Word do Windows recusa o arquivo se as propriedades da tabela vierem fora da ordem do padrão.
+    ordem = [filho.tag.split("}")[1] for filho in firme._tbl.tblPr]
+    assert ordem.index("tblBorders") < ordem.index("tblLook") and ordem.index("tblW") < ordem.index("tblBorders")
 
 
 def test_pdf_de_provas_tem_indice_e_um_print_por_pagina_e_recusa_imagem_alterada(rel, tmp_path):

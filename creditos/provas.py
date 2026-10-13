@@ -94,7 +94,14 @@ def tabela_da_lista(doc, itens, marca: str = "", com_motivo: bool = False):
         for chave, valor in (("val", "single"), ("sz", "6"), ("space", "0"), ("color", "000000")):
             borda.set(qn(f"w:{chave}"), valor)
         bordas.append(borda)
-    tabela._tbl.tblPr.append(bordas)
+    # O Word exige as propriedades da tabela numa ordem fixa: as bordas vêm antes de "tblLook". Fora de ordem, o Word
+    # do Windows recusa o arquivo.
+    propriedades = tabela._tbl.tblPr
+    depois = next((filho for filho in propriedades if filho.tag in {qn(f"w:{t}") for t in ("shd", "tblLayout", "tblCellMar", "tblLook")}), None)
+    if depois is not None:
+        depois.addprevious(bordas)
+    else:
+        propriedades.append(bordas)
     for item in itens:
         esquerda, direita = tabela.add_row().cells
         esquerda.width, direita.width = Cm(6.5), Cm(10)

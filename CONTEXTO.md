@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 13/10/2026, versão 0.5.41. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 13/10/2026, versão 0.5.42. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
