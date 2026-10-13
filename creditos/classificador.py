@@ -139,6 +139,10 @@ def casar_titulo(titulo, relatorio: Relatorio) -> tuple[str, list[Obra]]:
         por_titulo.setdefault(_titulo_base(obra.titulo), []).append(obra)
     if alvo in por_titulo:
         return "exato", por_titulo[alvo]
+    # O mesmo título escrito junto ou separado ("Talcoisa" e "Tal Coisa") é o mesmo título, e não um parecido.
+    junto = {t.replace(" ", ""): obras for t, obras in por_titulo.items()}
+    if len(alvo.replace(" ", "")) >= 6 and alvo.replace(" ", "") in junto:
+        return "exato", junto[alvo.replace(" ", "")]
     partes = _partes_de_medley(titulo)
     if len(partes) > 1 or (partes and _MARCA_DE_MEDLEY.search(normalizar(titulo))):
         achadas = [o for p in dict.fromkeys(partes) for o in por_titulo.get(p, [])]

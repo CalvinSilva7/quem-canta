@@ -388,6 +388,29 @@ class YouTubeMusic:
             self.pagina.keyboard.press("Escape")
         return None
 
+    def canal_do_video(self, video: str) -> str:
+        """O nome do canal que publicou o vídeo, pelo endereço público de incorporação do YouTube (oEmbed). Vazio se
+        o YouTube não responder ou o vídeo não existir mais. Só o código do vídeo sai do computador."""
+        import requests
+
+        arquivo = self.cache / "_canais.json"
+        guardados = json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else {}
+        if video in guardados or self.so_o_que_ja_foi_lido:
+            return guardados.get(video, "")
+        endereco = f"https://www.youtube.com/watch?v={video}"
+        if self.filtro:
+            self.filtro.conferir(endereco)
+        time.sleep(1.5)
+        try:
+            resposta = requests.get("https://www.youtube.com/oembed", params={"url": endereco, "format": "json"}, timeout=15)
+            canal = str(resposta.json().get("author_name") or "").strip() if resposta.status_code == 200 else ""
+        except (requests.RequestException, ValueError):
+            return ""  # sem resposta: não guarda, para tentar de novo na próxima coleta
+        guardados[video] = canal
+        self.cache.mkdir(parents=True, exist_ok=True)
+        arquivo.write_text(json.dumps(guardados, ensure_ascii=False), encoding="utf-8")
+        return canal
+
     # --- retomada -------------------------------------------------------------
 
     def _do_cache(self, video):

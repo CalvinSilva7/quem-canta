@@ -1933,3 +1933,49 @@ def test_planilha_de_interpretes_do_escritorio_com_coluna_de_numero_e_varios_nom
     # a planilha do próprio app (obra e intérprete nas duas primeiras colunas) continua valendo
     do_app = _interpretes.planilha(rel, [("COISA FEITA", ["Banda do Baile"])])
     assert _interpretes.ler_planilha(do_app, rel)[0] == {"COISA FEITA": ["BANDA DO BAILE"]}
+
+
+def test_interprete_conferido_vale_com_uma_letra_de_diferenca_e_com_abreviacao():
+    assert pipeline._e_o_conferido("Banda Fulanera", "Banda Fulaneira")          # uma letra a mais numa palavra longa
+    assert pipeline._e_o_conferido("Beltrano e Cicrano", "Beltrano & Cicrhano")
+    assert pipeline._e_o_conferido("Cia do Baile", "Companhia do Baile")
+    assert not pipeline._e_o_conferido("Banda Fulanera", "Banda Sicranera")       # outra banda
+    assert not pipeline._e_o_conferido("Trio Lua", "Trio Rua")                    # palavra curta: uma letra muda o nome
+    assert not pipeline._e_o_conferido("Fulana", "Fulana & Beltrano")             # um nome só não é a dupla
+
+
+def test_titulo_escrito_junto_ou_separado_e_o_mesmo_titulo():
+    rel = relatorio_de_teste()
+    assert c.casar_titulo("Coisafeita", rel)[0] == "exato"
+    assert pipeline._e_da_obra("Coisafeita", "COISA FEITA", rel) == "exato"
+    # Com sobras em volta, só quando o vídeo cita um nome conhecido.
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("BANDA DO BAILE - COISAFEITA (CLIPE OFICIAL) 4K", rel, ["Banda do Baile"]), "COISA FEITA", rel) == "exato"
+    assert not pipeline._e_da_obra(pipeline._titulo_do_video("OUTRO CANAL - COISAFEITA (CLIPE OFICIAL) 4K", rel, ["Banda do Baile"]), "COISA FEITA", rel)
+    # "Banda / Música" não é medley: o outro trecho é só o nome de quem canta.
+    assert pipeline._e_da_obra(pipeline._titulo_do_video("Banda do Baile / Coisa Feita", rel, ["Banda do Baile"]), "COISA FEITA", rel) == "exato"
+
+
+class YouTubeComCanal(YouTubeFalso):
+    def __init__(self, buscas, leituras, canais):
+        super().__init__(buscas, leituras)
+        self.canais, self.consultados = canais, []
+
+    def canal_do_video(self, video):
+        self.consultados.append(video)
+        return self.canais.get(video, "")
+
+
+def test_youtube_confere_o_canal_quando_a_busca_mostra_os_musicos_no_lugar_da_banda(rel):
+    ytm = YouTubeComCanal(
+        buscas={"COISA FEITA Banda Fulanera": [
+            ("v1", "Coisa Feita", "Músico Um e Músico Dois", "12 mil visualizações", "Vídeo"),   # canal é da banda
+            ("v2", "Coisa Feita", "Outro Cantor", "9 mil visualizações", "Vídeo"),                # canal de outra pessoa
+            ("v3", "Coisa Feita (Ao Vivo)", "Banda Fulaneira", "3 mil visualizações", "Vídeo"),   # uma letra de diferença
+        ]},
+        leituras={v: _leitura(v, "Coisa Feita", "x", MENU_SEM) for v in ("v1", "v2", "v3")},
+        canais={"v1": "Banda Fulanera Oficial", "v2": "Outro Cantor"},
+    )
+    coleta = pipeline.coletar_youtube(rel, Config(nomes_confirmados=["ZECA LIMA"]), ytm, [], {"COISA FEITA": ["Banda Fulanera"]},
+                                      so_os_pares=True, limite_de_obras=2)
+    assert sorted(ytm.lidos) == ["v1", "v3"]
+    assert "v3" not in ytm.consultados   # quem já bate pelo nome não gasta consulta

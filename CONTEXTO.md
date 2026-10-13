@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 13/10/2026, versão 0.5.36. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 13/10/2026, versão 0.5.38. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
@@ -66,7 +66,7 @@ casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do 
 |---|---|---|---|
 | Deezer | API pública, sem navegador | Página da faixa com o painel "Consulte créditos musicais" | Leitura validada. Print corrigido na 0.5.18 e visto em 1 faixa, no Mac |
 | Apple Music | API do iTunes e página do álbum | Fora da coleta de prints (decisão do dono) | Só na busca de intérpretes. Recusa buscas (403/429) em relatório grande |
-| YouTube Music | Busca do site | Menu da faixa | Validado com dois gabaritos; tela inteira validada no Windows |
+| YouTube Music | Busca do site | Menu da faixa | Validado com três gabaritos (no terceiro, Mac, 0.5.38: 29 de 31 links; os 2 restantes saem "a confirmar" por grafia do título). Intérprete conferido vale com uma letra de diferença e, se a busca mostra os músicos no lugar da banda, o app consulta o canal do vídeo (oEmbed público, só o código do vídeo sai); tela inteira validada no Windows |
 | Spotify | Busca do site (cada consulta também na forma enxuta) | Janela "Créditos" | Validado no Mac e no Windows (0.5.36): 10 de 10 e 4 de 4. As leituras anteriores à 0.5.35 podiam trazer violação falsa |
 | Tidal | Página do artista (fraco) | Tocador com a aba "Créditos" (prévia de 30 s, sem login) | **3 de 13 no gabarito.** Ver seção 6 |
 | Amazon (aplicativo) | Busca do site, depois o aplicativo de desktop | 2 por música: menu com "Créditos" e janela de créditos | Validado no Windows: 9 de 9 e 5 de 5 |

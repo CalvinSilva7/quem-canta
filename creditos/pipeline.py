@@ -220,7 +220,8 @@ def _par_conhecido(pares: dict, titulo: str, interprete: str) -> bool:
     if any(c.mesmo_artista(parte, n) for n in conhecidos for parte in c.partes_do_interprete(interprete)):
         return True
     # Dupla de nomes de uma palavra só ("Fulano e Beltrano"): a divisão em partes a desfaz; compara o nome inteiro.
-    return any(_palavras(n) == _palavras(interprete) or _nome_dentro(n, interprete) or _mesma_grafia(n, interprete) for n in conhecidos)
+    return any(_palavras(n) == _palavras(interprete) or _nome_dentro(n, interprete) or _mesma_grafia(n, interprete)
+               or _e_o_conferido(n, interprete) for n in conhecidos)
 
 
 def _citado(nome: str, titulo_do_video: str) -> bool:
@@ -367,7 +368,8 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
                     # Beltrano"), "&" por "e" e letra dobrada não fazem outro artista.
                     if not any(any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(cand.interprete))
                                or _nome_dentro(n, cand.interprete) or _mesma_grafia(n, cand.interprete)
-                               or (n in pares.get(titulo, []) and _palavra_do_nome(n, cand.interprete)) for n in ligados):
+                               or (n in pares.get(titulo, []) and (_palavra_do_nome(n, cand.interprete) or _e_o_conferido(n, cand.interprete)))
+                               for n in ligados):
                         coleta.sem_vinculo_nao_abertos += 1
                     elif abertos < por_obra:
                         abertos += 1
@@ -410,7 +412,7 @@ def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obr
                 vistos.add(cand.faixa)
                 elo = next((n for n in ligados if any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(cand.interprete))
                             or _nome_dentro(n, cand.interprete) or _mesma_grafia(n, cand.interprete)
-                            or (n in pares.get(titulo, []) and _palavra_do_nome(n, cand.interprete))), "")
+                            or (n in pares.get(titulo, []) and (_palavra_do_nome(n, cand.interprete) or _e_o_conferido(n, cand.interprete)))), "")
                 if not elo:
                     coleta.sem_vinculo_nao_abertos += 1
                 elif len(por_nome.setdefault(tuple(_palavras(elo)), [])) < por_interprete:
@@ -889,6 +891,44 @@ def _escolher_videos(candidatos: list, por_interprete: int, por_obra: int) -> li
     return escolhidos[:por_obra]
 
 
+# Palavras que acompanham o nome de um artista sem fazer parte dele.
+_GENERICAS = {"banda", "grupo", "trio", "dupla", "forro", "mc", "dj", "oficial", "cantor", "cantora"}
+# Abreviações que valem pelo nome por extenso.
+_POR_EXTENSO = {"cia": "companhia", "cia.": "companhia"}
+
+
+def _distam_uma_letra(a: str, b: str) -> bool:
+    """As duas palavras são iguais a menos de UMA letra trocada, a mais ou a menos?"""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    menor, maior = sorted((a, b), key=len)
+    return any(maior[:i] + maior[i + 1:] == menor for i in range(len(maior)))
+
+
+def _quase_o_mesmo_nome(a: str, b: str) -> bool:
+    """O mesmo nome de artista a menos de UMA letra em UMA palavra de 5 letras ou mais ("Fulanera" e "Fulaneira"),
+    com abreviação por extenso ("Cia" e "Companhia") e sem as letras dobradas. Só serve para o intérprete que o
+    compositor conferiu para aquela obra, e sempre junto do título exato: sozinho, confundiria artistas diferentes."""
+    import re
+    enxuto = lambda nome: [re.sub(r"(.)\1+", r"\1", _POR_EXTENSO.get(p, p)) for p in _palavras(nome)]
+    x, y = enxuto(a), enxuto(b)
+    if not x or len(x) != len(y):
+        return False
+    diferentes = [(p, q) for p, q in zip(x, y) if p != q]
+    return not diferentes or (len(diferentes) == 1 and min(map(len, diferentes[0])) >= 5 and _distam_uma_letra(*diferentes[0]))
+
+
+def _e_o_conferido(nome: str, exibido: str) -> bool:
+    """O artista exibido é o intérprete conferido `nome`, com a tolerância de `_quase_o_mesmo_nome`? Compara o nome
+    inteiro e cada parte dele ("Fulano feat Beltrano") com o exibido e cada parte dele."""
+    de_um_lado = [nome, *c.partes_do_interprete(nome)]
+    do_outro = [exibido, *c.partes_do_interprete(exibido)]
+    # nunca por um nome de uma palavra só: "Fulana" não é a dupla "Fulana & Beltrano"
+    return any(_quase_o_mesmo_nome(a, b) for a in de_um_lado for b in do_outro if len(_palavras(a)) >= 2 and len(_palavras(b)) >= 2)
+
+
 def _palavras(texto) -> list[str]:
     """As palavras do texto, sem acento nem pontuação, com "&" lido como "e"."""
     return normalizar(str(texto or "").replace("&", " e ")).split()
@@ -939,6 +979,15 @@ def _titulo_do_video(titulo: str, relatorio: Relatorio, nomes=()) -> str:
 
     limpo = re.sub(r"\s*\[[^\]]*\]\s*", " ", str(titulo or "")).strip()
     candidatos = [titulo, limpo, *re.split(r"\s*[-–—|:]\s+|\s+[-–—|]\s*", limpo)]
+    # "Banda Tal / Música": a barra separa o artista do título, e não duas músicas. Vale quando um dos dois trechos é
+    # só o nome de um artista conhecido (com ou sem "banda", "grupo"...) e o outro é um título do relatório.
+    trechos = [t.strip() for t in limpo.split("/") if t.strip()]
+    if len(trechos) == 2:
+        nomes_soltos = [_palavras(n) for n in nomes if _palavras(n)]
+        e_artista = lambda t: [p for p in _palavras(t) if p not in _GENERICAS] in nomes_soltos or _palavras(t) in nomes_soltos
+        for artista, resto in (trechos, trechos[::-1]):
+            if e_artista(artista) and c.casar_titulo(resto, relatorio)[0] == "exato":
+                return resto
     # "Música ( Clipe Oficial ) Part. Fulano" -> "Música": sem os parênteses e sem a participação no fim.
     candidatos += [re.sub(r"(?i)\s+(?:part|participa[cç][aã]o|feat|ft)\b\.?.*$", "", re.sub(r"\s*\([^)]*\)\s*", " ", x)).strip()
                    for x in list(candidatos)]
@@ -955,6 +1004,14 @@ def _titulo_do_video(titulo: str, relatorio: Relatorio, nomes=()) -> str:
     dentro = {o.titulo for o in relatorio.obras
               if (len(_palavras(o.titulo)) >= 3 or (len(_palavras(o.titulo)) == 2 and cita_nome))
               and any(palavras_do_video[i:i + len(_palavras(o.titulo))] == _palavras(o.titulo) for i in range(len(palavras_do_video)))}
+    # O mesmo, com o título escrito junto no cadastro e separado no vídeo (ou o contrário): "TALMUSICA" e "Tal Música".
+    # Só com um nome conhecido no vídeo e título de seis letras ou mais.
+    if cita_nome:
+        for o in relatorio.obras:
+            junto = "".join(_palavras(o.titulo))
+            if len(junto) >= 6 and any("".join(palavras_do_video[i:j]) == junto for i in range(len(palavras_do_video))
+                                       for j in range(i + 1, min(i + 6, len(palavras_do_video)) + 1)):
+                dentro.add(o.titulo)
     if len(dentro) == 1 and c.casar_titulo(titulo, relatorio)[0] != "medley":
         candidatos.append(dentro.pop())
     # Um trecho que é só o nome de um artista conhecido não é título: sem isto, a banda "Fulana" casaria com a obra "Fulano".
@@ -973,8 +1030,8 @@ def _titulo_do_video(titulo: str, relatorio: Relatorio, nomes=()) -> str:
 def _e_da_obra(titulo_exibido: str, titulo_da_obra: str, relatorio: Relatorio) -> str:
     """Como o título exibido se liga a esta obra: "exato", "medley", "aproximado" ou ""."""
     tipo, obras = c.casar_titulo(titulo_exibido, relatorio)
-    if tipo == "exato":
-        return tipo if c._titulo_base(titulo_exibido) == c._titulo_base(titulo_da_obra) else ""
+    if tipo == "exato":  # junto ou separado ("Talcoisa" e "Tal Coisa"), o título é o mesmo
+        return tipo if c._titulo_base(titulo_exibido).replace(" ", "") == c._titulo_base(titulo_da_obra).replace(" ", "") else ""
     return tipo if tipo and any(c._titulo_base(o.titulo) == c._titulo_base(titulo_da_obra) for o in obras) else ""
 
 
@@ -1033,8 +1090,16 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
                     ligacao = _e_da_obra(_titulo_do_video(cand.titulo, relatorio, ligados), titulo, relatorio)
                     if not ligacao:
                         continue
-                    elo = next((n for n in ligados if any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(cand.interprete))
-                                or _nome_dentro(n, cand.interprete) or _citado(n, cand.titulo) or _nome_dentro(n, cand.titulo)), "")
+                    da_planilha = pares.get(titulo, [])
+                    def elo_com(artista):
+                        return next((n for n in ligados if any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(artista))
+                                     or _nome_dentro(n, artista) or (n in da_planilha and (_palavra_do_nome(n, artista) or _e_o_conferido(n, artista)))), "")
+                    elo = elo_com(cand.interprete) or next((n for n in ligados if _citado(n, cand.titulo) or _nome_dentro(n, cand.titulo)), "")
+                    if not elo and ligacao == "exato" and da_planilha and hasattr(ytm, "canal_do_video"):
+                        # O YouTube Music às vezes lista os músicos no lugar do nome da banda. O canal que publicou o
+                        # vídeo desfaz a dúvida: se for o intérprete conferido, o vídeo é dele.
+                        canal = ytm.canal_do_video(cand.video)
+                        elo = elo_com(canal) if canal else ""
                     vistos.add(cand.video)
                     if not elo:
                         coleta.sem_vinculo_nao_abertos += 1
