@@ -57,10 +57,26 @@ class Bloqueio(Exception):
     """Captcha, pedido de login, tela de consentimento ou bloqueio. A fila para; nada é contornado."""
 
 
+# Títulos de obra e nomes de intérprete do caso em andamento, já normalizados (a coleta preenche). Uma música pode se
+# chamar exatamente como um aviso de bloqueio: o título na página da faixa não é a plataforma barrando o app.
+NAO_E_AVISO: tuple = ()
+
+
+def do_caso(nomes) -> tuple:
+    """Os nomes normalizados, do mais comprido para o mais curto, para tirar do texto antes de procurar aviso."""
+    return tuple(sorted({normalizar(n) for n in nomes if len(normalizar(n)) >= 4}, key=len, reverse=True))
+
+
+def sem_o_que_e_do_caso(limpo: str) -> str:
+    for nome in NAO_E_AVISO:
+        limpo = limpo.replace(nome, " ")
+    return limpo
+
+
 def sinal_de_bloqueio(url: str, texto: str = "") -> str:
     if any(parte in url for parte in _BLOQUEIO_NA_URL):
         return f"a plataforma desviou para {url.split('/')[2] if '//' in url else url}"
-    limpo = normalizar(texto)
+    limpo = sem_o_que_e_do_caso(normalizar(texto))
     return next((f'a página pede verificação humana ou login ("{sinal}")' for sinal in _BLOQUEIO_NO_TEXTO if sinal in limpo), "")
 
 

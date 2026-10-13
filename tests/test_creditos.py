@@ -2005,3 +2005,15 @@ def test_so_o_primeiro_nome_do_nome_artistico_conta_como_creditado():
     assert c.comparar_nome("Lima", "JOSE CARLOS DE LIMA", ["ZECA LIMA"]) == ""     # só o sobrenome não basta
     assert c.comparar_nome("Jose", "JOSE CARLOS DE LIMA", ["ZECA LIMA"]) == ""     # primeiro nome civil: qualquer um teria
     assert c.comparar_nome("Zé", "JOSE CARLOS DE LIMA", ["ZÉ LIMA"]) == ""         # curto demais
+
+
+def test_musica_com_nome_de_aviso_de_bloqueio_nao_para_a_coleta(monkeypatch):
+    # Uma obra pode se chamar como um aviso de bloqueio: o título na página da faixa não é a plataforma barrando.
+    pagina = "Acesso Negado · Banda do Baile · 2024 · 3:10 · Compartilhar · Ver créditos"
+    assert navegador.sinal_de_bloqueio("https://open.spotify.com/track/x", pagina)            # sem saber do caso, para
+    monkeypatch.setattr(navegador, "NAO_E_AVISO", navegador.do_caso(["ACESSO NEGADO", "COISA FEITA"]))
+    assert navegador.sinal_de_bloqueio("https://open.spotify.com/track/x", pagina) == ""
+    assert ytmusic.sinal_de_bloqueio("https://music.youtube.com/watch?v=x", pagina) == ""
+    # o aviso de verdade continua parando, e o desvio para a página de login também
+    assert navegador.sinal_de_bloqueio("https://open.spotify.com/track/x", "Verify you are human to continue")
+    assert navegador.sinal_de_bloqueio("https://accounts.spotify.com/login", pagina)

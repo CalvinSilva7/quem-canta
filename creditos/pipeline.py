@@ -1207,14 +1207,17 @@ def executar(relatorio: Relatorio, config: Config, pasta, nomes_dos_coautores=()
     `conferidos`: {título: [intérpretes]} da planilha que o compositor conferiu. Com ela, o app não descobre nem
     presume intérprete nenhum: verifica só esses pares, e as obras sem intérprete na planilha ficam de fora.
     """
-    from . import captura
+    from . import captura, navegador
 
     captura.TELA_INTEIRA, antes = bool(tela_inteira), captura.TELA_INTEIRA
+    # Título de obra ou nome de intérprete igual a um aviso de bloqueio (existe música com esse nome) não é aviso.
+    navegador.NAO_E_AVISO, avisos_antes = navegador.do_caso(
+        [o.titulo for o in relatorio.obras] + [n for nomes in (conferidos or {}).values() for n in nomes]), navegador.NAO_E_AVISO
     try:
         return _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_youtube, por_obra, ao_avancar,
                          so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador or tela_inteira, conferidos=conferidos)
     finally:
-        captura.TELA_INTEIRA = antes
+        captura.TELA_INTEIRA, navegador.NAO_E_AVISO = antes, avisos_antes
 
 
 def _so_os_conferidos(coleta: Coleta, relatorio: Relatorio, config: Config, conferidos: dict) -> Coleta:

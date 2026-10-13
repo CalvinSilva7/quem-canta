@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 13/10/2026, versão 0.5.44. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 13/10/2026, versão 0.5.45. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
@@ -51,6 +51,9 @@ casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do 
 - **Firme** entra na contagem da petição e no PDF. **A confirmar** (`revisar=True`) fica fora dos dois e aparece
   em amarelo, com o motivo.
 - Homônimo provável, medley e título aproximado nunca são firmes.
+- Aviso de bloqueio procurado no texto da página ignora os títulos e intérpretes do caso (0.5.45): uma obra cujo
+  título era igual a um dos avisos parava a coleta do Spotify sempre na mesma faixa, e parecia bloqueio por volume.
+  Antes de concluir "a plataforma bloqueou", ver o motivo gravado na aba Resumo e em que faixa parou.
 - Crédito que traz só o primeiro nome do nome artístico do compositor conta como creditado (decisão do dono em
   13/10/2026, 0.5.40): não é violação nem vai para "a confirmar". Não vale para o sobrenome sozinho, para o primeiro
   nome do nome civil, nem para nome de menos de quatro letras.

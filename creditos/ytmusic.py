@@ -120,7 +120,8 @@ class Leitura:
 def sinal_de_bloqueio(url: str, texto: str = "") -> str:
     if any(parte in url for parte in _BLOQUEIO_NA_URL):
         return f"a plataforma desviou para {url.split('/')[2]}"
-    limpo = normalizar(texto)
+    from . import navegador
+    limpo = navegador.sem_o_que_e_do_caso(normalizar(texto))
     return next((f'a página pede verificação humana ("{sinal}")' for sinal in _BLOQUEIO_NO_TEXTO if sinal in limpo), "")
 
 
