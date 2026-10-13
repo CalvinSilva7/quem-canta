@@ -51,6 +51,9 @@ casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do 
 - **Firme** entra na contagem da petição e no PDF. **A confirmar** (`revisar=True`) fica fora dos dois e aparece
   em amarelo, com o motivo.
 - Homônimo provável, medley e título aproximado nunca são firmes.
+- Título com grafia diferente da do cadastro (uma letra que seja) fica "a confirmar", com print. Decisão do dono em
+  13/10/2026: não tolerar letra no título, porque o funcionário tem de conferir sempre. A tolerância de uma letra vale
+  só para o nome do intérprete conferido.
 - **Intérprete conferido pelo compositor** (veio da planilha): crédito só com outros nomes é violação firme.
   Decisão do dono: o compositor já disse que aquele intérprete gravou a obra dele.
 - Nome artístico de uma palavra seguido de sobrenome que o relatório não traz é "variante a confirmar", e não
@@ -185,7 +188,7 @@ Trabalho proposto e não feito:
 - Apple Music na busca de intérpretes: detectar o bloqueio (recusas seguidas), pausar, desistir depois de algumas
   pausas, e **avisar na tela** quantas obras ficaram sem a consulta. Hoje a aba termina como se tudo tivesse dado
   certo; num relatório de 640 obras, 483 buscas ficaram sem resposta.
-- Palco MP3: tolerar uma letra de diferença no nome do intérprete conferido; limpar "®" e sobras do título
+- Palco MP3: limpar "®" e sobras do título (a letra de diferença no nome do intérprete conferido entrou na 0.5.38)
   ("Open Bar"). Refazer o teste com o gabarito de 2024: as páginas "fora do ar" devem ser lidas agora.
 - Decidir se a forma enxuta da consulta (sem "feat" e sem o "e") vale também para as outras plataformas.
 - Deezer roda sempre, mesmo desmarcada; com a planilha conferida ela não é necessária.
