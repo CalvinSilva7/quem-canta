@@ -104,23 +104,49 @@ def planilha(relatorio, lista) -> bytes:
     return saida.getvalue()
 
 
+def _colunas(linhas) -> tuple[int, int, int]:
+    """Em que colunas estão a obra e o intérprete, e em que linha começam os dados: (obra, intérprete, primeira linha).
+
+    Vale o cabeçalho, se houver ("Obras" / "Título da Música" / "Composição" e "Intérpretes"), em qualquer coluna:
+    o escritório costuma pôr uma coluna de número antes. Sem cabeçalho reconhecível, valem as duas primeiras
+    colunas, pulando a primeira se ela for só de números.
+    """
+    for i, linha in enumerate(linhas[:6]):
+        nomes = [normalizar(str(c or "")) for c in linha]
+        do_interprete = next((j for j, n in enumerate(nomes) if n.startswith("interprete")), None)
+        da_obra = next((j for j, n in enumerate(nomes) if j != do_interprete and any(p in n.split() for p in ("obra", "obras", "titulo", "musica", "musicas", "composicao"))), None)
+        if do_interprete is not None and da_obra is not None:
+            return da_obra, do_interprete, i + 1
+    primeira = [str(l[0] or "").strip() for l in linhas if l and str(l[0] or "").strip()]
+    so_numeros = bool(primeira) and sum(v.rstrip(".").isdigit() or normalizar(v) in ("n", "no", "num", "numero") for v in primeira) >= 0.8 * len(primeira)
+    return (1, 2, 0) if so_numeros else (0, 1, 0)
+
+
 def ler_planilha(conteudo: bytes, relatorio) -> tuple[dict, list[str]]:
     """Lê a planilha de intérpretes (a nossa, ou a que o compositor devolveu corrigida).
 
-    Devolve ({título do relatório: [intérpretes]}, [obras da planilha que não estão no relatório]). Vale qualquer
-    planilha com a obra na primeira coluna e o intérprete na segunda; linhas de título e de cabeçalho são ignoradas.
+    Devolve ({título do relatório: [intérpretes]}, [obras da planilha que não estão no relatório]). As colunas da obra
+    e do intérprete são achadas pelo cabeçalho (ver `_colunas`); linhas de título e de cabeçalho são ignoradas.
+    Vários intérpretes na mesma célula, separados por barra ("Fulano / Beltrano") ou quebra de linha, contam um a um.
     """
+    import re
+
     from openpyxl import load_workbook
 
     por_titulo = {normalizar(o.titulo): o.titulo for o in relatorio.obras}
+    linhas = [list(l) for l in load_workbook(io.BytesIO(conteudo), read_only=True).worksheets[0].iter_rows(min_col=1, max_col=8, values_only=True)]
+    da_obra, do_interprete, comeco = _colunas(linhas)
     pares, fora = {}, []
-    for obra, interprete, *_ in load_workbook(io.BytesIO(conteudo), read_only=True).worksheets[0].iter_rows(min_col=1, max_col=3, values_only=True):
-        obra, interprete = str(obra or "").strip(), str(interprete or "").strip()
-        if not obra or not interprete or normalizar(obra) in ("obras", "obra"):
+    for linha in linhas[comeco:]:
+        linha = linha + [None] * (max(da_obra, do_interprete) + 1 - len(linha))
+        obra, celula = str(linha[da_obra] or "").strip(), str(linha[do_interprete] or "").strip()
+        if not obra or not celula or normalizar(obra) in ("obras", "obra"):
             continue
         titulo = por_titulo.get(normalizar(obra))
         if titulo is None:
             fora.append(obra)
-        elif _chave(interprete) not in {_chave(n) for n in pares.setdefault(titulo, [])}:
-            pares[titulo].append(interprete)
+            continue
+        for interprete in [n.strip() for n in re.split(r"\s*/{1,2}\s*|\n|;", celula) if n.strip()]:
+            if _chave(interprete) not in {_chave(n) for n in pares.setdefault(titulo, [])}:
+                pares[titulo].append(interprete)
     return pares, list(dict.fromkeys(fora))

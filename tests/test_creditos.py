@@ -1906,3 +1906,30 @@ def test_consulta_enxuta_tira_feat_e_o_e_das_duplas():
     assert pipeline._consulta_enxuta("COISA FEITA Fulano & Beltrano") == "COISA FEITA Fulano Beltrano"
     assert pipeline._consulta_enxuta("COISA FEITA Banda do Baile") == "COISA FEITA Banda do Baile"  # nada a tirar: fica igual
     assert pipeline._consulta_enxuta("ESTE E AQUELE Fulano part. Beltrano") == "ESTE AQUELE Fulano Beltrano"
+
+
+def test_planilha_de_interpretes_do_escritorio_com_coluna_de_numero_e_varios_nomes_na_celula(rel):
+    """A planilha que o escritório monta tem uma coluna de número antes e junta intérpretes com barra na mesma célula."""
+    import io as _io
+    from openpyxl import Workbook
+    from creditos import interpretes as _interpretes
+
+    def planilha(linhas):
+        livro = Workbook()
+        for linha in linhas:
+            livro.active.append(linha)
+        saida = _io.BytesIO()
+        livro.save(saida)
+        return saida.getvalue()
+
+    com_cabecalho = planilha([["Nº", "Título da Música", "Intérpretes "], ["1", "COISA FEITA", "Banda do Baile / Cantora Original "],
+                              ["2", "LIGUE O RADIO", "Fulano // Beltrano\nSicrano"], ["3", "COISA FEITA", None], ["4", "OBRA QUE NAO EXISTE", "Alguém"]])
+    pares, fora = _interpretes.ler_planilha(com_cabecalho, rel)
+    assert pares == {"COISA FEITA": ["Banda do Baile", "Cantora Original"], "LIGUE O RADIO": ["Fulano", "Beltrano", "Sicrano"]}
+    assert fora == ["OBRA QUE NAO EXISTE"]
+    # sem cabeçalho reconhecível, com a primeira coluna só de números: pula a coluna
+    sem_cabecalho = planilha([[1, "COISA FEITA", "Banda do Baile"], [2, "LIGUE O RADIO", "Fulano"]])
+    assert _interpretes.ler_planilha(sem_cabecalho, rel)[0] == {"COISA FEITA": ["Banda do Baile"], "LIGUE O RADIO": ["Fulano"]}
+    # a planilha do próprio app (obra e intérprete nas duas primeiras colunas) continua valendo
+    do_app = _interpretes.planilha(rel, [("COISA FEITA", ["Banda do Baile"])])
+    assert _interpretes.ler_planilha(do_app, rel)[0] == {"COISA FEITA": ["BANDA DO BAILE"]}
