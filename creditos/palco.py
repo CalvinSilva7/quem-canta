@@ -67,17 +67,6 @@ _LER_MUSICA = """() => {
 }"""
 
 
-# Para abrir uma página sem os scripts do site (ver `Palco._ler`): todo pedido passa por aqui, e os de script são recusados.
-_SCRIPTS = "**/*"
-
-
-def _recusar(rota):
-    if rota.request.resource_type == "script":
-        rota.abort()
-    else:
-        rota.continue_()
-
-
 @dataclass
 class Candidato:
     endereco: str  # "/<artista>/<música>/"
@@ -167,7 +156,8 @@ class Palco:
 
     def _no_site(self):
         pagina = self.nav.pagina
-        if "palcomp3.com.br" not in pagina.url or "creditos." in pagina.url:
+        if "palcomp3.com.br" not in pagina.url or "creditos." in pagina.url or getattr(self, "_pagina_parada", False):
+            self._pagina_parada = False
             self.nav.ir(SITE, pausa=(4, 7))
             pagina.wait_for_selector('input[placeholder*="quer ouvir"]', timeout=30000)
             pagina.wait_for_timeout(1500)
@@ -262,12 +252,13 @@ class Palco:
         if cand.endereco.strip("/").lower() not in pagina.url.lower():
             # Em algumas músicas o tocador do site pula para a seguinte e a página troca junto, em menos de um segundo.
             # A página da música pedida existe: aberta sem os scripts do site (sem o tocador), ela fica parada.
-            # É a mesma janela, só com os arquivos de script recusados: outra janela cobriria o print de tela inteira.
+            # É a mesma janela, com a execução de scripts desligada só durante esta leitura: outra janela cobriria o
+            # print de tela inteira. (Recusar os arquivos de script não basta: o site os serve de um cache próprio.)
             import time
 
             time.sleep(4)
             parada = True
-            pagina.route(_SCRIPTS, _recusar)
+            self._scripts(pagina, ligados=False)
             self.nav.navegacoes += 1
             pagina.goto(cand.link, wait_until="domcontentloaded", timeout=60000)
             pagina.wait_for_timeout(2500)
@@ -278,11 +269,18 @@ class Palco:
             if parada is not None:
                 self._liberar_os_scripts()
 
+    def _scripts(self, pagina, ligados: bool):
+        """Liga ou desliga a execução de scripts da página, pelo próprio navegador (o mesmo recurso de "desativar JavaScript")."""
+        if getattr(self, "_sessao", None) is None:
+            self._sessao = pagina.context.new_cdp_session(pagina)
+        self._sessao.send("Emulation.setScriptExecutionDisabled", {"value": not ligados})
+
     def _liberar_os_scripts(self):
         try:
-            self.nav.pagina.unroute(_SCRIPTS, _recusar)
+            self._scripts(self.nav.pagina, ligados=True)
         except Exception:
             pass
+        self._pagina_parada = True  # a página aberta ficou sem os scripts: a busca seguinte começa de uma página nova
 
     def _registrar(self, leitura: Leitura, cand: Candidato, obra: str, pagina, lido: dict, sem_scripts: bool):
         """Confere a página aberta, lê a linha de composição e tira o print (e o dos créditos, se a linha vier cortada)."""
