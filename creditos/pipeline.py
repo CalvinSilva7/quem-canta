@@ -877,7 +877,7 @@ def _palavras(texto) -> list[str]:
 
 
 def _mesma_grafia(a: str, b: str) -> bool:
-    """O mesmo nome, a menos de letra dobrada ("Rodolfo" e "Rodolffo", "Jefferson" e "Jeffersson") e de "e" por "&"."""
+    """O mesmo nome, a menos de letra dobrada ("Beltrano" e "Beltranno") e de "e" por "&"."""
     import re
     sem_dobras = lambda nome: [re.sub(r"(.)\1+", r"\1", palavra) for palavra in _palavras(nome)]
     return bool(_palavras(a)) and sem_dobras(a) == sem_dobras(b)

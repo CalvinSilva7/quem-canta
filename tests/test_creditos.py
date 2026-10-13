@@ -1741,9 +1741,9 @@ def test_ajustes_do_teste_com_o_gabarito_da_amazon_no_aplicativo():
     import pandas as pd
     from creditos import ubc
     # letra dobrada não faz outro artista; nome diferente continua diferente
-    assert pipeline._mesma_grafia("Israel e Rodolfo", "Israel & Rodolffo") and pipeline._mesma_grafia("Jefferson e Emerson", "Jeffersson e Emerson")
+    assert pipeline._mesma_grafia("Fulano e Beltrano", "Fulano & Beltranno") and pipeline._mesma_grafia("Sicrano e Zeca", "Sicranno e Zeca")
     assert not pipeline._mesma_grafia("Ana", "Anna Maria") and not pipeline._mesma_grafia("", "")
-    assert pipeline._par_conhecido({"COISA FEITA": ["Israel e Rodolfo"]}, "COISA FEITA", "Israel & Rodolffo")
+    assert pipeline._par_conhecido({"COISA FEITA": ["Fulano e Beltrano"]}, "COISA FEITA", "Fulano & Beltranno")
     # o aviso "Créditos indisponíveis" da janela não é nome de autor: a faixa fica sem crédito, e não com crédito errado
     secoes = _amazon_app.interpretar_creditos([{"rotulo": "Compositores", "bloco": "Compositores\n\nCréditos indisponíveis"}])
     assert secoes == {} and _amazon_app.autores(secoes) == []
