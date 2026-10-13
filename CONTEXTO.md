@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 13/10/2026, versão 0.5.39. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 13/10/2026, versão 0.5.40. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
@@ -51,6 +51,9 @@ casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do 
 - **Firme** entra na contagem da petição e no PDF. **A confirmar** (`revisar=True`) fica fora dos dois e aparece
   em amarelo, com o motivo.
 - Homônimo provável, medley e título aproximado nunca são firmes.
+- Crédito que traz só o primeiro nome do nome artístico do compositor conta como creditado (decisão do dono em
+  13/10/2026, 0.5.40): não é violação nem vai para "a confirmar". Não vale para o sobrenome sozinho, para o primeiro
+  nome do nome civil, nem para nome de menos de quatro letras.
 - Título com grafia diferente da do cadastro (uma letra que seja) fica "a confirmar", com print. Decisão do dono em
   13/10/2026: não tolerar letra no título, porque o funcionário tem de conferir sempre. A tolerância de uma letra vale
   só para o nome do intérprete conferido. Desde a 0.5.39, título com grafia diferente e medley, quando têm print,

@@ -159,7 +159,8 @@ def comparar_nome(exibido, nome_civil, pseudonimos=(), confirmados=(), a_confirm
     """Como o nome exibido se relaciona com um autor: "igual", "abreviado", "variante", "grafia" ou "".
 
     - igual: o nome civil, um pseudônimo do relatório ou um nome artístico confirmado.
-    - abreviado: dois termos ou mais, o primeiro igual ao do nome civil, todos tirados dele.
+    - abreviado: dois termos ou mais, o primeiro igual ao do nome civil, todos tirados dele; ou só o primeiro nome
+      do nome artístico.
     - variante: nome ainda não confirmado, ou combinação de termos do nome civil e dos pseudônimos.
     - grafia: quase igual a um dos nomes (similaridade de 0,8 ou mais), com letra trocada.
     """
@@ -174,6 +175,11 @@ def comparar_nome(exibido, nome_civil, pseudonimos=(), confirmados=(), a_confirm
         return "igual"
     termos, civil = _termos(exibido), _termos(nome_civil)
     if len(termos) >= 2 and civil and termos[0] == civil[0] and set(termos) <= set(civil):
+        return "abreviado"
+    # Só o primeiro nome do nome artístico ("Fulano" para "Fulano Lima"): o autor está citado, com o nome incompleto.
+    # Decisão do dono do projeto: conta como creditado. Só vale para o nome artístico (não para o primeiro nome do
+    # nome civil, que qualquer homônimo teria) e para nome de quatro letras ou mais.
+    if len(termos) == 1 and len(termos[0]) >= 4 and any(_termos(n)[:1] == termos for n in [*pseudonimos, *confirmados] if n):
         return "abreviado"
     if alvo in {normalizar(n) for n in a_confirmar if n}:
         return "variante"
@@ -348,7 +354,7 @@ def _decidir(item, autores, achados, desconhecidos, do_titular, exibidos, vincul
     nota = ("; " + "; ".join(notas) if notas else "") + sufixo
 
     if do_titular in ("igual", "abreviado"):
-        como = "pelo nome do relatório" if do_titular == "igual" else "com o nome civil abreviado"
+        como = "pelo nome do relatório" if do_titular == "igual" else "com o nome abreviado"
         return Classificacao(
             OK, f'o titular aparece no crédito ("{exibido}"), {como}' + nota,
             revisar=bool(desconhecidos), coautores_omitidos=omitidos,

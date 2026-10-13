@@ -1983,3 +1983,11 @@ def test_youtube_confere_o_canal_quando_a_busca_mostra_os_musicos_no_lugar_da_ba
                                       so_os_pares=True, limite_de_obras=2)
     assert sorted(ytm.lidos) == ["v1", "v3"]
     assert "v3" not in ytm.consultados   # quem já bate pelo nome não gasta consulta
+
+
+def test_so_o_primeiro_nome_do_nome_artistico_conta_como_creditado():
+    assert c.comparar_nome("Zeca", "JOSE CARLOS DE LIMA", ["ZECA LIMA"]) == "abreviado"
+    assert c.comparar_nome("ZECA", "JOSE CARLOS DE LIMA", [], ["Zeca Lima"]) == "abreviado"
+    assert c.comparar_nome("Lima", "JOSE CARLOS DE LIMA", ["ZECA LIMA"]) == ""     # só o sobrenome não basta
+    assert c.comparar_nome("Jose", "JOSE CARLOS DE LIMA", ["ZECA LIMA"]) == ""     # primeiro nome civil: qualquer um teria
+    assert c.comparar_nome("Zé", "JOSE CARLOS DE LIMA", ["ZÉ LIMA"]) == ""         # curto demais
