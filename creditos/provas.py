@@ -164,7 +164,7 @@ def registro_da_captura(pasta, nome_base: str) -> dict:
 
 
 def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma: str = "") -> tuple[bytes, list[str]]:
-    """PDF com índice (nº, obra, intérprete, link, data e hora, hash) e um print por página, na ordem da lista.
+    """PDF só com os prints, um por página, na ordem da lista: em cima de cada um, a música e o intérprete.
 
     Duas partes: as gravações firmes (as da contagem da petição) e, depois, "A confirmar antes de usar", com o
     print e o motivo da dúvida de cada gravação que depende de conferência (numeradas C1, C2...).
@@ -191,8 +191,8 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
     titular = " - ".join(x for x in (relatorio.nome_titular, relatorio.pseudonimo_titular) if x)
 
     def montar(itens, marca=""):
-        """As linhas do índice e as páginas de print de uma lista. `marca` vai antes do número ("C3": a confirmar)."""
-        linhas, paginas = [["Nº", "Obra", "Intérprete", "Link", "Capturado em", "SHA-256 da imagem"]], []
+        """As páginas de print de uma lista. `marca` vai antes do número ("C3": a confirmar)."""
+        paginas = []
         for item in itens:
             numero = f"{marca}{item['n']}"
             registros = [r for r in (registro_da_captura(pasta, p) for p in item["provas"]) if r]
@@ -204,62 +204,37 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
                 if registro and not registro["integra"]:
                     avisos.append(f"{numero}{parte} ({item['obra']} / {item['interprete']}): a imagem foi alterada depois da captura (hash não confere)")
                     registro = {}
-                linhas.append([numero + parte, Paragraph(item["obra"], pequeno), Paragraph(item["interprete"], pequeno),
-                               Paragraph(item["link"], pequeno), registro.get("capturado_em", "SEM CAPTURA"),
-                               Paragraph(registro.get("sha256", {}).get(registro.get("imagem", "png"), "-"), pequeno)])
                 if registro:
                     paginas.append((item, registro, parte, numero))
                     if registro.get("tela_inteira", {}).get("erro"):
                         avisos.append(f"{numero}{parte} ({item['obra']} / {item['interprete']}): sem print de tela inteira, porque "
                                       f"{registro['tela_inteira']['erro']}; o PDF traz a captura de página")
-        tabela = Table(linhas, colWidths=[1.7 * cm, 5.2 * cm, 3.9 * cm, 6.9 * cm, 3.6 * cm, 5.9 * cm], repeatRows=1)
-        tabela.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1B3A6B")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 7.5), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
-        return tabela, paginas
+        return paginas
 
     def pagina_do_print(item, registro, parte, numero, com_motivo=False):
-        bloco = [PageBreak(),
-                 Paragraph(f"{numero} - Música: {item['obra']} - Interpretada por: {item['interprete']}{parte}", estilos["Heading3"])]
+        bloco = [Paragraph(f"{numero} - Música: {item['obra']} - Interpretada por: {item['interprete']}{parte}", estilos["Heading3"])]
         if com_motivo:
             bloco.append(Paragraph(f"<b>A confirmar antes de usar.</b> {item['status']}: {item['fundamento']}", pequeno))
-        bloco.append(Paragraph(
-            f"{item['link']}<br/>Capturado em {registro['capturado_em']} ({registro['fuso']}) · Data do servidor: "
-            f"{registro.get('data_do_servidor') or 'não informada'}<br/>SHA-256: {registro['sha256'][registro['imagem']]} · "
-            f"Arquivo: {registro['arquivos'][registro['imagem']]}", pequeno))
         imagem = Image(str(pasta / registro["arquivos"][registro["imagem"]]))
-        escala = min((largura - 2.4 * cm) / imagem.imageWidth, (altura - (6.4 if com_motivo else 5.2) * cm) / imagem.imageHeight)
+        escala = min((largura - 2.4 * cm) / imagem.imageWidth, (altura - (5.4 if com_motivo else 4.2) * cm) / imagem.imageHeight)
         imagem.drawWidth, imagem.drawHeight = imagem.imageWidth * escala, imagem.imageHeight * escala
         return bloco + [Spacer(1, 0.2 * cm), imagem]
 
-    fluxo = [
-        Paragraph(f"Coleta de provas - {nome}", estilos["Title"]),
-        Paragraph(titular, estilos["Heading3"]),
-        Paragraph(
-            "Cada captura traz, na própria imagem, a URL, a data e a hora da captura (fuso de Brasília) e a data "
-            "informada pelo servidor da plataforma. Os prints de tela inteira são a foto do monitor no momento da "
-            "captura, sem montagem. O SHA-256 de cada imagem está no índice abaixo e no arquivo "
-            ".json que acompanha a captura. É prova documental unilateral: não substitui ata notarial.", pequeno),
-        Spacer(1, 0.3 * cm),
-    ]
-    tabela, paginas = montar(firmes)
-    if firmes:
-        fluxo.append(tabela)
-    else:
-        fluxo.append(Paragraph("Nenhuma gravação firme nesta plataforma. As que dependem de conferência estão na segunda parte.", estilos["BodyText"]))
-    for pagina in paginas:
-        fluxo += pagina_do_print(*pagina)
+    # Só o print, com a música e o intérprete em cima: um por página. O link de cada número está na lista da petição
+    # (o Word do pacote); a data, a hora e o SHA-256 ficam no arquivo .json que acompanha cada captura.
+    fluxo = []
+    for pagina in montar(firmes):
+        fluxo += ([PageBreak()] if fluxo else []) + pagina_do_print(*pagina)
     if a_confirmar:
         # Segunda parte: o que depende de conferência humana. Fica fora da contagem da petição, mas com o print à mão.
-        tabela, paginas = montar(a_confirmar, marca="C")
-        fluxo += [PageBreak(), Paragraph("A confirmar antes de usar", estilos["Title"]),
-                  Paragraph(
-                      "Estas gravações <b>não entram na contagem</b> da lista da petição: dependem de conferência humana. O motivo "
-                      "da dúvida está na página de cada uma. Confirmada a violação, o print abaixo é a prova dela.", estilos["BodyText"]),
-                  Spacer(1, 0.3 * cm), tabela]
-        for pagina in paginas:
-            fluxo += pagina_do_print(*pagina, com_motivo=True)
+        fluxo += ([PageBreak()] if fluxo else []) + [
+            Paragraph("A confirmar antes de usar", estilos["Title"]),
+            Paragraph("Estas gravações <b>não entram na contagem</b> da lista da petição: dependem de conferência humana. O motivo "
+                      "da dúvida está na página de cada uma.", estilos["BodyText"])]
+        for pagina in montar(a_confirmar, marca="C"):
+            fluxo += [PageBreak()] + pagina_do_print(*pagina, com_motivo=True)
+    if not fluxo:
+        fluxo = [Paragraph(f"Provas - {nome}: nenhum print disponível.", estilos["BodyText"])]
     doc.build(fluxo)
     return saida.getvalue(), avisos
 
