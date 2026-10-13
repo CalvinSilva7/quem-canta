@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 13/10/2026, versão 0.5.30. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 13/10/2026, versão 0.5.36. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
@@ -67,12 +67,12 @@ casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do 
 | Deezer | API pública, sem navegador | Página da faixa com o painel "Consulte créditos musicais" | Leitura validada. Print corrigido na 0.5.18 e visto em 1 faixa, no Mac |
 | Apple Music | API do iTunes e página do álbum | Fora da coleta de prints (decisão do dono) | Só na busca de intérpretes. Recusa buscas (403/429) em relatório grande |
 | YouTube Music | Busca do site | Menu da faixa | Validado com dois gabaritos; tela inteira validada no Windows |
-| Spotify | Busca do site | Janela "Créditos" | Rodou no Windows; tela inteira corrigida na 0.5.27, vista só no Mac |
+| Spotify | Busca do site (cada consulta também na forma enxuta) | Janela "Créditos" | Validado no Mac e no Windows (0.5.36): 10 de 10 e 4 de 4. As leituras anteriores à 0.5.35 podiam trazer violação falsa |
 | Tidal | Página do artista (fraco) | Tocador com a aba "Créditos" (prévia de 30 s, sem login) | **3 de 13 no gabarito.** Ver seção 6 |
 | Amazon (aplicativo) | Busca do site, depois o aplicativo de desktop | 2 por música: menu com "Créditos" e janela de créditos | Validado no Windows: 9 de 9 e 5 de 5 |
 | Amazon (site) | Busca do site | Menu da faixa, sem item de créditos | Funciona; a busca acha poucas faixas |
 | Claro Música | Lista de músicas da busca, logado; página do artista como último recurso | Álbum com o menu da faixa e o cartão "Informações e créditos" | Validado no Windows: 5 de 6 (a sexta é link errado no gabarito) |
-| Palco MP3 | Caixa de busca do site | Página da música; 2º print (página de créditos) quando o site corta a linha | Rodou só no Mac. O site mudou desde o gabarito |
+| Palco MP3 | Caixa de busca do site | Página da música; 2º print (página de créditos) quando o site corta a linha | Validado no Windows com gabarito de 2026: 3 de 3 e 5 de 6. Com o gabarito de 2024 diverge, porque o site mudou |
 | Vagalume | Site de letras | Fora da coleta de prints (decisão do dono) | Código mantido, não exposto na tela |
 
 ## 5. Erros que custaram tempo, e a causa de cada um
@@ -102,7 +102,24 @@ Vale ler antes de mexer na plataforma correspondente.
   Agora só serve o print feito nesse modo; o outro é refeito.
 - *PDF com um print por música.* No aplicativo da Amazon e no Palco a prova são dois; ver `TODOS_OS_PRINTS`.
 
+- *Papéis lidos como blocos.* No Spotify, "Autores • Letrista" embaixo de um nome são dois papéis da mesma pessoa.
+  O app adivinhava os blocos pela ordem dos textos, tomava "Letrista" por título e cortava a lista de autores: deu
+  **violação falsa com o compositor na tela**. A página agora informa o que é título, nome e papel. Lição: não
+  inferir a estrutura pela ordem do texto quando a página tem marcação; e conferir o print contra a classificação.
+- *Página que troca de música, de novo.* No Palco MP3 a página existe, mas o tocador pula e ela troca junto. O que
+  funciona: desligar a execução de scripts pelo navegador (`Emulation.setScriptExecutionDisabled`), na mesma
+  janela, só naquela leitura. O que não funciona: segunda janela (cobre o print de tela inteira) e recusar os
+  arquivos de script (o site os serve de um cache próprio; passou no Mac e falhou no Windows). Depois disso a
+  busca seguinte precisa de uma página nova.
+- *Página que confere aos poucos.* A página de créditos do Palco mostra "16 de 20 etapas" e pode ficar parada aí.
+  Esperar enquanto avança; parada por uns 20 segundos, fotografar e anotar a etapa.
+
 **Achar a gravação**
+- *Palavras que quebram a busca.* No Spotify, "feat" e o "e" das duplas na consulta escondem a faixa; sem eles
+  ela vem em primeiro lugar (`_consulta_enxuta`). Só foi aplicado ao Spotify; pode valer para outras.
+- *Comparação de nomes por plataforma.* O Spotify usava uma comparação mais antiga e descartava duplas. Todas
+  devem usar a mesma: `mesmo_artista`, `_nome_dentro`, `_mesma_grafia` e, para o intérprete conferido,
+  `_palavra_do_nome`.
 - *Grafia do intérprete.* "e" e "&", letra dobrada ("Beltrano"/"Beltranno") já são tolerados (`_mesma_grafia`).
   Letra a mais no meio do nome ("Tiago"/"Thiago") ainda não: é a principal causa de música não achada no
   Palco MP3.
@@ -117,7 +134,10 @@ Vale ler antes de mexer na plataforma correspondente.
 **Classificação e saída**
 - *Relatório em planilha sem código.* Todas as obras ficavam com o código em branco e eram tratadas como uma só.
   Cada linha ganha um identificador local.
-- *"A confirmar" some do PDF.* Por desenho. Foi o que motivou a regra do intérprete conferido.
+- *"A confirmar" sumia do PDF.* Hoje o PDF tem uma segunda parte, "A confirmar antes de usar", com o print e o
+  motivo de cada uma (C1, C2...). A contagem da petição continua só com as firmes.
+- *Nome junto ou separado.* "Di Tal" e "DiTal" são o mesmo nome artístico, e não grafia errada.
+- *Texto do site no lugar do nome.* "Adicionar composição" (Palco) e "Créditos indisponíveis" (Amazon) não são autores.
 - *Gabarito também erra.* Um link do gabarito apontava para outra música. Conferir o link antes de concluir que o
   app errou.
 - *Plataforma muda.* O Palco MP3 passou a preencher compositores a partir de bases de direitos autorais; músicas
@@ -158,12 +178,16 @@ Decisões que são do dono:
 - No Palco MP3, compositor no meio de dezenas de nomes de obras homônimas vale como "tem crédito"?
 - Duas gravações da mesma música pelo mesmo intérprete: a petição conta por música ou por link?
 - Na Amazon pelo aplicativo, serve o print do menu tirado na tela de busca (quando o álbum não abre)?
+- No Palco MP3, manter o segundo print (página de créditos) quando a linha vem cortada? Ele mostra também os
+  autores que o próprio site achou nas bases de direitos autorais.
 
 Trabalho proposto e não feito:
 - Apple Music na busca de intérpretes: detectar o bloqueio (recusas seguidas), pausar, desistir depois de algumas
   pausas, e **avisar na tela** quantas obras ficaram sem a consulta. Hoje a aba termina como se tudo tivesse dado
   certo; num relatório de 640 obras, 483 buscas ficaram sem resposta.
-- Palco MP3: tolerar uma letra de diferença no nome do intérprete conferido; limpar "®" e sobras do título.
+- Palco MP3: tolerar uma letra de diferença no nome do intérprete conferido; limpar "®" e sobras do título
+  ("Open Bar"). Refazer o teste com o gabarito de 2024: as páginas "fora do ar" devem ser lidas agora.
+- Decidir se a forma enxuta da consulta (sem "feat" e sem o "e") vale também para as outras plataformas.
 - Deezer roda sempre, mesmo desmarcada; com a planilha conferida ela não é necessária.
 - Resumo no fim de cada coleta dizendo se foi completa.
 - Material de apoio para o pessoal do escritório (um Claude Project): descreve a versão 0.4.2.
@@ -173,7 +197,7 @@ Nunca testado em tamanho real:
 - Coleta de prints com centenas de pares (o maior teste teve 14 obras).
 - A tela do app com relatório grande (a busca de 640 obras rodou pelo motor, não pela tela).
 - Várias plataformas na mesma coleta.
-- Tela inteira em Tidal, Deezer, Palco MP3, Amazon pelo site e Amazon pelo aplicativo.
+- Tela inteira em Tidal, Deezer, Amazon pelo site e Amazon pelo aplicativo (no Palco MP3 e na Claro já rodou).
 - Instalação do zero por alguém do escritório.
 
 ## 8. Como testar uma plataforma
