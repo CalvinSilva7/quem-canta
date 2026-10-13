@@ -19,7 +19,7 @@ from . import captura
 
 SITE = "https://open.spotify.com/"
 LINK = SITE + "intl-pt/track/{}"
-VERSAO_DA_LEITURA = 1
+VERSAO_DA_LEITURA = 2  # 2: papéis duplos ("Autores • Letrista") deixam de cortar a lista de autores
 SECAO_DE_AUTORIA = "composicao"
 SECAO_DE_FONTES = "fontes"
 
@@ -36,8 +36,11 @@ _LER_JANELA = """() => {
   return {
     titulo: janela.querySelector('h2')?.textContent.trim() || '',
     ancora: !!janela.querySelector('a[href*="song-credits"], a[href*="support.spotify.com"]'),
+    // "secao": o título de um bloco ("Composição e letra"); "nome": uma pessoa; "papel": o que vem embaixo do nome
+    // ("Autores • Letrista" são dois papéis da mesma pessoa, e não outro bloco); "texto": o resto.
     partes: [...janela.querySelectorAll('span')].filter(s => s.children.length === 0 && s.textContent.trim())
-      .map(s => [/encore-text-body-medium(?!-bold)/.test(s.className) ? 'nome' : 'texto', s.textContent.trim()]),
+      .map(s => [s.closest('[data-encore-id="listRowSubtitle"]') ? 'papel' : /encore-text-title/.test(s.className) ? 'secao'
+                 : /encore-text-body-medium(?!-bold)/.test(s.className) ? 'nome' : 'texto', s.textContent.trim()]),
   };
 }"""
 
@@ -82,6 +85,18 @@ def interpretar_janela(partes) -> dict:
     """
     secoes, atual, depois_de_nome = {}, None, False
     partes = list(partes or [])
+    if any(tipo == "secao" for tipo, _ in partes):
+        # A página diz o que é título de bloco, nome e papel: não é preciso adivinhar pela ordem. Uma pessoa pode ter
+        # mais de um papel ("Autores • Letrista"), e o segundo não abre bloco novo.
+        for tipo, texto in partes:
+            if tipo == "secao":
+                atual = texto
+                secoes.setdefault(atual, [])
+            elif atual is None or tipo == "papel":
+                continue
+            elif tipo == "nome" or normalizar(atual) == SECAO_DE_FONTES:
+                secoes[atual].append(texto)
+        return secoes
     for i, (tipo, texto) in enumerate(partes):
         if normalizar(texto) == SECAO_DE_FONTES:
             atual, depois_de_nome = texto, False

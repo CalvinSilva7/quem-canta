@@ -351,7 +351,11 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
                     if cand.faixa in vistos or c._titulo_base(cand.titulo) != base:
                         continue
                     vistos.add(cand.faixa)
-                    if not any(c.mesmo_artista(parte, n) for n in ligados for parte in c.partes_do_interprete(cand.interprete)):
+                    # A mesma comparação de nomes das outras plataformas: dupla de nomes de uma palavra ("Fulano e
+                    # Beltrano"), "&" por "e" e letra dobrada não fazem outro artista.
+                    if not any(any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(cand.interprete))
+                               or _nome_dentro(n, cand.interprete) or _mesma_grafia(n, cand.interprete)
+                               or (n in pares.get(titulo, []) and _palavra_do_nome(n, cand.interprete)) for n in ligados):
                         coleta.sem_vinculo_nao_abertos += 1
                     elif abertos < por_obra:
                         abertos += 1

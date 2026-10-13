@@ -1885,3 +1885,17 @@ def test_ajustes_do_segundo_teste_do_palco_mp3(rel):
     # intérprete conferido de uma palavra dentro do nome exibido; palavra curta ou nome de duas palavras não valem por aqui
     assert pipeline._palavra_do_nome("FULANOS", "Forró Fulanos") and not pipeline._palavra_do_nome("ANA", "Ana Maria")
     assert not pipeline._palavra_do_nome("Banda Tal", "Banda Tal Oficial") and not pipeline._palavra_do_nome("FULANOS", "Fulanosa")
+
+
+def test_spotify_pessoa_com_dois_papeis_nao_corta_a_lista_de_autores():
+    """"Autores • Letrista" são dois papéis da mesma pessoa. Lido como bloco novo, o segundo nome saía dos autores
+    e a faixa virava violação com o compositor na tela."""
+    partes = [["secao", "Artista"], ["nome", "Banda do Baile"], ["papel", "Artista Principal"],
+              ["secao", "Composição e letra"], ["nome", "Cida Dias"], ["papel", "Autores"], ["papel", "Letrista"],
+              ["nome", "Zeca Lima"], ["papel", "Autores"], ["papel", "Letrista"],
+              ["secao", "Produção e engenharia"], ["nome", "Fulano de Tal"], ["papel", "Produção Do Estúdio"],
+              ["secao", "Fontes"], ["texto", "Selo Tal"]]
+    secoes = spotify.interpretar_janela(partes)
+    assert secoes == {"Artista": ["Banda do Baile"], "Composição e letra": ["Cida Dias", "Zeca Lima"],
+                      "Produção e engenharia": ["Fulano de Tal"], "Fontes": ["Selo Tal"]}
+    assert spotify.autores_e_fornecedor(secoes) == (["Cida Dias", "Zeca Lima"], "Selo Tal")
