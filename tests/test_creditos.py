@@ -565,6 +565,8 @@ def test_nome_do_arquivo_e_carimbo_da_captura():
     carimbo = captura.texto_do_carimbo("https://music.youtube.com/watch?v=x", quando, "abc", "Mon, 02 Mar 2026 18:56:07 GMT")
     assert "URL: https://music.youtube.com/watch?v=x" in carimbo and "02/03/2026 15:56:07 -0300 (America/Sao_Paulo)" in carimbo
     assert "Captura: abc" in carimbo and "HTTP Date): Mon, 02 Mar 2026 18:56:07 GMT" in carimbo
+    # no print de tela inteira a faixa traz só o endereço: a hora está no relógio do sistema
+    assert captura.texto_do_carimbo("https://music.youtube.com/watch?v=x", quando, "abc", "Mon, 02 Mar 2026 18:56:07 GMT", so_a_url=True) == "URL: https://music.youtube.com/watch?v=x"
 
 
 class YouTubeFalso:

@@ -92,7 +92,12 @@ def sha256(dados: bytes) -> str:
     return hashlib.sha256(dados).hexdigest()
 
 
-def texto_do_carimbo(url, quando: datetime, identificador, data_do_servidor="") -> str:
+def texto_do_carimbo(url, quando: datetime, identificador, data_do_servidor="", so_a_url=False) -> str:
+    """O que vai escrito na faixa. No print de tela inteira (`so_a_url`), só o endereço: a data e a hora já aparecem
+    no relógio do sistema, e os outros dados ficam no .json da captura. Na captura de página, que não mostra nem a
+    barra de endereço nem o relógio, a faixa traz tudo."""
+    if so_a_url:
+        return f"URL: {url}"
     partes = [
         f"URL: {url}",
         f"Capturado em: {quando.strftime('%d/%m/%Y %H:%M:%S %z')} ({FUSO})   Captura: {identificador}   {VERSAO_DO_APP}",
@@ -157,7 +162,7 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
         base = f"{base.rsplit('__', 1)[0]}__{numero}"
         numero += 1
     data_do_servidor = pagina.evaluate(_DATA_DO_SERVIDOR)
-    pagina.evaluate(_CARIMBAR, texto_do_carimbo(pagina.url, quando, base, data_do_servidor))
+    pagina.evaluate(_CARIMBAR, texto_do_carimbo(pagina.url, quando, base, data_do_servidor, so_a_url=TELA_INTEIRA))
     html = pagina.content().encode("utf-8")
     imagem = pagina.screenshot(type="png")
     tela, da_tela = _tela_inteira(pagina, imagem) if TELA_INTEIRA else (None, None)
