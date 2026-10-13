@@ -67,6 +67,17 @@ _LER_MUSICA = """() => {
 }"""
 
 
+# Para abrir uma página sem os scripts do site (ver `Palco._ler`): todo pedido passa por aqui, e os de script são recusados.
+_SCRIPTS = "**/*"
+
+
+def _recusar(rota):
+    if rota.request.resource_type == "script":
+        rota.abort()
+    else:
+        rota.continue_()
+
+
 @dataclass
 class Candidato:
     endereco: str  # "/<artista>/<música>/"
@@ -251,12 +262,12 @@ class Palco:
         if cand.endereco.strip("/").lower() not in pagina.url.lower():
             # Em algumas músicas o tocador do site pula para a seguinte e a página troca junto, em menos de um segundo.
             # A página da música pedida existe: aberta sem os scripts do site (sem o tocador), ela fica parada.
+            # É a mesma janela, só com os arquivos de script recusados: outra janela cobriria o print de tela inteira.
             import time
-            from .navegador import tamanho_da_pagina
 
             time.sleep(4)
-            parada = pagina.context.browser.new_context(java_script_enabled=False, locale="pt-BR", timezone_id=captura.FUSO, **tamanho_da_pagina())
-            pagina = parada.new_page()
+            parada = True
+            pagina.route(_SCRIPTS, _recusar)
             self.nav.navegacoes += 1
             pagina.goto(cand.link, wait_until="domcontentloaded", timeout=60000)
             pagina.wait_for_timeout(2500)
@@ -265,7 +276,13 @@ class Palco:
             self._registrar(leitura, cand, obra, pagina, lido, sem_scripts=parada is not None)
         finally:
             if parada is not None:
-                parada.close()
+                self._liberar_os_scripts()
+
+    def _liberar_os_scripts(self):
+        try:
+            self.nav.pagina.unroute(_SCRIPTS, _recusar)
+        except Exception:
+            pass
 
     def _registrar(self, leitura: Leitura, cand: Candidato, obra: str, pagina, lido: dict, sem_scripts: bool):
         """Confere a página aberta, lê a linha de composição e tira o print (e o dos créditos, se a linha vier cortada)."""
@@ -297,13 +314,25 @@ class Palco:
         leitura.provas.append(captura.capturar(pagina, self.pasta, obra, leitura.interprete, "palco-mp3", exibido, "musica")["captura"])
         if leitura.cortada and lido["ver_tudo"]:
             # A página corta os nomes: o segundo print é o da página de créditos, que mostra todos.
-            pagina = self.nav.pagina  # a página de créditos precisa dos scripts dela: vai no navegador de sempre
+            self._liberar_os_scripts()  # a página de créditos precisa dos scripts dela
             self.nav.ir(lido["ver_tudo"], pausa=(4, 7))
-            for _ in range(15):  # ela confere os créditos aos poucos, com um aviso de andamento
+            # Ela confere os créditos aos poucos ("12 de 20 etapas"). Espera terminar; se o andamento parar no mesmo
+            # ponto por uns 20 segundos (acontece na consulta à base internacional), fotografa como está e avisa.
+            pronta, andamento, parado = False, "", 0
+            for _ in range(50):
                 pagina.wait_for_timeout(3000)
                 texto = normalizar(pagina.evaluate("document.body.innerText.slice(0, 4000)"))
-                if "verificando os creditos" not in texto and "etapas" not in texto:
+                etapa = re.search(r"\d+ de \d+ etapas", texto)
+                if "verificando os creditos" not in texto and not etapa:
+                    pronta = True
                     break
+                parado = parado + 1 if etapa and etapa[0] == andamento else 0
+                andamento = etapa[0] if etapa else ""
+                if parado >= 7:
+                    break
+            pagina.wait_for_timeout(1500)
+            if not pronta:
+                exibido = dict(exibido, aviso=f"a página de créditos ainda estava conferindo as bases quando o print foi tirado ({andamento})")
             self.nav.conferir()
             exibido = dict(exibido, pagina="créditos e informações autorais (o que o \"Ver tudo\" da música abre)")
             leitura.provas.append(captura.capturar(pagina, self.pasta, obra, leitura.interprete, "palco-mp3", exibido, "creditos")["captura"])
