@@ -26,6 +26,10 @@ def titulo_de_obra(titulo: str) -> str:
 def itens_da_peticao(coletas, plataforma: str) -> tuple[list[dict], list[dict]]:
     """(lista firme, lista a confirmar) das gravações sem crédito ou com crédito errado na plataforma.
 
+    Na lista a confirmar entram também o título com grafia diferente da do cadastro e o medley, quando o print foi
+    tirado: a pessoa precisa conferir, e a prova já está guardada. Sem print (a homônima provável, que o app nem
+    abre), o caso fica só na planilha.
+
     Cada item: {"n", "obra", "link", "interprete", "status", "fundamento", "provas", "gravacao"}.
     """
     firmes, a_confirmar = [], []
@@ -33,11 +37,12 @@ def itens_da_peticao(coletas, plataforma: str) -> tuple[list[dict], list[dict]]:
         if coleta.plataforma != plataforma:
             continue
         for g in coleta.gravacoes:
-            if g.classificacao.status not in c.NEGATIVOS:
+            duvida_com_print = g.classificacao.status in (c.TITULO_APROXIMADO, c.MEDLEY) and bool(g.provas)
+            if g.classificacao.status not in c.NEGATIVOS and not duvida_com_print:
                 continue
             item = {"obra": titulo_de_obra(g.obra), "link": g.link, "interprete": g.interprete,
                     "status": g.classificacao.status, "fundamento": g.classificacao.fundamento, "provas": g.provas, "gravacao": g}
-            (a_confirmar if g.classificacao.revisar else firmes).append(item)
+            (a_confirmar if g.classificacao.revisar or duvida_com_print else firmes).append(item)
     for lista in (firmes, a_confirmar):
         lista.sort(key=lambda i: (normalizar(i["obra"]), normalizar(i["interprete"]), i["link"]))
         for n, item in enumerate(lista, start=1):

@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 13/10/2026, versão 0.5.38. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 13/10/2026, versão 0.5.39. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
@@ -53,7 +53,8 @@ casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do 
 - Homônimo provável, medley e título aproximado nunca são firmes.
 - Título com grafia diferente da do cadastro (uma letra que seja) fica "a confirmar", com print. Decisão do dono em
   13/10/2026: não tolerar letra no título, porque o funcionário tem de conferir sempre. A tolerância de uma letra vale
-  só para o nome do intérprete conferido.
+  só para o nome do intérprete conferido. Desde a 0.5.39, título com grafia diferente e medley, quando têm print,
+  entram na parte "A confirmar antes de usar" da lista e do PDF; a homônima provável (sem print) fica só na planilha.
 - **Intérprete conferido pelo compositor** (veio da planilha): crédito só com outros nomes é violação firme.
   Decisão do dono: o compositor já disse que aquele intérprete gravou a obra dele.
 - Nome artístico de uma palavra seguido de sobrenome que o relatório não traz é "variante a confirmar", e não

@@ -1359,7 +1359,11 @@ def test_youtube_le_titulo_parecido_e_medley_de_interprete_conhecido_mas_deixa_a
     assert (por_video["v1"].classificacao.status, por_video["v1"].classificacao.revisar) == (c.TITULO_APROXIMADO, True)
     assert por_video["v1"].classificacao.sugestao == c.SEM_CREDITOS
     assert (por_video["v2"].classificacao.status, por_video["v2"].classificacao.revisar) == (c.MEDLEY, True)
-    assert provas.itens_da_peticao([coleta], "YOUTUBE") == ([], [])
+    # Nunca na lista firme; com o print tirado, vão para a parte "a confirmar" da lista e do PDF, com o motivo.
+    firmes, a_confirmar = provas.itens_da_peticao([coleta], "YOUTUBE")
+    assert firmes == [] and sorted(i["status"] for i in a_confirmar) == sorted([c.TITULO_APROXIMADO, c.MEDLEY])
+    por_video["v2"].provas = []   # sem print, fica só na planilha
+    assert [i["status"] for i in provas.itens_da_peticao([coleta], "YOUTUBE")[1]] == [c.TITULO_APROXIMADO]
 
 
 def test_youtube_dupla_com_par_provado_sai_firme_mesmo_em_video_de_fa(rel):
