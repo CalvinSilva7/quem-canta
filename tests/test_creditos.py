@@ -672,8 +672,15 @@ def test_lista_da_peticao_so_conta_o_que_esta_firme(rel, tmp_path):
     ]
     assert [i["obra"] for i in a_confirmar] == ["A Danca da Panela"]
     from docx import Document
-    texto = "\n".join(p.text for p in Document(io.BytesIO(provas.docx_da_lista(rel, [coleta], "YOUTUBE", "YouTube Music"))).paragraphs)
-    assert "Há 3 obras intelectuais" in texto and "A confirmar antes de usar" in texto and "1 - Música: Coisa Feita" in texto
+    lido = Document(io.BytesIO(provas.docx_da_lista(rel, [coleta], "YOUTUBE", "YouTube Music")))
+    texto = "\n".join(p.text for p in lido.paragraphs)
+    assert "Há 3 obras intelectuais" in texto and "A confirmar antes de usar" in texto
+    # A lista vem em tabela: a música e o intérprete à esquerda, o link clicável à direita.
+    firme, duvida = lido.tables
+    assert len(firme.rows) == 3 and firme.rows[0].cells[0].text == "1-Música: COISA FEITA\n\nInterpretada por: Banda do Baile"
+    assert "https://music.youtube.com/watch?v=v2" in firme.rows[0].cells[1]._tc.xml and "w:hyperlink" in firme.rows[0].cells[1]._tc.xml
+    assert "https://music.youtube.com/watch?v=v2" in [r.target_ref for r in lido.part.rels.values() if r.is_external]
+    assert duvida.rows[0].cells[0].text.startswith("C1-Música: A DANCA DA PANELA")
 
 
 def test_pdf_de_provas_tem_indice_e_um_print_por_pagina_e_recusa_imagem_alterada(rel, tmp_path):

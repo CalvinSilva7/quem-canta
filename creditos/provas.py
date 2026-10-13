@@ -54,6 +54,63 @@ def linha_da_peticao(item: dict) -> str:
     return f"{item['n']} - Música: {item['obra']} {item['link']} Interpretada por: {item['interprete']}"
 
 
+def _link_clicavel(paragrafo, endereco: str):
+    """Põe no parágrafo o endereço escrito por extenso, azul e sublinhado, que abre ao clicar."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.opc.constants import RELATIONSHIP_TYPE
+
+    elo = OxmlElement("w:hyperlink")
+    elo.set(qn("r:id"), paragrafo.part.relate_to(endereco, RELATIONSHIP_TYPE.HYPERLINK, is_external=True))
+    trecho, formato = OxmlElement("w:r"), OxmlElement("w:rPr")
+    cor, traco = OxmlElement("w:color"), OxmlElement("w:u")
+    cor.set(qn("w:val"), "0563C1")
+    traco.set(qn("w:val"), "single")
+    formato.append(cor)
+    formato.append(traco)
+    texto = OxmlElement("w:t")
+    texto.text = endereco
+    trecho.append(formato)
+    trecho.append(texto)
+    elo.append(trecho)
+    paragrafo._p.append(elo)
+
+
+def tabela_da_lista(doc, itens, marca: str = "", com_motivo: bool = False):
+    """A lista no formato da petição do escritório: uma linha por gravação, com "N-Música: TÍTULO" e "Interpretada
+    por: Fulano" à esquerda e o link clicável à direita."""
+    from docx.shared import Cm
+
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Pt
+
+    tabela = doc.add_table(rows=0, cols=2)
+    tabela.style = "Table Grid"
+    # As bordas escritas na própria tabela: nem todo programa que abre o arquivo conhece o estilo "Table Grid".
+    bordas = OxmlElement("w:tblBorders")
+    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        borda = OxmlElement(f"w:{lado}")
+        for chave, valor in (("val", "single"), ("sz", "6"), ("space", "0"), ("color", "000000")):
+            borda.set(qn(f"w:{chave}"), valor)
+        bordas.append(borda)
+    tabela._tbl.tblPr.append(bordas)
+    for item in itens:
+        esquerda, direita = tabela.add_row().cells
+        esquerda.width, direita.width = Cm(6.5), Cm(10)
+        linha = esquerda.paragraphs[0]
+        linha.add_run(f"{marca}{item['n']}-Música: ")
+        linha.add_run(str(item["obra"]).upper()).bold = True
+        esquerda.add_paragraph("")
+        esquerda.add_paragraph(f"Interpretada por: {item['interprete']}")
+        _link_clicavel(direita.paragraphs[0], item["link"])
+        if com_motivo:
+            direita.add_paragraph(f"{item['status']}: {item['fundamento']}")
+        for paragrafo in [*esquerda.paragraphs, *direita.paragraphs]:
+            paragrafo.paragraph_format.space_after = Pt(0)
+    return tabela
+
+
 def docx_da_lista(relatorio, coletas, plataforma: str, nome_da_plataforma: str = "") -> bytes:
     """Documento simples só com a lista e as contagens, para colar na petição.
 
@@ -70,16 +127,14 @@ def docx_da_lista(relatorio, coletas, plataforma: str, nome_da_plataforma: str =
         f"Há {len(firmes)} obras intelectuais sendo disponibilizadas na plataforma ({nome}) sem menção correta "
         "do nome do compositor. São elas:"
     )
-    for item in firmes:
-        doc.add_paragraph(linha_da_peticao(item))
+    tabela_da_lista(doc, firmes)
     if a_confirmar:
         doc.add_heading("A confirmar antes de usar (não entram na contagem acima)", level=2)
         doc.add_paragraph(
-            "Estas gravações dependem de conferência humana: o motivo está ao lado de cada uma e na aba "
+            "Estas gravações dependem de conferência humana: o motivo está abaixo do link de cada uma e na aba "
             '"Gravações" da planilha.'
         )
-        for item in a_confirmar:
-            doc.add_paragraph(f"{linha_da_peticao(item)} [{item['status']}: {item['fundamento']}]")
+        tabela_da_lista(doc, a_confirmar, marca="C", com_motivo=True)
     saida = io.BytesIO()
     doc.save(saida)
     return saida.getvalue()
