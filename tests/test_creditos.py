@@ -1853,6 +1853,50 @@ def test_limpar_o_guardado_apaga_so_as_pastas_das_plataformas_escolhidas(tmp_pat
     assert sorted(pipeline.limpar_o_guardado(caso, ["apple", "amazon"])) == ["amazon-site", "apple-music"]
 
 
+def test_sessao_da_deezer_fica_fora_do_caso_e_e_reconhecida_pelo_cookie(tmp_path):
+    from creditos import deezer as _deezer
+
+    caso = tmp_path / "casos" / "fulano"
+    assert pipeline.perfil_da_deezer(caso) == tmp_path / "perfil-deezer"
+    (caso / "deezer").mkdir(parents=True)
+    (tmp_path / "perfil-deezer").mkdir()
+    assert pipeline.limpar_o_guardado(caso, ["deezer"]) == ["deezer"] and (tmp_path / "perfil-deezer").exists()
+
+    class Contexto:
+        def __init__(self, cookies): self._cookies = cookies
+        def cookies(self, url): return self._cookies
+    assert _deezer.logada(Contexto([{"name": "sid", "value": "x"}, {"name": "arl", "value": "abc"}]))
+    assert not _deezer.logada(Contexto([{"name": "sid", "value": "x"}]))  # visitante: sem o cookie da conta
+    assert not _deezer.logada(Contexto([{"name": "arl", "value": ""}]))
+
+
+def test_deezer_sem_login_para_os_prints_e_avisa(rel, tmp_path, monkeypatch):
+    from creditos import deezer as _deezer
+
+    class NavegadorFalso:
+        class pagina:
+            url = "https://www.deezer.com/track/1"
+            wait_for_timeout = staticmethod(lambda ms: None)
+            evaluate = staticmethod(lambda *a: "")
+            class context:
+                cookies = staticmethod(lambda url: [])  # ninguém entrou na conta
+        abertos = []
+        def ir(self, url, pausa=None): self.abertos.append(url)
+        def conferir(self, texto=""): pass
+
+    monkeypatch.setattr(captura, "capturar", lambda *a, **k: pytest.fail("não pode haver print sem a sessão da Deezer"))
+    sem = lambda n: pipeline.Gravacao(plataforma="DEEZER", link=f"https://www.deezer.com/track/{n}", titulo="Coisa Feita",
+                                      interprete="Banda do Baile", obra="COISA FEITA", vinculo="x",
+                                      classificacao=c.Classificacao(c.SEM_CREDITOS, "sem compositor"))
+    coleta = pipeline.Coleta("DEEZER", gravacoes=[sem(1), sem(2)])
+    nav = NavegadorFalso()
+    pipeline.capturar_paginas(coleta, nav, tmp_path, pipeline.abrir_creditos_da_deezer_logada)
+    assert nav.abertos == ["https://www.deezer.com/track/1"]  # parou na primeira, sem seguir a fila
+    assert "SemLogin" in coleta.interrompida and "Entrar na Deezer" in coleta.interrompida
+    assert all(not g.provas and g.classificacao.status == c.SEM_CREDITOS for g in coleta.gravacoes)
+
+
+
 def test_palco_mp3_le_a_busca_e_a_linha_de_composicao(rel):
     from types import SimpleNamespace
     from creditos import palco as _palco

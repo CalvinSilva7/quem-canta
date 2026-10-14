@@ -381,7 +381,7 @@ with area_da_coleta:
         )
     # A Apple Music e o Vagalume não entram na coleta de prints: o escritório não usa prints dessas duas. A Apple
     # Music continua valendo na busca de intérpretes, na outra aba.
-    NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
+    NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer (com login)", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
                              "palco": "Palco MP3", "amazon": "Amazon Music (site)",
                              "amazon_app": "Amazon Music (aplicativo de desktop)", "claro": "Claro Música (com login)"}
     from creditos import pipeline as _pipeline
@@ -391,8 +391,21 @@ with area_da_coleta:
         format_func=NOMES_DAS_PLATAFORMAS.get,
         help="Só as plataformas marcadas são verificadas. O aplicativo de desktop da Amazon Music vem desmarcado: só funciona no Windows, com o "
         "aplicativo instalado e a conta do escritório já logada nele. A Claro Música também vem desmarcada: só mostra as "
-        "músicas a quem está logado.",
+        "músicas a quem está logado. A Deezer tira os prints logada na conta.",
     )
+    if "deezer" in escolhidas:
+        st.warning(
+            "**Deezer:** os prints são tirados com a conta da Deezer logada. Clique no botão abaixo **uma vez**: abre uma "
+            "janela do navegador do app na Deezer. Faça o login nela (o app não digita nem guarda senha) e **feche a "
+            "janela**. A sessão fica guardada neste computador para as próximas coletas."
+        )
+        if st.button("Entrar na Deezer", disabled=andamento.atual() is not None and andamento.atual().viva):
+            import threading
+
+            from creditos import deezer as _deezer
+
+            threading.Thread(target=_deezer.entrar, args=(_pipeline.perfil_da_deezer(pasta_do_caso),), daemon=True).start()
+            st.info("Janela aberta. Faça o login na Deezer, feche a janela e só então clique em **Coletar e classificar**.")
     if "claro" in escolhidas:
         st.warning(
             "**Claro Música:** o site só mostra as músicas a quem está logado. Clique no botão abaixo **uma vez**: abre uma "

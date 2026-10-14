@@ -536,7 +536,7 @@ def limpar_o_guardado(pasta_do_caso, plataformas) -> list[str]:
     """Apaga o que as plataformas escolhidas guardaram neste caso (leituras e prints). Devolve as pastas apagadas.
 
     Só mexe nas pastas dessas plataformas, dentro da pasta do caso: outros casos, as outras plataformas e a sessão
-    logada da Claro Música (que fica fora do caso) não são tocados.
+    logada da Claro Música e da Deezer (que fica fora do caso) não são tocados.
     """
     import shutil
 
@@ -553,6 +553,11 @@ def limpar_o_guardado(pasta_do_caso, plataformas) -> list[str]:
 def perfil_da_claro(pasta_do_caso) -> Path:
     """Onde o navegador do app guarda a sessão da Claro Música: na pasta de dados, fora de qualquer caso."""
     return Path(pasta_do_caso).parent.parent / "perfil-claro"
+
+
+def perfil_da_deezer(pasta_do_caso) -> Path:
+    """Onde o navegador do app guarda a sessão da Deezer: na pasta de dados, fora de qualquer caso."""
+    return Path(pasta_do_caso).parent.parent / "perfil-deezer"
 
 
 def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo, recorrentes=(), pares=None, limite_de_obras=None,
@@ -720,8 +725,11 @@ def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar
     da página, vale a tela: a gravação é reclassificada, e só continua com print se continuar negativa.
     """
     from . import captura
-    from .navegador import Bloqueio
+    from .deezer import SemLogin
+    from .navegador import Bloqueio, PerfilEmUso
 
+    # param a fila da plataforma; qualquer outro erro só tira o print daquela gravação
+    param = (Bloqueio, captura.PaginaTraduzida, SemLogin, PerfilEmUso)
     avisar = ao_avancar or (lambda texto: None)
     negativas = [g for g in coleta.gravacoes if g.classificacao.status in c.NEGATIVOS and not g.provas]
     try:
@@ -745,11 +753,11 @@ def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar
                 exibido = {"titulo": g.titulo, "interprete": g.interprete, "creditos_lidos": g.creditos,
                            "creditos_na_tela": na_tela, "constatacao": g.classificacao.fundamento}
                 g.provas.append(captura.capturar(navegador.pagina, pasta, g.obra, g.interprete, coleta.plataforma.lower(), exibido, "creditos")["captura"])
-            except (Bloqueio, captura.PaginaTraduzida):
+            except param:
                 raise
             except Exception as e:
                 coleta.avisos.append(f'print de "{g.titulo}" ({g.interprete}) não pôde ser tirado: {type(e).__name__}: {str(e).splitlines()[0][:100]}')
-    except (Bloqueio, captura.PaginaTraduzida) as e:
+    except param as e:
         _parar(coleta, e)
 
 
@@ -785,6 +793,14 @@ def abrir_creditos_da_deezer(navegador):
         pagina.keyboard.press("Escape")
         pagina.wait_for_timeout(700)
     raise RuntimeError("o painel de créditos da Deezer não abriu")
+
+
+def abrir_creditos_da_deezer_logada(navegador):
+    """Como `abrir_creditos_da_deezer`, mas antes confere que o navegador está logado na conta da Deezer."""
+    from .deezer import conferir_login
+
+    conferir_login(navegador)
+    return abrir_creditos_da_deezer(navegador)
 
 
 def pagina_da_musica_na_apple(link: str) -> str:
@@ -1298,9 +1314,19 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
             reaproveitar_prints(coleta, pasta / coleta.plataforma.lower().replace(" ", "-"),
                                 pagina_da_musica_na_apple if coleta.plataforma == "APPLE MUSIC" else None)
     com_tela = pedidas & {"spotify", "tidal", "amazon", "amazon_app", "palco"}
-    falta_print = prints and not so_o_que_ja_foi_lido and any(
-        g.classificacao.status in c.NEGATIVOS and not g.provas for k in coletas if k.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME")
-        for g in k.gravacoes)
+
+    def falta_print_em(*plataformas):
+        return prints and not so_o_que_ja_foi_lido and any(
+            g.classificacao.status in c.NEGATIVOS and not g.provas for k in coletas if k.plataforma in plataformas for g in k.gravacoes)
+
+    falta_print, falta_print_da_deezer = falta_print_em("APPLE MUSIC", "VAGALUME"), falta_print_em("DEEZER")
+    config_local = Config(config.nomes_confirmados, config.nomes_a_confirmar, config.interpretes, list(recorrentes))
+
+    def reclassificar(g):
+        return classificar(Item(titulo=g.titulo, interprete=g.interprete, creditos=g.creditos,
+                                vinculo=bool(g.vinculo) and not g.classificacao.presumido,
+                                plataforma=g.plataforma, link=g.link), relatorio, config_local)
+
     if com_tela or falta_print:
         with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador) as nav:
             if "spotify" in pedidas:
@@ -1328,20 +1354,20 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                         relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido), aplicativo,
                         recorrentes, pares, limite, ao_avancar=ao_avancar)))
             if falta_print:
-                preparos = {"DEEZER": abrir_creditos_da_deezer, "VAGALUME": abrir_autoria_do_vagalume,
-                            "APPLE MUSIC": abrir_creditos_da_apple}
-                config_local = Config(config.nomes_confirmados, config.nomes_a_confirmar, config.interpretes, list(recorrentes))
-
-                def reclassificar(g):
-                    return classificar(Item(titulo=g.titulo, interprete=g.interprete, creditos=g.creditos,
-                                            vinculo=bool(g.vinculo) and not g.classificacao.presumido,
-                                            plataforma=g.plataforma, link=g.link), relatorio, config_local)
-
+                preparos = {"VAGALUME": abrir_autoria_do_vagalume, "APPLE MUSIC": abrir_creditos_da_apple}
                 for coleta in coletas:
                     if coleta.plataforma in preparos:
                         capturar_paginas(coleta, nav, pasta / coleta.plataforma.lower().replace(" ", "-"), preparos[coleta.plataforma],
                                          ao_avancar, pagina_da_musica_na_apple if coleta.plataforma == "APPLE MUSIC" else None,
                                          reclassificar)
+    if falta_print_da_deezer:
+        # O print da Deezer é tirado logado na conta: um navegador à parte, com o perfil em que a pessoa fez o login
+        # (como na Claro Música). Sem a sessão, só os prints da Deezer param, com o motivo.
+        with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
+                       perfil=perfil_da_deezer(pasta)) as nav_da_deezer:
+            for coleta in coletas:
+                if coleta.plataforma == "DEEZER":
+                    capturar_paginas(coleta, nav_da_deezer, pasta / "deezer", abrir_creditos_da_deezer_logada, ao_avancar, None, reclassificar)
     coletas = sorted(coletas, key=lambda k: ORDEM.index(k.plataforma) if k.plataforma in ORDEM else 99)
     if sem_interprete and coletas:
         coletas[0].avisos.append(

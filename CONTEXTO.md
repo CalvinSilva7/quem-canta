@@ -42,8 +42,8 @@ O app roda no computador de quem usa (Windows, no escritório). Não há servido
 | `cantor/`, `app.py` | Primeira versão do projeto (achar o cantor de uma planilha). Ainda é usada: `cantor.matching` |
 
 Dados de quem usa: `Documentos\Quem Canta\casos\<compositor>\<plataforma>\` (leituras em `leituras\*.json`, prints
-`.png` com `.html` e `.json` ao lado). A sessão da Claro fica em `Documentos\Quem Canta\perfil-claro`, fora dos
-casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do `cantor`, usado nos testes),
+`.png` com `.html` e `.json` ao lado). As sessões da Claro e da Deezer ficam em `Documentos\Quem Canta\perfil-claro`
+e `perfil-deezer`, fora dos casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do `cantor`, usado nos testes),
 `QUEMCANTA_DEV` (mostra o campo "quantas obras", só para teste).
 
 ## 3. Como classificar (resumo)
@@ -74,7 +74,7 @@ casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do 
 
 | Plataforma | Como acha a gravação | Print | Situação |
 |---|---|---|---|
-| Deezer | API pública, sem navegador | Página da faixa com o painel "Consulte créditos musicais" | Leitura validada. Print corrigido na 0.5.18 e visto em 1 faixa, no Mac |
+| Deezer | API pública, sem navegador | Página da faixa com o painel "Consulte créditos musicais", logado na conta (decisão do dono, 14/10/2026) | Leitura validada (sem login). Print corrigido na 0.5.18 e visto em 1 faixa, no Mac. **Print logado ainda não testado com conta real**: a sessão é reconhecida pelo cookie `arl`; visitante não o tem (conferido) |
 | Apple Music | API do iTunes e página do álbum | Fora da coleta de prints (decisão do dono) | Só na busca de intérpretes. Recusa buscas (403/429) em relatório grande |
 | YouTube Music | Busca do site | Menu da faixa | Validado com três gabaritos (no terceiro, Mac, 0.5.38: 29 de 31 links; os 2 restantes saem "a confirmar" por grafia do título). Intérprete conferido vale com uma letra de diferença e, se a busca mostra os músicos no lugar da banda, o app consulta o canal do vídeo (oEmbed público, só o código do vídeo sai); tela inteira validada no Windows |
 | Spotify | Busca do site (cada consulta também na forma enxuta) | Janela "Créditos" | Validado no Mac e no Windows (0.5.36): 10 de 10 e 4 de 4. As leituras anteriores à 0.5.35 podiam trazer violação falsa |
@@ -160,7 +160,7 @@ Vale ler antes de mexer na plataforma correspondente.
 - *Substituição de trecho por marcador.* Um corte de arquivo entre dois marcadores pegou o marcador errado e
   duplicou 230 linhas da tela. Conferir o `git diff --stat` depois de edição grande.
 - *Perfil em uso.* A janela de login da Claro aberta impede a coleta de abrir o mesmo perfil. Vira aviso
-  (`PerfilEmUso`) e só a Claro para.
+  (`PerfilEmUso`) e só a Claro para. Vale igual para a Deezer: só os prints dela param.
 - *Coleta "que não rodou".* Várias vezes o zip recebido era o da rodada anterior: o app não tinha sido fechado e
   aberto depois da atualização, ou reaproveitou leituras. Conferir a hora dos arquivos dentro do zip.
 - *Aviso de atualização.* O `versao-publicada.json` passa por um cache de cerca de 5 minutos no GitHub.
@@ -201,6 +201,13 @@ Trabalho proposto e não feito:
 - Resumo no fim de cada coleta dizendo se foi completa.
 - Material de apoio para o pessoal do escritório (um Claude Project): descreve a versão 0.4.2.
 - Carimbo do tempo (RFC 3161) nos prints e uma tela "Conferir um print": discutidos, não aprovados.
+
+Deezer com login (primeira versão, só no navegador dos prints):
+- Sem a sessão, os prints da Deezer param com o aviso "Entrar na Deezer"; a leitura dos créditos segue sem login.
+  Se nenhuma gravação da Deezer precisa de print, o navegador nem abre e o login não é conferido.
+- Falta testar no Windows, com a conta do escritório: o login na janela do app (a Deezer pode recusar navegador
+  automatizado, como a Tidal; se recusar, não insistir), o painel de créditos logado e o print de tela inteira.
+- Decidir depois se a leitura dos créditos também passa a usar a conta.
 
 Nunca testado em tamanho real:
 - Coleta de prints com centenas de pares (o maior teste teve 14 obras).

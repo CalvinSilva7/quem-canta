@@ -9,6 +9,12 @@ pública (api.deezer.com) só é usada para achar artistas, álbuns e faixas.
 Guardas: o álbum devolvido tem de ser o pedido; o número de faixas lidas tem de
 bater com o declarado; falha de rede, de leitura ou pedido de login é ERRO, e
 nunca "sem créditos".
+
+O print é tirado no navegador do app, logado na conta da Deezer. O app não digita
+senha nem faz login: usa a sessão que a pessoa abriu, uma vez, numa janela do
+próprio navegador do app (ver `entrar`), guardada num perfil só dele, como na
+Claro Música. Sem essa sessão os prints da Deezer param e avisam. A leitura dos
+créditos continua sem login.
 """
 
 import json
@@ -22,6 +28,9 @@ import requests
 from cantor.matching import nomes_parecidos
 
 API = "https://api.deezer.com/"
+SITE = "https://www.deezer.com/br/"
+# O cookie que a Deezer grava quando a conta entra; quem não está logado não o tem.
+COOKIE_DA_SESSAO = "arl"
 PAGINA_DO_ALBUM = "https://www.deezer.com/br/album/{}"
 LINK_DA_FAIXA = "https://www.deezer.com/track/{}"
 NAVEGADOR = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -33,6 +42,10 @@ COTA_EXCEDIDA = 4
 
 class ErroDeColeta(Exception):
     """A plataforma não respondeu como esperado. Quem chama registra como erro técnico."""
+
+
+class SemLogin(Exception):
+    """A Deezer não está logada no navegador do app: os prints dela não podem seguir."""
 
 
 @dataclass
@@ -227,3 +240,48 @@ def interpretar_pagina(html: str, album_id: str) -> Album:
     if len(album.faixas) != album.faixas_declaradas:
         album.aviso = f"CONTAGEM_DIVERGENTE: a página declara {album.faixas_declaradas} faixas e trouxe {len(album.faixas)}"
     return album
+
+
+def logada(contexto) -> bool:
+    """O navegador (contexto do Playwright) tem a sessão da Deezer aberta?"""
+    try:
+        return any(c.get("name") == COOKIE_DA_SESSAO and c.get("value") for c in contexto.cookies("https://www.deezer.com"))
+    except Exception:
+        return False
+
+
+def conferir_login(navegador):
+    """Levanta SemLogin se o navegador do app não tiver a sessão da Deezer."""
+    if not logada(navegador.pagina.context):
+        raise SemLogin('a Deezer não está logada no navegador do app. Clique em "Entrar na Deezer", faça o login na janela '
+                       "que abrir e colete de novo")
+
+
+def entrar(perfil, espera=900) -> bool:
+    """Abre a Deezer numa janela do navegador do app, com o perfil dele, para a pessoa fazer o login.
+
+    O app não preenche nada: só espera a janela ser fechada (ou o prazo), e a sessão fica guardada no perfil.
+    Devolve True se, ao fim, a sessão estava aberta.
+    """
+    from playwright.sync_api import sync_playwright
+
+    from .navegador import preparar_asyncio
+
+    preparar_asyncio()
+    logado = False
+    with sync_playwright() as pw:
+        # a página acompanha a janela: maximizada, ocupa a tela toda, sem sobra em branco
+        contexto = pw.chromium.launch_persistent_context(str(perfil), headless=False, locale="pt-BR", no_viewport=True,
+                                                         args=["--lang=pt-BR", "--disable-features=Translate", "--window-size=1280,800"])
+        pagina = contexto.pages[0] if contexto.pages else contexto.new_page()
+        pagina.goto(SITE, wait_until="domcontentloaded", timeout=60000)
+        fim = time.monotonic() + espera
+        while time.monotonic() < fim and contexto.pages:
+            time.sleep(2)
+            logado = logada(contexto)
+        logado = logada(contexto) or logado
+        try:
+            contexto.close()
+        except Exception:
+            pass
+    return bool(logado)

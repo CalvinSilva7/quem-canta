@@ -22,9 +22,9 @@ programador).
 - **Robôs:** nunca contornar captcha, bloqueio ou detecção de automação. No máximo uma página a cada 5 a 10
   segundos. Ao ser bloqueado, parar a fila daquela plataforma e guardar o que foi lido. Página traduzida pelo
   navegador é recusada.
-- **Login:** a regra é não logar em plataforma. Há duas exceções decididas pelo dono, e em nenhuma o app digita ou
-  guarda senha: o aplicativo de desktop da Amazon Music (usa a conta já logada nele) e a Claro Música (a pessoa loga
-  uma vez numa janela do navegador do app; a sessão fica num perfil local).
+- **Login:** a regra é não logar em plataforma. Há três exceções decididas pelo dono, e em nenhuma o app digita ou
+  guarda senha: o aplicativo de desktop da Amazon Music (usa a conta já logada nele), a Claro Música e os prints da
+  Deezer (nas duas, a pessoa loga uma vez numa janela do navegador do app; a sessão fica num perfil local).
 - **Chaves de API** sempre em variável de ambiente ou arquivo local fora do repositório. O repositório é público.
 - **Nada de nomes de músicas, artistas ou clientes no código, nos testes, nos commits ou nos documentos do
   repositório.** Os testes usam dados inventados ("Zeca Lima", "Banda do Baile", "COISA FEITA").
