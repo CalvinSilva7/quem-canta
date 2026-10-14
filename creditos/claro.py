@@ -413,8 +413,9 @@ def entrar(perfil, espera=900) -> bool:
     preparar_asyncio()
     logado = False
     with sync_playwright() as pw:
-        contexto = pw.chromium.launch_persistent_context(str(perfil), headless=False, locale="pt-BR", viewport={"width": 1280, "height": 800},
-                                                         args=["--lang=pt-BR", "--disable-features=Translate"])
+        # a página acompanha a janela: maximizada, ocupa a tela toda, sem sobra em branco
+        contexto = pw.chromium.launch_persistent_context(str(perfil), headless=False, locale="pt-BR", no_viewport=True,
+                                                         args=["--lang=pt-BR", "--disable-features=Translate", "--window-size=1280,800"])
         pagina = contexto.pages[0] if contexto.pages else contexto.new_page()
         pagina.goto(SITE, wait_until="domcontentloaded", timeout=60000)
         fim = time.monotonic() + espera
