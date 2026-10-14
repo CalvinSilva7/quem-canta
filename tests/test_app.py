@@ -161,7 +161,8 @@ def test_tela_coleta_e_oferece_planilha_e_pacote_de_provas(tmp_path, monkeypatch
     assert saidas["resumo"][0] == {"plataforma": "Spotify", "firmes": 1, "a_confirmar": 0}
     import io, zipfile
     nomes = zipfile.ZipFile(io.BytesIO(saidas["pacote"])).namelist()
-    assert nomes == ["Planilha de Obras.xlsx", "Spotify/Lista da petição - Spotify.docx", "Spotify/Provas - Spotify.pdf"]
+    assert nomes == ["Planilha de Obras.xlsx", "Spotify/Lista da petição - Spotify.docx", "Spotify/Provas - Spotify.pdf",
+                     "Spotify/Provas - Spotify.docx"]
     assert any("sem captura de tela" in a for a in saidas["avisos"])
     # Na tela: um resultado enxuto, com os avisos técnicos recolhidos.
     assert "Resultado" in [s.value for s in at.subheader] and not at.warning[:0]

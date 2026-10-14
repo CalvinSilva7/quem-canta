@@ -708,6 +708,22 @@ def test_pdf_de_provas_tem_so_o_print_com_musica_e_interprete_e_recusa_imagem_al
     assert any("hash não confere" in a for a in avisos)
 
 
+def test_provas_em_word_tem_as_mesmas_paginas_do_pdf(rel, tmp_path):
+    from docx import Document
+    from docx.enum.section import WD_ORIENT
+
+    coleta = _coleta_para_peticao(tmp_path)
+    docx, avisos = provas.docx_de_provas(rel, [coleta], "YOUTUBE", tmp_path, "YouTube Music")
+    lido = Document(io.BytesIO(docx))
+    texto = [p.text for p in lido.paragraphs if p.text.strip()]
+    assert lido.sections[0].orientation == WD_ORIENT.LANDSCAPE  # folha deitada, como o PDF
+    assert texto[0] == "1 - Música: Coisa Feita - Interpretada por: Banda do Baile"
+    assert texto[1] == "3 - Música: Ligue o Radio - Interpretada por: Banda do Baile"
+    assert "A confirmar antes de usar" in texto[2] and any(t.startswith("C1 - Música: A Danca da Panela") for t in texto)
+    assert len(lido.inline_shapes) == 3  # um print por página: dois firmes e um a confirmar
+    assert avisos == provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path, "YouTube Music")[1]
+
+
 def test_url_codificada_nao_e_confundida_com_percentual(rel):
     from urllib.parse import quote, unquote
 
@@ -832,7 +848,8 @@ def test_pacote_de_provas_tem_uma_pasta_por_plataforma_com_gravacao_negativa(rel
     sem_nada = pipeline.Coleta("TIDAL")
     pacote, resumo, avisos = provas.pacote(rel, [youtube, sem_nada], tmp_path, b"planilha")
     assert zipfile.ZipFile(io.BytesIO(pacote)).namelist() == [
-        "Planilha de Obras.xlsx", "YouTube Music/Lista da petição - YouTube Music.docx", "YouTube Music/Provas - YouTube Music.pdf"]
+        "Planilha de Obras.xlsx", "YouTube Music/Lista da petição - YouTube Music.docx", "YouTube Music/Provas - YouTube Music.pdf",
+        "YouTube Music/Provas - YouTube Music.docx"]
     assert resumo == [{"plataforma": "YouTube Music", "firmes": 3, "a_confirmar": 1}, {"plataforma": "Tidal", "firmes": 0, "a_confirmar": 0}]
     assert avisos == ["YouTube Music: 2 (Danca da Panella / Banda do Baile): sem captura de tela"]
 

@@ -17,7 +17,8 @@ Duas abas, independentes:
 2. **Coleta de prints.** Entram o relatório e a planilha de intérpretes **conferida pelo compositor** (obrigatória:
    sem ela o botão de coletar não aparece). Para cada par obra + intérprete, o app acha a gravação em cada
    plataforma marcada, lê o crédito de compositor, classifica e tira o print. Saem a planilha de obras (formato do
-   escritório), a lista da petição (.docx) e o PDF de provas por plataforma, num zip.
+   escritório), a lista da petição (.docx) e as provas por plataforma, num zip. As provas vêm em PDF e também em
+   Word (decisão do dono, 14/10/2026), com as mesmas páginas, para quem precisa editar.
 
 O app roda no computador de quem usa (Windows, no escritório). Não há servidor. A instalação é por máquina
 (`Instalar.cmd`) e a atualização é pelo botão "Procurar atualização".
@@ -30,7 +31,7 @@ O app roda no computador de quem usa (Windows, no escritório). Não há servido
 | `creditos/pipeline.py` | O motor: `executar()` roda as plataformas pedidas; um `coletar_<plataforma>` para cada |
 | `creditos/classificador.py` | Decide o status de cada gravação a partir do crédito exibido |
 | `creditos/interpretes.py` | A busca de intérpretes, a planilha em preto e vermelho, a leitura da planilha conferida |
-| `creditos/saida.py`, `provas.py` | Planilha de obras, lista da petição e PDF de provas |
+| `creditos/saida.py`, `provas.py` | Planilha de obras, lista da petição e provas (PDF e Word) |
 | `creditos/captura.py`, `tela.py` | O print: faixa de carimbo, SHA-256, ficha `.json`; a foto do monitor inteiro |
 | `creditos/navegador.py` | O Chromium do app (Playwright): ritmo, sinais de bloqueio, perfil com sessão guardada |
 | `creditos/deezer.py`, `apple.py`, `ytmusic.py`, `spotify.py`, `tidal.py`, `amazon.py`, `amazon_app.py`, `claro.py`, `palco.py`, `vagalume.py` | Um coletor por plataforma |

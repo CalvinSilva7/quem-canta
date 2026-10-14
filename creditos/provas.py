@@ -163,6 +163,91 @@ def registro_da_captura(pasta, nome_base: str) -> dict:
     return registro
 
 
+def paginas_de_prova(itens, plataforma: str, pasta, avisos: list, marca: str = "") -> list[tuple]:
+    """As páginas de print de uma lista, na ordem: [(item, registro, parte, número)]. `marca` vai antes do número
+    ("C3": a confirmar). Captura ausente ou com hash diferente do registrado não entra: vira aviso em `avisos`."""
+    paginas = []
+    for item in itens:
+        numero = f"{marca}{item['n']}"
+        registros = [r for r in (registro_da_captura(pasta, p) for p in item["provas"]) if r]
+        registros = registros if plataforma in TODOS_OS_PRINTS else registros[:1]
+        if not registros:
+            avisos.append(f"{numero} ({item['obra']} / {item['interprete']}): sem captura de tela")
+        for i, registro in enumerate(registros or [{}], start=1):
+            parte = f" ({i} de {len(registros)})" if len(registros) > 1 else ""
+            if registro and not registro["integra"]:
+                avisos.append(f"{numero}{parte} ({item['obra']} / {item['interprete']}): a imagem foi alterada depois da captura (hash não confere)")
+                registro = {}
+            if registro:
+                paginas.append((item, registro, parte, numero))
+                if registro.get("tela_inteira", {}).get("erro"):
+                    avisos.append(f"{numero}{parte} ({item['obra']} / {item['interprete']}): sem print de tela inteira, porque "
+                                  f"{registro['tela_inteira']['erro']}; o PDF traz a captura de página")
+    return paginas
+
+
+def docx_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma: str = "") -> tuple[bytes, list[str]]:
+    """As mesmas páginas do PDF de provas, em Word, para quem precisa editar: folha deitada, um print por página, com
+    a música e o intérprete em cima, e a parte "A confirmar antes de usar" no fim.
+
+    O Word pode ser alterado por quem o abre; a prova íntegra continua sendo o print guardado na pasta do caso, com o
+    SHA-256 no .json ao lado. Devolve (docx, avisos), com os mesmos avisos do PDF.
+    """
+    from docx import Document
+    from docx.enum.section import WD_ORIENT
+    from docx.enum.text import WD_BREAK
+    from docx.shared import Cm, Pt
+    from PIL import Image as Imagem
+
+    firmes, a_confirmar = itens_da_peticao(coletas, plataforma)
+    nome, pasta, avisos = nome_da_plataforma or plataforma.title(), Path(pasta), []
+    doc = Document()
+    secao = doc.sections[0]
+    secao.orientation = WD_ORIENT.LANDSCAPE
+    secao.page_width, secao.page_height = Cm(29.7), Cm(21.0)
+    for lado in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
+        setattr(secao, lado, Cm(1.2))
+    doc.core_properties.title = f"Provas - {nome}"
+    paginas_escritas = 0
+
+    def nova_pagina():
+        nonlocal paginas_escritas
+        if paginas_escritas:
+            doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+        paginas_escritas += 1
+
+    def pagina_do_print(item, registro, parte, numero, com_motivo=False):
+        nova_pagina()
+        titulo = doc.add_paragraph()
+        trecho = titulo.add_run(f"{numero} - Música: {item['obra']} - Interpretada por: {item['interprete']}{parte}")
+        trecho.bold, trecho.font.size = True, Pt(13)
+        if com_motivo:
+            motivo = doc.add_paragraph()
+            motivo.add_run("A confirmar antes de usar. ").bold = True
+            motivo.add_run(f"{item['status']}: {item['fundamento']}").font.size = Pt(9)
+        arquivo = pasta / registro["arquivos"][registro["imagem"]]
+        with Imagem.open(arquivo) as imagem:
+            largura, altura = imagem.size
+        # o espaço da folha deitada, tirando as margens e o título (e o motivo, na parte "a confirmar")
+        escala = min(27.3 / largura, (18.6 - (3.2 if com_motivo else 2.0)) / altura)
+        doc.add_paragraph().add_run().add_picture(str(arquivo), width=Cm(largura * escala))
+
+    for pagina in paginas_de_prova(firmes, plataforma, pasta, avisos):
+        pagina_do_print(*pagina)
+    if a_confirmar:
+        nova_pagina()
+        doc.add_heading("A confirmar antes de usar", level=1)
+        doc.add_paragraph("Estas gravações não entram na contagem da lista da petição: dependem de conferência humana. O "
+                          "motivo da dúvida está na página de cada uma.")
+        for pagina in paginas_de_prova(a_confirmar, plataforma, pasta, avisos, marca="C"):
+            pagina_do_print(*pagina, com_motivo=True)
+    if not paginas_escritas:
+        doc.add_paragraph(f"Provas - {nome}: nenhum print disponível.")
+    saida = io.BytesIO()
+    doc.save(saida)
+    return saida.getvalue(), avisos
+
+
 def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma: str = "") -> tuple[bytes, list[str]]:
     """PDF só com os prints, um por página, na ordem da lista: em cima de cada um, a música e o intérprete.
 
@@ -191,25 +276,7 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
     titular = " - ".join(x for x in (relatorio.nome_titular, relatorio.pseudonimo_titular) if x)
 
     def montar(itens, marca=""):
-        """As páginas de print de uma lista. `marca` vai antes do número ("C3": a confirmar)."""
-        paginas = []
-        for item in itens:
-            numero = f"{marca}{item['n']}"
-            registros = [r for r in (registro_da_captura(pasta, p) for p in item["provas"]) if r]
-            registros = registros if plataforma in TODOS_OS_PRINTS else registros[:1]
-            if not registros:
-                avisos.append(f"{numero} ({item['obra']} / {item['interprete']}): sem captura de tela")
-            for i, registro in enumerate(registros or [{}], start=1):
-                parte = f" ({i} de {len(registros)})" if len(registros) > 1 else ""
-                if registro and not registro["integra"]:
-                    avisos.append(f"{numero}{parte} ({item['obra']} / {item['interprete']}): a imagem foi alterada depois da captura (hash não confere)")
-                    registro = {}
-                if registro:
-                    paginas.append((item, registro, parte, numero))
-                    if registro.get("tela_inteira", {}).get("erro"):
-                        avisos.append(f"{numero}{parte} ({item['obra']} / {item['interprete']}): sem print de tela inteira, porque "
-                                      f"{registro['tela_inteira']['erro']}; o PDF traz a captura de página")
-        return paginas
+        return paginas_de_prova(itens, plataforma, pasta, avisos, marca)
 
     def pagina_do_print(item, registro, parte, numero, com_motivo=False):
         bloco = [Paragraph(f"{numero} - Música: {item['obra']} - Interpretada por: {item['interprete']}{parte}", estilos["Heading3"])]
@@ -249,7 +316,8 @@ NOMES = {"YOUTUBE": "YouTube Music", "SPOTIFY": "Spotify", "TIDAL": "Tidal", "DE
 
 
 def pacote(relatorio, coletas, pasta_do_caso, planilha: bytes) -> tuple[bytes, list[dict], list[str]]:
-    """Um .zip com a planilha e, para cada plataforma com gravação firme ou a confirmar, a lista da petição e o PDF de provas.
+    """Um .zip com a planilha e, para cada plataforma com gravação firme ou a confirmar, a lista da petição e as provas
+    em PDF e em Word (o Word, para quem precisa editar; as mesmas páginas do PDF).
 
     Devolve (zip, resumo por plataforma [{"plataforma", "firmes", "a_confirmar"}], avisos).
     """
@@ -266,7 +334,9 @@ def pacote(relatorio, coletas, pasta_do_caso, planilha: bytes) -> tuple[bytes, l
             nome = NOMES.get(coleta.plataforma, coleta.plataforma.title())
             arquivo.writestr(f"{nome}/Lista da petição - {nome}.docx", docx_da_lista(relatorio, coletas, coleta.plataforma, nome))
             if firmes or any(item["provas"] for item in a_confirmar):  # o PDF sai também só com a parte "a confirmar"
-                pdf, do_pdf = pdf_de_provas(relatorio, coletas, coleta.plataforma, Path(pasta_do_caso) / PASTAS.get(coleta.plataforma, ""), nome)
+                pasta = Path(pasta_do_caso) / PASTAS.get(coleta.plataforma, "")
+                pdf, do_pdf = pdf_de_provas(relatorio, coletas, coleta.plataforma, pasta, nome)
                 arquivo.writestr(f"{nome}/Provas - {nome}.pdf", pdf)
-                avisos += [f"{nome}: {a}" for a in do_pdf]
+                arquivo.writestr(f"{nome}/Provas - {nome}.docx", docx_de_provas(relatorio, coletas, coleta.plataforma, pasta, nome)[0])
+                avisos += [f"{nome}: {a}" for a in do_pdf]  # os do Word são os mesmos
     return saida.getvalue(), resumo, avisos
