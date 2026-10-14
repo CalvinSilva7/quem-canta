@@ -699,30 +699,47 @@ def coletar_vagalume(relatorio: Relatorio, config: Config, vagalume, recorrentes
     return coleta
 
 
-def reaproveitar_prints(coleta: Coleta, pasta, endereco=None) -> None:
+def reaproveitar_prints(coleta: Coleta, pasta, endereco=None, etapas=None) -> None:
     """Liga cada gravação negativa ao print que já existe dela na pasta (mesmo endereço, mesmos créditos na tela):
-    numa nova rodada, o que já foi fotografado não é fotografado de novo."""
+    numa nova rodada, o que já foi fotografado não é fotografado de novo.
+
+    `etapas` (ex.: ("menu", "creditos") na Deezer): a prova são vários prints, um por etapa. Só reaproveita se houver
+    o de todas, o mais recente de cada; faltando um, a música é fotografada de novo.
+    """
     from . import captura
 
     def fim(url):  # o último trecho do endereço identifica a faixa, mesmo quando a plataforma redireciona
         return str(url or "").split("?")[0].rstrip("/").rsplit("/", 1)[-1]
 
+    def mesmos_creditos(ficha, g):
+        return {normalizar(n) for n in (ficha.get("exibido") or {}).get("creditos_lidos", [])} == {normalizar(n) for n in g.creditos}
+
     por_endereco = {}
     for ficha in captura.capturas_guardadas(pasta):
-        por_endereco.setdefault(fim(ficha.get("url")), ficha)
+        por_endereco.setdefault(fim(ficha.get("url")), []).append(ficha)
     for g in coleta.gravacoes:
         if g.classificacao.status in c.NEGATIVOS and not g.provas:
-            ficha = por_endereco.get(fim(endereco(g.link) if endereco else g.link))
-            if ficha and {normalizar(n) for n in (ficha.get("exibido") or {}).get("creditos_lidos", [])} == {normalizar(n) for n in g.creditos}:
-                g.provas.append(ficha["captura"])
+            fichas = [f for f in por_endereco.get(fim(endereco(g.link) if endereco else g.link), []) if mesmos_creditos(f, g)]
+            if not etapas:
+                g.provas += [f["captura"] for f in fichas[:1]]
+                continue
+            ultimas = {}
+            for f in sorted(fichas, key=lambda f: f.get("capturado_em", "")):
+                ultimas[(f.get("exibido") or {}).get("etapa")] = f["captura"]
+            if all(e in ultimas for e in etapas):
+                g.provas += [ultimas[e] for e in etapas]
 
 
-def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar=None, endereco=None, reclassificar=None) -> None:
+def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar=None, endereco=None, reclassificar=None,
+                     com_o_menu=False) -> None:
     """Print das gravações sem crédito ou com crédito errado de uma plataforma lida sem navegador (Deezer, Apple
     Music, Vagalume): abre o link de cada uma, deixa `preparar(navegador)` abrir a tela de créditos, e captura.
 
     Se `preparar` devolver os autores que a tela mostra e eles forem diferentes dos que tinham sido lidos nos dados
     da página, vale a tela: a gravação é reclassificada, e só continua com print se continuar negativa.
+
+    `com_o_menu` (Deezer): a prova são dois prints, o menu aberto um clique antes da tela de créditos e a tela.
+    `preparar` recebe `antes_do_clique`, que fotografa o menu.
     """
     from . import captura
     from .deezer import SemLogin
@@ -735,11 +752,23 @@ def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar
     try:
         for i, g in enumerate(negativas, start=1):
             avisar(f"{coleta.plataforma.title()}: print {i}/{len(negativas)}")
+            menu = []  # o print do menu desta gravação (só o último, se o menu foi aberto mais de uma vez)
+
+            def fotografar_o_menu(g=g, menu=menu):
+                for base in menu:
+                    captura.descartar(pasta, base)
+                exibido = {"titulo": g.titulo, "interprete": g.interprete, "creditos_lidos": g.creditos, "etapa": "menu",
+                           "constatacao": 'menu da faixa aberto, com o item "Consulte créditos musicais" destacado'}
+                menu[:] = [captura.capturar(navegador.pagina, pasta, g.obra, g.interprete, coleta.plataforma.lower(), exibido, "menu")["captura"]]
+
             try:
                 navegador.ir(endereco(g.link) if endereco else g.link, pausa=(4, 7))
                 navegador.pagina.wait_for_timeout(3500)
                 navegador.conferir(navegador.pagina.evaluate("document.body.innerText.slice(0, 1500)"))
-                na_tela = preparar(navegador) if preparar else None
+                if not preparar:
+                    na_tela = None
+                else:
+                    na_tela = preparar(navegador, antes_do_clique=fotografar_o_menu) if com_o_menu else preparar(navegador)
                 if na_tela is not None and {normalizar(n) for n in na_tela} != {normalizar(n) for n in g.creditos} and reclassificar:
                     antes = ", ".join(g.creditos) or "nenhum autor"
                     g.creditos = list(na_tela)
@@ -749,13 +778,24 @@ def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar
                         f"{', '.join(na_tela) or 'nenhum autor'}: vale o que a tela mostra"
                     )
                     if g.classificacao.status not in c.NEGATIVOS:
+                        for base in menu:
+                            captura.descartar(pasta, base)
                         continue
+                if com_o_menu and not menu:
+                    raise RuntimeError("o menu da faixa não foi fotografado antes de abrir os créditos")
                 exibido = {"titulo": g.titulo, "interprete": g.interprete, "creditos_lidos": g.creditos,
                            "creditos_na_tela": na_tela, "constatacao": g.classificacao.fundamento}
-                g.provas.append(captura.capturar(navegador.pagina, pasta, g.obra, g.interprete, coleta.plataforma.lower(), exibido, "creditos")["captura"])
+                if com_o_menu:
+                    exibido["etapa"] = "creditos"
+                creditos = captura.capturar(navegador.pagina, pasta, g.obra, g.interprete, coleta.plataforma.lower(), exibido, "creditos")["captura"]
+                g.provas += menu + [creditos]
             except param:
+                for base in menu:  # print do menu sem o da tela de créditos não serve de prova
+                    captura.descartar(pasta, base)
                 raise
             except Exception as e:
+                for base in menu:
+                    captura.descartar(pasta, base)
                 coleta.avisos.append(f'print de "{g.titulo}" ({g.interprete}) não pôde ser tirado: {type(e).__name__}: {str(e).splitlines()[0][:100]}')
     except param as e:
         _parar(coleta, e)
@@ -766,11 +806,14 @@ _POR_CIMA = """(e) => { const r = e.getBoundingClientRect(); if (!r.width || !r.
   const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !!t && (t === e || e.contains(t) || t.contains(e)); }"""
 
 
-def abrir_creditos_da_deezer(navegador):
+def abrir_creditos_da_deezer(navegador, antes_do_clique=None):
     """Na página da faixa: recusa os cookies, abre o menu e o painel "Consulte créditos musicais".
 
     Só devolve com o painel à vista. O menu abre com animação: clicar no item cedo demais não abre o painel e ainda
     rola a página, e o print sairia sem os créditos. Por isso espera o item aparecer, confere o painel e tenta de novo.
+
+    `antes_do_clique()`: chamado com o menu aberto e o item de créditos destacado (o mouse em cima), um clique antes
+    do painel: é o primeiro print do escritório. Se o painel não abrir, o menu é aberto e fotografado de novo.
     """
     import re
     pagina = navegador.pagina
@@ -783,6 +826,14 @@ def abrir_creditos_da_deezer(navegador):
         pagina.get_by_role("button", name="Exibir menu").first.click()
         item.wait_for(state="visible", timeout=8000)
         pagina.wait_for_timeout(900)  # a animação do menu
+        if antes_do_clique:
+            item.hover()  # o item fica destacado, como no print feito à mão
+            pagina.wait_for_timeout(400)
+            if not item.evaluate(_POR_CIMA):  # menu ainda se mexendo ou coberto: fecha e tenta de novo
+                pagina.keyboard.press("Escape")
+                pagina.wait_for_timeout(700)
+                continue
+            antes_do_clique()
         item.click()
         pagina.wait_for_timeout(1800)
         # painel aberto: o item do menu saiu de cena e o cabeçalho "Voltar" do painel é o que está por cima
@@ -795,12 +846,12 @@ def abrir_creditos_da_deezer(navegador):
     raise RuntimeError("o painel de créditos da Deezer não abriu")
 
 
-def abrir_creditos_da_deezer_logada(navegador):
+def abrir_creditos_da_deezer_logada(navegador, antes_do_clique=None):
     """Como `abrir_creditos_da_deezer`, mas antes confere que o navegador está logado na conta da Deezer."""
     from .deezer import conferir_login
 
     conferir_login(navegador)
-    return abrir_creditos_da_deezer(navegador)
+    return abrir_creditos_da_deezer(navegador, antes_do_clique)
 
 
 def pagina_da_musica_na_apple(link: str) -> str:
@@ -1312,7 +1363,8 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
     for coleta in coletas:  # o que já foi fotografado em outra rodada é reaproveitado
         if coleta.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME"):
             reaproveitar_prints(coleta, pasta / coleta.plataforma.lower().replace(" ", "-"),
-                                pagina_da_musica_na_apple if coleta.plataforma == "APPLE MUSIC" else None)
+                                pagina_da_musica_na_apple if coleta.plataforma == "APPLE MUSIC" else None,
+                                ("menu", "creditos") if coleta.plataforma == "DEEZER" else None)
     com_tela = pedidas & {"spotify", "tidal", "amazon", "amazon_app", "palco"}
 
     def falta_print_em(*plataformas):
@@ -1367,7 +1419,8 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                        perfil=perfil_da_deezer(pasta)) as nav_da_deezer:
             for coleta in coletas:
                 if coleta.plataforma == "DEEZER":
-                    capturar_paginas(coleta, nav_da_deezer, pasta / "deezer", abrir_creditos_da_deezer_logada, ao_avancar, None, reclassificar)
+                    capturar_paginas(coleta, nav_da_deezer, pasta / "deezer", abrir_creditos_da_deezer_logada, ao_avancar, None, reclassificar,
+                                     com_o_menu=True)
     coletas = sorted(coletas, key=lambda k: ORDEM.index(k.plataforma) if k.plataforma in ORDEM else 99)
     if sem_interprete and coletas:
         coletas[0].avisos.append(

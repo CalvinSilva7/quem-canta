@@ -74,7 +74,7 @@ e `perfil-deezer`, fora dos casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados
 
 | Plataforma | Como acha a gravação | Print | Situação |
 |---|---|---|---|
-| Deezer | API pública, sem navegador | Página da faixa com o painel "Consulte créditos musicais", logado na conta (decisão do dono, 14/10/2026) | Leitura validada (sem login). Print corrigido na 0.5.18 e visto em 1 faixa, no Mac. **Print logado ainda não testado com conta real**: a sessão é reconhecida pelo cookie `arl`; visitante não o tem (conferido) |
+| Deezer | API pública, sem navegador | 2 por música, logado na conta (decisão do dono, 14/10/2026): o menu da faixa com "Consulte créditos musicais" destacado, um clique antes, e o painel de créditos | Leitura validada (sem login). Print corrigido na 0.5.18 e visto em 1 faixa, no Mac. **Print logado ainda não testado com conta real**: a sessão é reconhecida pelo cookie `arl`; visitante não o tem (conferido) |
 | Apple Music | API do iTunes e página do álbum | Fora da coleta de prints (decisão do dono) | Só na busca de intérpretes. Recusa buscas (403/429) em relatório grande |
 | YouTube Music | Busca do site | Menu da faixa | Validado com três gabaritos (no terceiro, Mac, 0.5.38: 29 de 31 links; os 2 restantes saem "a confirmar" por grafia do título). Intérprete conferido vale com uma letra de diferença e, se a busca mostra os músicos no lugar da banda, o app consulta o canal do vídeo (oEmbed público, só o código do vídeo sai); tela inteira validada no Windows |
 | Spotify | Busca do site (cada consulta também na forma enxuta) | Janela "Créditos" | Validado no Mac e no Windows (0.5.36): 10 de 10 e 4 de 4. As leituras anteriores à 0.5.35 podiam trazer violação falsa |
@@ -110,7 +110,8 @@ Vale ler antes de mexer na plataforma correspondente.
   Bloquear o autoplay não segura. Fica como "indisponível", com o motivo.
 - *Print reaproveitado.* Com a tela inteira marcada, o app reaproveitava print guardado sem a foto do monitor.
   Agora só serve o print feito nesse modo; o outro é refeito.
-- *PDF com um print por música.* No aplicativo da Amazon e no Palco a prova são dois; ver `TODOS_OS_PRINTS`.
+- *PDF com um print por música.* No aplicativo da Amazon, no Palco e na Deezer a prova são dois; ver `TODOS_OS_PRINTS`.
+  Na Deezer, print antigo só do painel não é reaproveitado: a música é fotografada de novo, com o menu.
 
 - *Papéis lidos como blocos.* No Spotify, "Autores • Letrista" embaixo de um nome são dois papéis da mesma pessoa.
   O app adivinhava os blocos pela ordem dos textos, tomava "Letrista" por título e cortava a lista de autores: deu

@@ -1896,6 +1896,62 @@ def test_deezer_sem_login_para_os_prints_e_avisa(rel, tmp_path, monkeypatch):
     assert all(not g.provas and g.classificacao.status == c.SEM_CREDITOS for g in coleta.gravacoes)
 
 
+def test_deezer_fotografa_o_menu_um_clique_antes_e_depois_os_creditos(tmp_path, monkeypatch):
+    class NavegadorFalso:
+        class pagina:
+            url = "https://www.deezer.com/track/1"
+            wait_for_timeout = staticmethod(lambda ms: None)
+            evaluate = staticmethod(lambda *a: "")
+        def ir(self, url, pausa=None): pass
+        def conferir(self, texto=""): pass
+
+    tirados, descartados = [], []
+    monkeypatch.setattr(captura, "capturar", lambda pagina, pasta, obra, interprete, plataforma, exibido, etapa="":
+                        tirados.append((etapa, exibido.get("etapa"))) or {"captura": f"{etapa}-{len(tirados)}"})
+    monkeypatch.setattr(captura, "descartar", lambda pasta, base: descartados.append(base))
+    sem = lambda n: pipeline.Gravacao(plataforma="DEEZER", link=f"https://www.deezer.com/track/{n}", titulo="Coisa Feita",
+                                      interprete="Banda do Baile", obra="COISA FEITA", vinculo="x",
+                                      classificacao=c.Classificacao(c.SEM_CREDITOS, "sem compositor"))
+
+    def menu_aberto_duas_vezes(navegador, antes_do_clique=None):  # o painel não abriu na primeira: o menu é refeito
+        antes_do_clique()
+        antes_do_clique()
+
+    coleta = pipeline.Coleta("DEEZER", gravacoes=[sem(1)])
+    pipeline.capturar_paginas(coleta, NavegadorFalso(), tmp_path, menu_aberto_duas_vezes, com_o_menu=True)
+    assert coleta.gravacoes[0].provas == ["menu-2", "creditos-3"]  # o menu primeiro, como no modelo do escritório
+    assert descartados == ["menu-1"] and tirados[-1] == ("creditos", "creditos")
+
+    def painel_que_nao_abre(navegador, antes_do_clique=None):
+        antes_do_clique()
+        raise RuntimeError("o painel de créditos da Deezer não abriu")
+
+    tirados.clear(), descartados.clear()
+    coleta = pipeline.Coleta("DEEZER", gravacoes=[sem(2)])
+    pipeline.capturar_paginas(coleta, NavegadorFalso(), tmp_path, painel_que_nao_abre, com_o_menu=True)
+    assert coleta.gravacoes[0].provas == [] and descartados == ["menu-1"]  # menu sozinho não é prova
+    assert "não pôde ser tirado" in coleta.avisos[0]
+    assert "DEEZER" in provas.TODOS_OS_PRINTS
+
+
+def test_deezer_so_reaproveita_quando_tem_o_print_do_menu_e_o_dos_creditos(tmp_path, monkeypatch):
+    fichas = [
+        {"captura": "antigo", "url": "https://www.deezer.com/track/1", "capturado_em": "2026-10-01T10:00:00", "exibido": {"creditos_lidos": []}},
+        {"captura": "menu", "url": "https://www.deezer.com/track/2", "capturado_em": "2026-10-14T10:00:00",
+         "exibido": {"creditos_lidos": [], "etapa": "menu"}},
+        {"captura": "creditos", "url": "https://www.deezer.com/track/2", "capturado_em": "2026-10-14T10:00:05",
+         "exibido": {"creditos_lidos": [], "etapa": "creditos"}},
+    ]
+    monkeypatch.setattr(captura, "capturas_guardadas", lambda pasta: fichas)
+    sem = lambda n: pipeline.Gravacao(plataforma="DEEZER", link=f"https://www.deezer.com/track/{n}", titulo="Coisa Feita",
+                                      interprete="Banda do Baile", obra="COISA FEITA", vinculo="x",
+                                      classificacao=c.Classificacao(c.SEM_CREDITOS, "sem compositor"))
+    coleta = pipeline.Coleta("DEEZER", gravacoes=[sem(1), sem(2)])
+    pipeline.reaproveitar_prints(coleta, tmp_path, etapas=("menu", "creditos"))
+    antigo, completo = coleta.gravacoes
+    assert antigo.provas == []  # print de antes, só da tela de créditos: é refeito com o menu
+    assert completo.provas == ["menu", "creditos"]
+
 
 def test_palco_mp3_le_a_busca_e_a_linha_de_composicao(rel):
     from types import SimpleNamespace

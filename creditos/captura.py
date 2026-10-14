@@ -185,6 +185,12 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
     return registro
 
 
+def descartar(pasta, base) -> None:
+    """Apaga uma captura (PNG, HTML, JSON e a foto do monitor) que não vai servir de prova."""
+    for nome in (f"{base}.png", f"{base}.html", f"{base}.json", f"{base}_tela.png"):
+        (Path(pasta) / nome).unlink(missing_ok=True)
+
+
 def _restaurar_janela(pagina) -> None:
     """Se a janela do navegador foi minimizada, volta a abri-la (no mesmo lugar e tamanho de antes)."""
     try:
