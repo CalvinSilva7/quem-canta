@@ -488,6 +488,14 @@ def coletar_claro(relatorio: Relatorio, config: Config, claro, recorrentes=(), p
                           f'busca "{consulta}"'))
     except (Bloqueio, PaginaTraduzida, SemLogin) as e:
         _parar(coleta, e)
+    except Exception as e:  # erro técnico inesperado: só a Claro para, com o motivo; as outras plataformas seguem
+        _parar(coleta, e)
+    nao_carregaram = getattr(claro, "nao_carregaram", [])
+    if nao_carregaram:
+        coleta.avisos.append(
+            f"{len(nao_carregaram)} páginas da Claro Música não abriram (o site demorou demais), nem na segunda tentativa: "
+            + "; ".join(nao_carregaram[:20]) + ("…" if len(nao_carregaram) > 20 else "")
+            + ". As músicas que dependiam delas podem não ter sido achadas: rode a coleta de novo para tentar outra vez.")
     _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
     coleta.albuns_lidos, coleta.requisicoes, coleta.segundos = len(lidas), claro.nav.navegacoes, time.monotonic() - inicio
     return coleta

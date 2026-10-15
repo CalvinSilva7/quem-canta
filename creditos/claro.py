@@ -17,7 +17,7 @@ inteira, o zoom é reduzido) até o menu e o cartão caberem.
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from cantor.matching import normalizar
 
@@ -112,6 +112,10 @@ class SemLogin(Exception):
     """A Claro Música não está logada no navegador do app: a coleta dela não pode seguir."""
 
 
+class NaoCarregou(Exception):
+    """Uma página de busca ou de lista não abriu (o site demorou demais ou a rede falhou), nem na segunda tentativa."""
+
+
 @dataclass
 class Candidato:
     album: str
@@ -192,6 +196,24 @@ class Claro:
         self.cache = self.pasta / "leituras"
         self.so_o_que_ja_foi_lido = so_o_que_ja_foi_lido
         self._conferido = False
+        self.nao_carregaram = []  # as buscas e listas que não abriram: viram aviso na coleta, e não resultado
+
+    def _abrir(self, endereco: str, descricao: str):
+        """Abre a página; se o site demorar demais ou a rede falhar, tenta mais uma vez. Na segunda falha, anota e
+        levanta NaoCarregou, para quem chamou seguir sem aquele resultado (e sem guardá-lo: na próxima rodada, tenta
+        de novo). Bloqueio, página traduzida e falta de login não são tentados de novo: param a coleta."""
+        from .navegador import Bloqueio
+
+        for tentativa in range(2):
+            try:
+                self.nav.ir(endereco, pausa=(4, 7) if not tentativa else (15, 20))
+                return
+            except (Bloqueio, captura.PaginaTraduzida, SemLogin):
+                raise
+            except Exception as e:
+                erro = f"{type(e).__name__}: {str(e).splitlines()[0][:120]}"
+        self.nao_carregaram.append(f"{descricao} ({erro})")
+        raise NaoCarregou(erro)
 
     def conferir_login(self):
         """Levanta SemLogin se o site não mostrar o catálogo. Roda uma vez por coleta, na primeira página aberta."""
@@ -212,7 +234,10 @@ class Claro:
         if self.so_o_que_ja_foi_lido:
             return []
         pagina = self.nav.pagina
-        self.nav.ir(SITE + "predictiveDetail/songs/" + quote(consulta, safe=""), pausa=(4, 7))
+        try:
+            self._abrir(SITE + "predictiveDetail/songs/" + quote(consulta, safe=""), f'busca "{consulta}"')
+        except NaoCarregou:
+            return []
         try:
             pagina.wait_for_selector("tr.song", timeout=20000)
             pagina.wait_for_timeout(1500)
@@ -243,7 +268,10 @@ class Claro:
         if self.so_o_que_ja_foi_lido:
             return []
         pagina = self.nav.pagina
-        self.nav.ir(endereco, pausa=(4, 7))
+        try:
+            self._abrir(endereco, f"página {unquote(endereco.replace(SITE, ''))}")
+        except NaoCarregou:
+            return []
         try:
             pagina.wait_for_selector(esperar, timeout=20000)
             pagina.wait_for_timeout(1500)
@@ -256,12 +284,17 @@ class Claro:
             self._guardar(nome_do_cache, guardado)
         return itens
 
-    def buscar_pelo_artista(self, nome: str, mesmo_artista, e_da_obra, albuns_no_maximo=25, no_maximo=2) -> list[Candidato]:
+    def buscar_pelo_artista(self, nome: str, mesmo_artista, e_da_obra, albuns_no_maximo=10, no_maximo=2,
+                            estranhos_no_maximo=3) -> list[Candidato]:
         """Quando a busca por título não traz a faixa do intérprete (título comum demais): acha o artista pelo nome,
         abre os álbuns que a página dele mostra e procura neles a faixa da obra.
 
         `mesmo_artista(nome exibido)` diz se o artista é o procurado; `e_da_obra(título exibido)`, se a faixa é a obra.
         Os álbuns com o título da obra no nome são abertos primeiro. Só entram artistas e faixas aprovados por elas.
+
+        Página de artista sem discografia (um cadastro duplicado, vazio) mostra álbuns de outros artistas como
+        sugestão. Depois de `estranhos_no_maximo` álbuns seguidos sem nenhuma faixa do intérprete, a página é deixada
+        de lado e o robô passa ao artista seguinte.
         """
         achados = []
         artistas = [(codigo, exibido) for codigo, exibido in self._lista("_artistas", nome, SITE + "predictiveDetail/artists/" + quote(nome, safe=""),
@@ -269,13 +302,20 @@ class Claro:
         for codigo, exibido in artistas[:2]:
             albuns = self._lista("_albuns_do_artista", codigo, f"{SITE}artist/{codigo}/BR", 'a[href*="/album/"]', _LER_ALBUNS)
             albuns = sorted(albuns, key=lambda a: not e_da_obra(a[1]))[:albuns_no_maximo]  # primeiro os que levam o nome da obra
+            estranhos = 0
             for album, nome_do_album in albuns:
-                for faixa in self._lista("_faixas_do_album", album, f"{SITE}album/{album}/BR", ".list-content-row", _LER_FAIXAS):
+                faixas = self._lista("_faixas_do_album", album, f"{SITE}album/{album}/BR", ".list-content-row", _LER_FAIXAS)
+                for faixa in faixas:
                     if faixa.get("titulo") and e_da_obra(faixa["titulo"]):
                         achados.append(Candidato(album, f"{album}n{faixa.get('numero') or len(achados)}", faixa["titulo"],
                                                  " & ".join(faixa.get("artistas") or []) or exibido, nome_do_album, faixa.get("duracao") or ""))
                 if len(achados) >= no_maximo:
                     return achados[:no_maximo]
+                nomes = [n for faixa in faixas for n in faixa.get("artistas") or []]
+                if nomes:  # álbum que não carregou ou sem os nomes não conta para nenhum lado
+                    estranhos = 0 if any(mesmo_artista(n) for n in nomes) else estranhos + 1
+                if estranhos >= estranhos_no_maximo:
+                    break  # não é a discografia dele
         return achados
 
     def ler(self, cand: Candidato, obra: str) -> Leitura:

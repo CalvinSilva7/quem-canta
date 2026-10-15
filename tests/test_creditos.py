@@ -1834,6 +1834,66 @@ def test_claro_le_a_lista_da_busca_e_o_cartao_de_informacoes(rel):
     assert parada.interrompida and not parada.gravacoes and "não está logada" in parada.avisos[-1]
 
 
+def test_claro_pagina_que_nao_carrega_vira_aviso_e_nao_derruba_a_coleta(rel, tmp_path):
+    from types import SimpleNamespace
+    from creditos import claro as _claro
+
+    class NavegadorLento:
+        pagina, navegacoes, tentativas = SimpleNamespace(), 0, []
+        def ir(self, url, pausa=None):
+            self.tentativas.append(url)
+            raise TimeoutError("Page.goto: Timeout 60000ms exceeded.")
+
+    nav = NavegadorLento()
+    claro = _claro.Claro(nav, tmp_path)
+    assert claro.buscar("COISA FEITA") == [] and len(nav.tentativas) == 2  # tenta de novo uma vez, e segue
+    assert claro.buscar_pelo_artista("Banda do Baile", lambda n: True, lambda t: True) == []
+    assert not (tmp_path / "leituras" / "_buscas.json").exists()  # nada guardado: na próxima rodada, tenta outra vez
+    assert len(claro.nao_carregaram) == 2 and 'busca "COISA FEITA"' in claro.nao_carregaram[0]
+    assert "artists/Banda do Baile" in claro.nao_carregaram[1]
+
+    coleta = pipeline.coletar_claro(rel, Config(nomes_confirmados=["ZECA LIMA"]), claro, pares={"COISA FEITA": ["Banda do Baile"]})
+    assert not coleta.interrompida and any("não abriram" in a and "rode a coleta de novo" in a for a in coleta.avisos)
+
+    class Quebra(_claro.Claro):
+        def buscar(self, consulta):
+            raise RuntimeError("algo inesperado")
+    parada = pipeline.coletar_claro(rel, Config(nomes_confirmados=["ZECA LIMA"]), Quebra(nav, tmp_path), pares={"COISA FEITA": ["Banda do Baile"]})
+    assert "algo inesperado" in parada.interrompida  # só a Claro para, com o motivo
+
+
+def test_claro_deixa_de_lado_a_pagina_de_artista_que_so_mostra_albuns_de_outros(tmp_path):
+    from creditos import claro as _claro
+
+    # Dois cadastros da mesma banda: o primeiro, vazio, mostra álbuns de outros artistas como sugestão.
+    paginas = {
+        ("_artistas", "Banda do Baile"): [["1", "Banda do Baile"], ["2", "Banda do Baile"]],
+        ("_albuns_do_artista", "1"): [[str(n), f"Sucesso {n}"] for n in range(100, 130)],
+        ("_albuns_do_artista", "2"): [[str(n), f"Disco {n}"] for n in range(200, 230)],
+    }
+    abertos = []
+
+    def lista(nome_do_cache, chave, endereco, esperar, script):
+        if nome_do_cache == "_faixas_do_album":
+            abertos.append(chave)
+            if chave == "215":
+                return [{"numero": "3", "titulo": "Coisa Feita", "artistas": ["Banda do Baile"], "duracao": "03:00"}]
+            return [{"numero": "1", "titulo": "Outra", "artistas": ["Banda do Baile" if chave.startswith("2") else "Cantor Famoso"]}]
+        return paginas[(nome_do_cache, chave)]
+
+    claro = _claro.Claro(None, tmp_path)
+    claro._lista = lista
+    achados = claro.buscar_pelo_artista("Banda do Baile", lambda n: n == "Banda do Baile", lambda t: t == "Coisa Feita")
+    assert abertos[:3] == ["100", "101", "102"] and "103" not in abertos  # 3 álbuns de outros: a página é deixada de lado
+    assert abertos[3:] == [str(n) for n in range(200, 210)]  # no cadastro certo, no máximo 10 álbuns
+    assert achados == []  # a faixa estava no 16º álbum: fora do limite
+
+    abertos.clear()
+    paginas[("_albuns_do_artista", "2")] = [["215", "Disco 215"]] + [[str(n), f"Disco {n}"] for n in range(200, 210)]
+    (achado,) = claro.buscar_pelo_artista("Banda do Baile", lambda n: n == "Banda do Baile", lambda t: t == "Coisa Feita")
+    assert achado.titulo == "Coisa Feita" and achado.album == "215"
+
+
 def test_claro_procura_pela_pagina_do_artista_quando_a_busca_nao_traz_a_faixa(rel):
     from types import SimpleNamespace
     from creditos import claro as _claro
