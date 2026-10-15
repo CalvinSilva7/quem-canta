@@ -50,7 +50,22 @@ def tamanho_da_janela(monitores=None) -> list[str]:
         return []
     monitor = monitor_da_coleta(monitores)
     posicao = [f"--window-position={monitor['left'] + 40},{monitor['top'] + 40}"] if monitor else []
-    return posicao + ["--window-size=1280,800", "--start-maximized"]
+    return posicao + ["--window-size=1280,800"]
+
+
+def maximizar(pagina) -> None:
+    """No print de tela inteira, maximiza a janela da página no monitor em que ela abriu. O "--start-maximized" do
+    Chromium é ignorado no navegador automatizado (visto no Windows, 15/10/2026): quem maximiza é o próprio
+    navegador, pela conexão de controle. Se não der, a janela fica como abriu e a pessoa maximiza à mão."""
+    if not captura.TELA_INTEIRA:
+        return
+    try:
+        cdp = pagina.context.new_cdp_session(pagina)
+        janela = cdp.send("Browser.getWindowForTarget")["windowId"]
+        cdp.send("Browser.setWindowBounds", {"windowId": janela, "bounds": {"windowState": "maximized"}})
+        cdp.detach()
+    except Exception:
+        pass
 _BLOQUEIO_NA_URL = ("accounts.google.com", "google.com/sorry", "consent.youtube.com", "consent.google.com",
                     "accounts.spotify.com", "challenge.spotify.com", "login.tidal.com", "account.deezer.com",
                     "idmsa.apple.com", "/captcha", "amazon.com.br/ap/signin", "amazon.com/ap/signin", "/errors/validateCaptcha")
@@ -147,6 +162,7 @@ class Navegador:
                 contexto = self._navegador.new_context(**tamanho_da_pagina(), locale="pt-BR", timezone_id=captura.FUSO)
             contexto.add_init_script(f"({captura.TRAVA_DE_TRADUCAO})()")
             self._pagina = (contexto.pages[0] if self.perfil and contexto.pages else contexto.new_page())
+            maximizar(self._pagina)
         return self._pagina
 
     def __exit__(self, *erro):

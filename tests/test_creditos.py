@@ -2255,7 +2255,7 @@ def test_tela_inteira_abre_a_janela_maximizada_no_monitor_livre(monkeypatch):
     monkeypatch.setattr(captura, "TELA_INTEIRA", False)
     assert navegador.tamanho_da_janela([principal, segundo]) == []  # print comum: nada muda
     monkeypatch.setattr(captura, "TELA_INTEIRA", True)
-    assert navegador.tamanho_da_janela([principal, segundo]) == ["--window-position=1960,40", "--window-size=1280,800", "--start-maximized"]
+    assert navegador.tamanho_da_janela([principal, segundo]) == ["--window-position=1960,40", "--window-size=1280,800"]
     assert navegador.tamanho_da_janela([principal])[0] == "--window-position=40,40"  # um monitor só: ele mesmo
     esquerda = {"left": -1920, "top": 0, "width": 1920, "height": 1080}  # segundo monitor à esquerda do principal
     assert navegador.monitor_da_coleta([principal, esquerda]) == esquerda

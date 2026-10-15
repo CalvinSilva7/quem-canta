@@ -205,7 +205,7 @@ class YouTubeMusic:
         if self._pagina is None:
             from playwright.sync_api import sync_playwright
 
-            from .navegador import FORA_DA_TELA, preparar_asyncio, tamanho_da_janela, tamanho_da_pagina
+            from .navegador import FORA_DA_TELA, maximizar, preparar_asyncio, tamanho_da_janela, tamanho_da_pagina
 
             preparar_asyncio()
             self._pw = sync_playwright().start()
@@ -217,6 +217,7 @@ class YouTubeMusic:
             contexto = self._navegador.new_context(**tamanho_da_pagina(), locale="pt-BR", timezone_id=captura.FUSO)
             contexto.add_init_script(f"({captura.TRAVA_DE_TRADUCAO})()")
             self._pagina = contexto.new_page()
+            maximizar(self._pagina)
         return self._pagina
 
     def __exit__(self, *erro):
