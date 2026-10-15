@@ -382,15 +382,15 @@ with area_da_coleta:
     # A Apple Music e o Vagalume não entram na coleta de prints: o escritório não usa prints dessas duas. A Apple
     # Music continua valendo na busca de intérpretes, na outra aba.
     NOMES_DAS_PLATAFORMAS = {"deezer": "Deezer (com login)", "youtube": "YouTube Music", "spotify": "Spotify", "tidal": "Tidal",
-                             "palco": "Palco MP3", "amazon": "Amazon Music (site)",
-                             "amazon_app": "Amazon Music (aplicativo de desktop)", "claro": "Claro Música (com login)"}
+                             "palco": "Palco MP3", "amazon": "Amazon Music (aplicativo de desktop e site)",
+                             "claro": "Claro Música (com login)"}
     from creditos import pipeline as _pipeline
 
     escolhidas = st.multiselect(
-        "Plataformas", list(NOMES_DAS_PLATAFORMAS), default=[p for p in NOMES_DAS_PLATAFORMAS if p not in ("amazon_app", "claro")],
+        "Plataformas", list(NOMES_DAS_PLATAFORMAS), default=[p for p in NOMES_DAS_PLATAFORMAS if p not in ("amazon", "claro")],
         format_func=NOMES_DAS_PLATAFORMAS.get,
-        help="Só as plataformas marcadas são verificadas. O aplicativo de desktop da Amazon Music vem desmarcado: só funciona no Windows, com o "
-        "aplicativo instalado e a conta do escritório já logada nele. A Claro Música também vem desmarcada: só mostra as "
+        help="Só as plataformas marcadas são verificadas. A Amazon Music vem desmarcada: começa pelo aplicativo de desktop, que só funciona no "
+        "Windows, com o aplicativo instalado e a conta do escritório já logada nele. A Claro Música também vem desmarcada: só mostra as "
         "músicas a quem está logado. A Deezer tira os prints logada na conta.",
     )
     if "deezer" in escolhidas:
@@ -419,11 +419,13 @@ with area_da_coleta:
 
             threading.Thread(target=_claro.entrar, args=(_pipeline.perfil_da_claro(pasta_do_caso),), daemon=True).start()
             st.info("Janela aberta. Faça o login na Claro Música, feche a janela e só então clique em **Coletar e classificar**.")
-    if "amazon_app" in escolhidas:
+    if "amazon" in escolhidas:
         st.warning(
-            "**Amazon Music (aplicativo de desktop):** é no aplicativo que a Amazon mostra o compositor. O app vai **fechar e "
-            "abrir de novo o Amazon Music** para poder controlá-lo, e usa a conta que já estiver logada nele: não digita senha "
-            "nem faz login. Não use o aplicativo enquanto a coleta roda."
+            "**Amazon Music:** primeiro o aplicativo de desktop, que é onde a Amazon mostra o compositor: dois prints por "
+            "música (o menu e a janela de créditos). Depois, só para as músicas em que o compositor não aparece no "
+            "aplicativo, o print da mesma música no site, que não tem tela de créditos. O app vai **fechar e abrir de novo "
+            "o Amazon Music** para poder controlá-lo, e usa a conta que já estiver logada nele: não digita senha nem faz "
+            "login. Não use o aplicativo enquanto a coleta roda."
         )
     mostrar_navegador = st.checkbox(
         "Mostrar a janela do navegador enquanto coleta", value=False,

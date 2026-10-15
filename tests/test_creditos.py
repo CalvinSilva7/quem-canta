@@ -1642,6 +1642,30 @@ def test_amazon_app_classifica_pelos_compositores_e_guarda_os_dois_prints(rel):
     assert errada.link == "https://music.amazon.com.br/albums/A2?trackAsin=T2" and "aplicativo de desktop" in errada.classificacao.fundamento
 
 
+def test_amazon_primeiro_o_aplicativo_depois_o_site_so_para_as_sem_o_titular(rel):
+    web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original"), ("A2", "T2", "Coisa Feita", "Fulana & Beltrano"),
+                                              ("A3", "T3", "Coisa Feita (Ao Vivo)", "Cantora Original")]})
+    def lida(faixa, creditos):
+        return _amazon_app.Leitura(faixa=faixa, titulo="Coisa Feita", creditos=creditos, tem_item_de_creditos=bool(creditos),
+                                   provas=[f"menu-{faixa}", f"creditos-{faixa}"])
+    app = AppFalso({"T1": lida("T1", ["Zeca Lima"]), "T2": lida("T2", ["Outro Autor"]), "T3": lida("T3", [])})
+    no_app, no_site = pipeline.coletar_amazon_completa(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, app, [],
+                                                       {"COISA FEITA": ["Cantora Original", "Fulana e Beltrano"]}, limite_de_obras=2)
+    assert (no_app.plataforma, no_site.plataforma) == ("AMAZON", "AMAZON - SITE")
+    assert app.lidos == ["T1", "T3", "T2"] and len(no_app.gravacoes) == 3
+    # no site, só as que o aplicativo mostrou sem o titular (crédito de outros e sem créditos), sem buscar de novo
+    assert web.lidos == ["T3", "T2"] and sorted(g.link[-2:] for g in no_site.gravacoes) == ["T2", "T3"]
+    assert all(g.provas == [f"prova-{g.link[-2:]}"] for g in no_site.gravacoes)
+
+    # sem o aplicativo, o site não fotografa nada: não dá para saber quais músicas estão sem o titular
+    web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original")]})
+    app = AppFalso({}, falha=_amazon_app.AplicativoIndisponivel("o aplicativo Amazon Music não foi encontrado neste computador"))
+    no_app, no_site = pipeline.coletar_amazon_completa(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, app, [],
+                                                       {"COISA FEITA": ["Cantora Original"]}, limite_de_obras=2)
+    assert no_app.interrompida and web.lidos == [] and no_site.gravacoes == [] and "aplicativo de desktop parou" in no_site.avisos[-1]
+    assert pipeline.estimar_minutos(10, ["amazon"]) > pipeline.estimar_minutos(10, []) + 5  # as duas etapas contam
+
+
 def test_amazon_app_sem_o_aplicativo_a_coleta_para_e_avisa_sem_inventar_nada(rel, tmp_path, monkeypatch):
     web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original")]})
     app = AppFalso({}, falha=_amazon_app.AplicativoIndisponivel("o aplicativo Amazon Music não foi encontrado neste computador"))

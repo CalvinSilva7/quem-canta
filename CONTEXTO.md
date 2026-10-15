@@ -85,7 +85,13 @@ e `perfil-deezer`, fora dos casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados
 | Spotify | Busca do site (cada consulta também na forma enxuta) | Janela "Créditos" | Validado no Mac e no Windows (0.5.36): 10 de 10 e 4 de 4. As leituras anteriores à 0.5.35 podiam trazer violação falsa |
 | Tidal | Página do artista (fraco) | Tocador com a aba "Créditos" (prévia de 30 s, sem login) | **3 de 13 no gabarito.** Ver seção 6 |
 | Amazon (aplicativo) | Busca do site, depois o aplicativo de desktop | 2 por música: menu com "Créditos" e janela de créditos | Validado no Windows: 9 de 9 e 5 de 5 |
-| Amazon (site) | Busca do site | Menu da faixa, sem item de créditos | Funciona; a busca acha poucas faixas |
+| Amazon (site) | As mesmas faixas do aplicativo, só as que vieram sem o titular nele | Menu da faixa, sem item de créditos | Funciona; a busca acha poucas faixas. Desde a 0.5.49 não roda sozinho (ver abaixo) |
+
+**Amazon é uma escolha só** (decisão do dono em 15/10/2026, 0.5.49), como o escritório faz à mão: primeiro o
+aplicativo de desktop em todas as músicas; depois, só para as que vieram sem o titular no aplicativo (sem créditos
+ou crédito de outros), o print do menu da mesma faixa no site, que não tem tela de créditos. Saem duas pastas de
+provas, "Amazon Music (aplicativo)" e "Amazon Music (site)". Sem o aplicativo (Mac, ou programa não instalado), o
+site não fotografa nada: não dá para saber quais músicas estão sem o titular. `coletar_amazon_completa`.
 | Claro Música | Lista de músicas da busca, logado; página do artista como último recurso | Álbum com o menu da faixa e o cartão "Informações e créditos" | Validado no Windows: 5 de 6 (a sexta é link errado no gabarito) |
 | Palco MP3 | Caixa de busca do site | Página da música; 2º print (página de créditos) quando o site corta a linha | Validado no Windows com gabarito de 2026: 3 de 3 e 5 de 6. Com o gabarito de 2024 diverge, porque o site mudou |
 | Vagalume | Site de letras | Fora da coleta de prints (decisão do dono) | Código mantido, não exposto na tela |

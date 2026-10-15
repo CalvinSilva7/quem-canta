@@ -434,9 +434,10 @@ def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obr
 
 
 def coletar_amazon(relatorio: Relatorio, config: Config, amazon, recorrentes=(), pares=None, limite_de_obras=None,
-                   por_interprete=2, ao_avancar=None) -> Coleta:
+                   por_interprete=2, ao_avancar=None, fila=None) -> Coleta:
     """Amazon Music na web: acha a faixa de cada intérprete ligado ao titular e fotografa o menu dela, que não tem
-    item de créditos. É um print por música."""
+    item de créditos. É um print por música. Com `fila` ([(candidato, título da obra, consulta)]), não busca nada:
+    abre só essas faixas (as que o aplicativo de desktop mostrou sem o titular, em `coletar_amazon_completa`)."""
     from types import SimpleNamespace
     from .captura import PaginaTraduzida
     from .navegador import Bloqueio
@@ -445,7 +446,8 @@ def coletar_amazon(relatorio: Relatorio, config: Config, amazon, recorrentes=(),
     coleta = Coleta("AMAZON - SITE", sementes=_principais(relatorio, config, recorrentes))
     lidas = []
     try:
-        fila = _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, "Amazon Music")
+        if fila is None:
+            fila = _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, "Amazon Music")
         for i, (cand, titulo, consulta) in enumerate(fila, start=1):
             avisar(f"Amazon Music: lendo faixa {i}/{len(fila)}")
             leitura = amazon.ler(cand, titulo)
@@ -537,7 +539,7 @@ def coletar_palco(relatorio: Relatorio, config: Config, palco, recorrentes=(), p
 
 # As pastas em que cada plataforma guarda, dentro do caso, o que leu e os prints que tirou.
 PASTAS_DO_CASO = {"deezer": ["deezer"], "apple": ["apple", "apple-music"], "youtube": ["youtube"], "spotify": ["spotify"],
-                  "tidal": ["tidal"], "vagalume": ["vagalume"], "amazon": ["amazon-site"], "amazon_app": ["amazon-app"], "claro": ["claro"], "palco": ["palco-mp3"]}
+                  "tidal": ["tidal"], "vagalume": ["vagalume"], "amazon": ["amazon-app", "amazon-site"], "amazon_app": ["amazon-app"], "claro": ["claro"], "palco": ["palco-mp3"]}
 
 
 def limpar_o_guardado(pasta_do_caso, plataformas) -> list[str]:
@@ -569,9 +571,10 @@ def perfil_da_deezer(pasta_do_caso) -> Path:
 
 
 def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo, recorrentes=(), pares=None, limite_de_obras=None,
-                       por_interprete=2, ao_avancar=None) -> Coleta:
+                       por_interprete=2, ao_avancar=None, abertas=None) -> Coleta:
     """Amazon Music no aplicativo de desktop: as faixas são achadas pela busca do site (`amazon`) e abertas no
-    aplicativo (`aplicativo`), que é onde aparece o item "Créditos" com os compositores. Dois prints por música."""
+    aplicativo (`aplicativo`), que é onde aparece o item "Créditos" com os compositores. Dois prints por música.
+    Em `abertas` (uma lista), ficam as faixas que o aplicativo abriu: [(candidato, título da obra, consulta)]."""
     from types import SimpleNamespace
     from .amazon_app import SEM_CREDITO_NA_JANELA, AplicativoIndisponivel
     from .captura import PaginaTraduzida
@@ -586,6 +589,8 @@ def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo,
         for i, (cand, titulo, consulta) in enumerate(fila, start=1):
             avisar(f"{nome}: lendo faixa {i}/{len(fila)}")
             leitura = aplicativo.ler(cand, titulo)
+            if abertas is not None:
+                abertas.append((cand, titulo, consulta))
             # leitura guardada por versão antiga pode trazer, como se fosse nome, o aviso "Créditos indisponíveis" da janela
             creditos = [n for n in leitura.creditos if not normalizar(n).startswith(SEM_CREDITO_NA_JANELA)]
             faixa = SimpleNamespace(titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=creditos,
@@ -597,6 +602,24 @@ def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo,
     _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
     coleta.albuns_lidos, coleta.requisicoes, coleta.segundos = len(lidas), aplicativo.navegacoes, time.monotonic() - inicio
     return coleta
+
+
+def coletar_amazon_completa(relatorio: Relatorio, config: Config, amazon, aplicativo, recorrentes=(), pares=None,
+                            limite_de_obras=None, por_interprete=2, ao_avancar=None) -> list[Coleta]:
+    """Amazon Music como o escritório faz à mão (decisão do dono, 15/10/2026): primeiro o aplicativo de desktop, em
+    todas as músicas, com os dois prints (menu e janela de créditos). Depois, só para as músicas em que o titular
+    não aparece no aplicativo (sem créditos ou crédito de outros), o print do menu da mesma faixa no site, que não
+    tem tela de créditos. Saem duas coletas, "AMAZON" (aplicativo) e "AMAZON - SITE", cada uma com as suas provas."""
+    abertas = []
+    no_aplicativo = coletar_amazon_app(relatorio, config, amazon, aplicativo, recorrentes, pares, limite_de_obras,
+                                       por_interprete, ao_avancar, abertas=abertas)
+    negativas = {g.link for g in no_aplicativo.gravacoes if g.classificacao.status in c.NEGATIVOS}
+    fila = [item for item in abertas if item[0].link in negativas]
+    no_site = coletar_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, ao_avancar, fila=fila)
+    if no_aplicativo.interrompida:
+        no_site.avisos.append("O aplicativo de desktop parou antes do fim: o site só fotografou as músicas que o aplicativo já "
+                              "tinha lido sem o titular. Rode de novo para continuar.")
+    return [no_aplicativo, no_site]
 
 
 def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), pares=None, limite_de_obras=None,
@@ -1256,13 +1279,19 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
 # Tempo da primeira coleta, medido nos dois primeiros casos (um de 47 e um de 119 títulos, 10 a 20 obras cada).
 # Segundos por obra em cada plataforma, mais um tempo fixo. É uma ordem de grandeza, não uma promessa: depende
 # de quantas gravações cada obra tem e de quantos intérpretes aparecem.
-SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0, "amazon": 25, "amazon_app": 35, "claro": 25, "palco": 25}
+SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0, "amazon": 10, "amazon_app": 35, "claro": 25, "palco": 25}
 SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 420, "vagalume": 30, "amazon": 20, "amazon_app": 60, "claro": 20, "palco": 20}
+
+
+def com_as_etapas_da_amazon(plataformas) -> set:
+    """A Amazon Music é uma escolha só, mas roda em duas etapas: o aplicativo de desktop e, depois, o site."""
+    pedidas = set(plataformas)
+    return pedidas | {"amazon_app"} if "amazon" in pedidas else pedidas
 
 
 def estimar_minutos(obras: int, plataformas) -> int:
     """Minutos estimados para a primeira coleta de `obras` títulos nas plataformas pedidas."""
-    pedidas = set(plataformas)
+    pedidas = com_as_etapas_da_amazon(plataformas)
     segundos = sum(SEGUNDOS_POR_OBRA.get(p, 0) * obras + SEGUNDOS_FIXOS.get(p, 0) for p in pedidas)
     return max(1, round(segundos / 60))
 
@@ -1415,17 +1444,14 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                 from .palco import Palco
                 coletas.append(ajustar(coletar_palco(relatorio, config, Palco(nav, pasta / "palco-mp3", so_o_que_ja_foi_lido),
                                                      recorrentes, pares, limite, ao_avancar=ao_avancar)))
-            if "amazon" in pedidas:
-                from .amazon import AmazonWeb
-                coletas.append(ajustar(coletar_amazon(relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido),
-                                                      recorrentes, pares, limite, ao_avancar=ao_avancar)))
-            if "amazon_app" in pedidas:
+            if pedidas & {"amazon", "amazon_app"}:
+                # Uma Amazon só: primeiro o aplicativo de desktop, depois o site para as que vieram sem o titular.
                 from .amazon import AmazonWeb
                 from .amazon_app import AmazonApp
                 with AmazonApp(pasta / "amazon-app", ao_avancar, so_o_que_ja_foi_lido) as aplicativo:
-                    coletas.append(ajustar(coletar_amazon_app(
+                    coletas += [ajustar(k) for k in coletar_amazon_completa(
                         relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido), aplicativo,
-                        recorrentes, pares, limite, ao_avancar=ao_avancar)))
+                        recorrentes, pares, limite, ao_avancar=ao_avancar)]
             if falta_print:
                 preparos = {"VAGALUME": abrir_autoria_do_vagalume, "APPLE MUSIC": abrir_creditos_da_apple}
                 for coleta in coletas:

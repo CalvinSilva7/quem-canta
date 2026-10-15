@@ -12,7 +12,7 @@ import time
 
 from . import pipeline
 
-ETAPAS = ["deezer", "apple", "vagalume", "youtube", "claro", "spotify", "tidal", "palco", "amazon", "amazon_app"]  # a ordem em que a coleta acontece
+ETAPAS = ["deezer", "apple", "vagalume", "youtube", "claro", "spotify", "tidal", "palco", "amazon_app", "amazon"]  # a ordem em que a coleta acontece
 PRINTS = "prints"
 NOMES = {"deezer": "Deezer", "apple": "Apple Music", "vagalume": "Vagalume", "youtube": "YouTube Music",
          "spotify": "Spotify", "tidal": "Tidal", "amazon": "Amazon Music", "amazon_app": "Amazon Music (aplicativo)", "claro": "Claro Música", "palco": "Palco MP3", PRINTS: "Prints das provas"}
@@ -42,7 +42,7 @@ class Andamento:
     """Recebe os avisos da coleta (é o `ao_avancar` dela) e responde quanto já foi feito."""
 
     def __init__(self, obras: int, plataformas, agora=time.monotonic, prints=True):
-        pedidas = set(plataformas)
+        pedidas = pipeline.com_as_etapas_da_amazon(plataformas)
         self.etapas = [e for e in ETAPAS if e in pedidas] + ([PRINTS] if prints else [])
         self.pesos = {e: pipeline.SEGUNDOS_POR_OBRA.get(e, 0) * obras + pipeline.SEGUNDOS_FIXOS.get(e, 0) for e in self.etapas}
         if prints:

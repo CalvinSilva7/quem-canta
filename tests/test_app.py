@@ -148,9 +148,9 @@ def test_tela_coleta_e_oferece_planilha_e_pacote_de_provas(tmp_path, monkeypatch
     at.session_state["conferidos"] = CONFERIDOS
     at.run()
     # todas as que não pedem conta, por padrão; a Apple Music e o Vagalume não entram na coleta de prints
-    assert at.multiselect[0].value == ["deezer", "youtube", "spotify", "tidal", "palco", "amazon"]
-    # o aplicativo da Amazon e a Claro Música (que pede login) existem, mas vêm desmarcados
-    assert at.multiselect[0].options[-2:] == ["Amazon Music (aplicativo de desktop)", "Claro Música (com login)"]
+    assert at.multiselect[0].value == ["deezer", "youtube", "spotify", "tidal", "palco"]
+    # a Amazon (que começa pelo aplicativo de desktop) e a Claro Música (que pede login) existem, mas vêm desmarcadas
+    assert at.multiselect[0].options[-2:] == ["Amazon Music (aplicativo de desktop e site)", "Claro Música (com login)"]
     at.multiselect[0].set_value(["deezer", "spotify"]).run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
     assert not at.exception
