@@ -439,9 +439,9 @@ with area_da_coleta:
     )
     if tela_inteira:
         st.warning(
-            "Com esta opção, o navegador do app abre **visível**. Assim que ele abrir, **arraste a janela para um monitor "
-            "que vai ficar livre, maximize-a** e trabalhe no outro. Não cubra nem minimize essa janela durante a coleta. "
-            "Tudo o que estiver nesse monitor sai no print: feche ali o que não pode aparecer."
+            "Com esta opção, o navegador do app abre **visível e já maximizado**. Com dois monitores, ele abre no que **não** "
+            "é o principal: trabalhe no principal. Com um monitor só, ele ocupa a tela toda. Não cubra nem minimize essa "
+            "janela durante a coleta. Tudo o que estiver nesse monitor sai no print: feche ali o que não pode aparecer."
         )
     titulos_do_relatorio = len(conferidos) if conferidos else len({o.titulo for o in relatorio.obras})
     limite = None

@@ -26,9 +26,31 @@ def tamanho_da_pagina() -> dict:
     return {"no_viewport": True} if captura.TELA_INTEIRA else {"viewport": JANELA}
 
 
-def tamanho_da_janela() -> list[str]:
-    """No print de tela inteira, a janela abre num tamanho que cabe em qualquer monitor; depois é só maximizar."""
-    return ["--window-size=1280,800"] if captura.TELA_INTEIRA else []
+def monitor_da_coleta(monitores=None) -> dict | None:
+    """O monitor em que a janela abre no print de tela inteira: com mais de um, o primeiro que não é o principal (o
+    principal começa no canto 0,0), para a pessoa seguir trabalhando nele; com um só, ele mesmo. Sem como saber
+    (falta o componente de captura), None."""
+    if monitores is None:
+        try:
+            import mss
+
+            with mss.mss() as telas:
+                monitores = [dict(m) for m in telas.monitors[1:]]
+        except Exception:
+            return None
+    if not monitores:
+        return None
+    return next((m for m in monitores if (m["left"], m["top"]) != (0, 0)), monitores[0])
+
+
+def tamanho_da_janela(monitores=None) -> list[str]:
+    """No print de tela inteira, a janela já abre maximizada, no monitor livre (`monitor_da_coleta`): decisão do dono
+    em 15/10/2026, para a coleta poder ficar rodando sem ninguém arrastar janela."""
+    if not captura.TELA_INTEIRA:
+        return []
+    monitor = monitor_da_coleta(monitores)
+    posicao = [f"--window-position={monitor['left'] + 40},{monitor['top'] + 40}"] if monitor else []
+    return posicao + ["--window-size=1280,800", "--start-maximized"]
 _BLOQUEIO_NA_URL = ("accounts.google.com", "google.com/sorry", "consent.youtube.com", "consent.google.com",
                     "accounts.spotify.com", "challenge.spotify.com", "login.tidal.com", "account.deezer.com",
                     "idmsa.apple.com", "/captcha", "amazon.com.br/ap/signin", "amazon.com/ap/signin", "/errors/validateCaptcha")
