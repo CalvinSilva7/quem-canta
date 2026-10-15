@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.47",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.47/quem-canta-0.5.47-windows.zip",
-  "sha256": "5a6f061f1e306fa349b8193fd8135fa970fb9f162a347140ee5f56220a3b479d",
-  "notas": "Deezer com login (botão Entrar na Deezer) e dois prints por música: o menu e o painel de créditos. As provas agora vêm também em Word, além do PDF."
+  "versao": "0.5.48",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.48/quem-canta-0.5.48-windows.zip",
+  "sha256": "250a5a8bf257e1793b7563544837c3ab438c2b60e310a7a007aeca7c4241877b",
+  "notas": "YouTube Music: vídeos de karaokê ficam fora da coleta. Claro Música: página que não abre não derruba mais a coleta; o app tenta de novo e avisa no resumo."
 }
