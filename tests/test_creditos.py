@@ -1666,6 +1666,25 @@ def test_amazon_primeiro_o_aplicativo_depois_o_site_so_para_as_sem_o_titular(rel
     assert pipeline.estimar_minutos(10, ["amazon"]) > pipeline.estimar_minutos(10, []) + 5  # as duas etapas contam
 
 
+def test_amazon_app_abre_cada_obra_no_aplicativo_antes_de_buscar_a_seguinte(rel):
+    passos = []
+    class Web(AmazonFalsa):
+        def buscar(self, consulta):
+            passos.append(f"busca {consulta}")
+            return super().buscar(consulta)
+    class App(AppFalso):
+        def ler(self, cand, obra):
+            passos.append(f"aplicativo {cand.faixa}")
+            return super().ler(cand, obra)
+    web = Web(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original")], "LIGUE O RADIO": [("A2", "T2", "Ligue o Rádio", "Banda do Baile")]})
+    lida = lambda faixa, titulo: _amazon_app.Leitura(faixa=faixa, titulo=titulo, creditos=["Zeca Lima"], tem_item_de_creditos=True)
+    app = App({"T1": lida("T1", "Coisa Feita"), "T2": lida("T2", "Ligue o Rádio")})
+    pipeline.coletar_amazon_app(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, app, [],
+                                {"COISA FEITA": ["Cantora Original"], "LIGUE O RADIO": ["Banda do Baile"]})
+    # o relatório de teste traz LIGUE O RADIO antes de COISA FEITA
+    assert passos.index("aplicativo T2") < passos.index("busca COISA FEITA") < passos.index("aplicativo T1")
+
+
 def test_amazon_app_sem_o_aplicativo_a_coleta_para_e_avisa_sem_inventar_nada(rel, tmp_path, monkeypatch):
     web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original")]})
     app = AppFalso({}, falha=_amazon_app.AplicativoIndisponivel("o aplicativo Amazon Music não foi encontrado neste computador"))

@@ -28,7 +28,8 @@ FASES = {
     "amazon": [("buscando", 0.0, 0.4), ("lendo faixa", 0.4, 1.0)],
     "claro": [("buscando", 0.0, 0.4), ("lendo faixa", 0.4, 1.0)],
     "palco": [("buscando", 0.0, 0.4), ("lendo faixa", 0.4, 1.0)],
-    "amazon_app": [("buscando", 0.0, 0.2), ("abrindo", 0.2, 0.25), ("lendo faixa", 0.25, 1.0)],
+    # busca e leitura se alternam, obra por obra: as duas medem o andamento pelo número da obra
+    "amazon_app": [("buscando", 0.0, 1.0), ("lendo faixa", 0.0, 1.0)],
     PRINTS: [("print", 0.0, 1.0)],
 }
 _CONTAGEM = re.compile(r"(\d+)\s*/\s*(\d+)\s*$")

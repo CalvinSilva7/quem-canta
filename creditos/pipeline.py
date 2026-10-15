@@ -393,8 +393,16 @@ def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obr
     """As faixas da Amazon Music a abrir: [(candidato, título da obra, consulta)]. A busca é a do site, que não pede
     login e funciona melhor só com o título; por isso vai o título e, depois, o título com cada intérprete.
     De cada intérprete entram até `por_interprete` faixas por obra."""
+    return [item for _, _, grupo in _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete,
+                                                       coleta, avisar, nome, so_o_titulo) for item in grupo]
+
+
+def _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, nome,
+                     so_o_titulo=False):
+    """O mesmo que `_fila_da_amazon`, obra por obra: dá (número da obra, total de obras, faixas dela) assim que a
+    busca daquela obra termina, para quem quiser abrir as faixas antes de buscar a obra seguinte."""
     principais = _principais(relatorio, config, recorrentes)
-    fila, vistos = [], set()
+    vistos = set()
     titulos = _titulos(relatorio, limite_de_obras, coleta, nome)
     for i, (base, titulo) in enumerate(titulos, start=1):
         avisar(f"{nome}: buscando {i}/{len(titulos)}")
@@ -429,8 +437,7 @@ def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obr
                     if cand.faixa not in vistos:
                         vistos.add(cand.faixa)
                         por_nome.setdefault(tuple(_palavras(n)), []).append((cand, titulo, f"página do artista {n}"))
-        fila += [item for grupo in por_nome.values() for item in grupo]
-    return fila
+        yield i, len(titulos), [item for grupo in por_nome.values() for item in grupo]
 
 
 def coletar_amazon(relatorio: Relatorio, config: Config, amazon, recorrentes=(), pares=None, limite_de_obras=None,
@@ -585,18 +592,21 @@ def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo,
     coleta = Coleta("AMAZON", sementes=_principais(relatorio, config, recorrentes))
     lidas = []
     try:
-        fila = _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, nome)
-        for i, (cand, titulo, consulta) in enumerate(fila, start=1):
-            avisar(f"{nome}: lendo faixa {i}/{len(fila)}")
-            leitura = aplicativo.ler(cand, titulo)
-            if abertas is not None:
-                abertas.append((cand, titulo, consulta))
-            # leitura guardada por versão antiga pode trazer, como se fosse nome, o aviso "Créditos indisponíveis" da janela
-            creditos = [n for n in leitura.creditos if not normalizar(n).startswith(SEM_CREDITO_NA_JANELA)]
-            faixa = SimpleNamespace(titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=creditos,
-                                    link=cand.link, coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
-                                    nota="lido no aplicativo de desktop da Amazon Music; o link é o da mesma faixa no site")
-            lidas.append((faixa, SimpleNamespace(titulo=leitura.album, fornecedor="", lancamento=""), f'busca "{consulta}"'))
+        # Música por música (decisão do dono, 15/10/2026): cada obra é buscada no site e as faixas dela já vão para o
+        # aplicativo, antes da obra seguinte. Assim o aplicativo abre nos primeiros minutos, e não depois de horas de busca.
+        for i, total, faixas in _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete,
+                                                 coleta, avisar, nome):
+            for cand, titulo, consulta in faixas:
+                avisar(f"{nome}: lendo faixa da obra {i}/{total}")
+                leitura = aplicativo.ler(cand, titulo)
+                if abertas is not None:
+                    abertas.append((cand, titulo, consulta))
+                # leitura guardada por versão antiga pode trazer, como se fosse nome, o aviso "Créditos indisponíveis" da janela
+                creditos = [n for n in leitura.creditos if not normalizar(n).startswith(SEM_CREDITO_NA_JANELA)]
+                faixa = SimpleNamespace(titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=creditos,
+                                        link=cand.link, coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
+                                        nota="lido no aplicativo de desktop da Amazon Music; o link é o da mesma faixa no site")
+                lidas.append((faixa, SimpleNamespace(titulo=leitura.album, fornecedor="", lancamento=""), f'busca "{consulta}"'))
     except (Bloqueio, PaginaTraduzida, AplicativoIndisponivel) as e:
         _parar(coleta, e)
     _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
