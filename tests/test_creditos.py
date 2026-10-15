@@ -617,6 +617,21 @@ def test_youtube_so_abre_faixa_de_quem_tem_ligacao_com_o_titular(rel):
     assert 'canal "Canal de Fã"' in sem.classificacao.fundamento and "título do vídeo" in sem.vinculo
 
 
+def test_youtube_karaoke_nao_e_aberto_nem_listado(rel):
+    ytm = YouTubeFalso(
+        buscas={"LIGUE O RADIO Banda do Baile": [
+            ("v1", "Ligue o Rádio", "Banda do Baile", "Álbum • 3:00", "Música"),
+            ("v2", "LIGUE O RÁDIO BANDA DO BAILE KARAOKÊ DO FULANO", "Canal de Fã", "500 visualizações", "Vídeo"),
+            ("v3", "Ligue o Rádio (Karaoke Version)", "Banda do Baile", "", "Vídeo"),
+        ]},
+        leituras={"v1": _leitura("v1", "Ligue o Rádio", "Banda do Baile", MENU_SEM)},
+    )
+    coleta = _youtube(rel, ytm)
+    assert ytm.lidos == ["v1"] and [g.link[-2:] for g in coleta.gravacoes] == ["v1"]
+    assert "2 vídeos de karaokê" in coleta.avisos[-1]
+    assert pipeline._e_karaoke("Karaokê da Vila", "KARAOKE DA VILA") is False  # a palavra faz parte da obra
+
+
 def test_youtube_erro_de_leitura_e_pagina_trocada_nunca_viram_sem_creditos(rel):
     ytm = YouTubeFalso(
         buscas={"LIGUE O RADIO Banda do Baile": [("v1", "Ligue o Rádio", "Banda do Baile", "", "Música"), ("v2", "Ligue o Rádio", "Banda do Baile", "", "Música")]},

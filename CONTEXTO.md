@@ -66,6 +66,10 @@ e `perfil-deezer`, fora dos casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados
   Decisão do dono: o compositor já disse que aquele intérprete gravou a obra dele.
 - Nome artístico de uma palavra seguido de sobrenome que o relatório não traz é "variante a confirmar", e não
   crédito errado. O dono pode cadastrar o nome em "Outros nomes artísticos do titular".
+- **Karaokê fica fora da coleta do YouTube Music** (decisão do dono em 15/10/2026, 0.5.48): vídeo com "karaokê" no
+  título não é aberto, não tem print e não entra na lista nem no PDF; o resumo diz quantos foram deixados de fora.
+  Se a própria obra tem "karaokê" no título, a palavra não conta. Cover, playback e parecidos continuam entrando
+  (só vão para o fim da fila de cada intérprete).
 - O que a plataforma escreve no lugar dos nomes ("Créditos indisponíveis", "Desconhecido") não é nome de autor:
   a faixa fica sem créditos.
 

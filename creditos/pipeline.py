@@ -931,6 +931,12 @@ _NUMEROS = {"1": "um", "2": "dois", "3": "tres", "4": "quatro", "5": "cinco", "6
 _DERIVADO = ("cover", "karaoke", "playback", "tipografia", "cifra", "coreografia", "como tocar", "aula", "tutorial", "status")
 
 
+def _e_karaoke(titulo_do_video: str, obra: str) -> bool:
+    """Vídeo de karaokê: não é a gravação do intérprete e fica fora da coleta. Se a própria obra tem "karaokê" no
+    título, a palavra não serve de sinal."""
+    return "karaoke" in _palavras(titulo_do_video) and "karaoke" not in _palavras(obra)
+
+
 def _visualizacoes(detalhe: str) -> float:
     """"1,1 mi de visualizações" -> 1100000; "58 mil visualizações" -> 58000. Sem a informação, zero."""
     import re
@@ -1142,6 +1148,7 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
     config_local = Config(config.nomes_confirmados, config.nomes_a_confirmar, config.interpretes, list(recorrentes))
     titulos = _titulos(relatorio, limite_de_obras, coleta, "YouTube Music")
     fila, vistos = [], set()  # (candidato, título da obra, nome que liga ao titular, consulta)
+    karaokes = 0
     try:
         for i, (base, titulo) in enumerate(titulos, start=1):
             avisar(f"YouTube Music: buscando {i}/{len(titulos)}")
@@ -1161,6 +1168,10 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
                     continue
                 for cand in achados:
                     if cand.video in vistos:
+                        continue
+                    if _e_karaoke(cand.titulo, titulo):  # decisão do dono, 15/10/2026: karaokê não entra na coleta
+                        vistos.add(cand.video)
+                        karaokes += 1
                         continue
                     ligacao = _e_da_obra(_titulo_do_video(cand.titulo, relatorio, ligados), titulo, relatorio)
                     if not ligacao:
@@ -1234,6 +1245,8 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
             f"A coleta do YouTube Music PAROU antes do fim ({coleta.interrompida}). O que já foi lido está salvo; "
             "rode de novo mais tarde para continuar de onde parou. Nada foi contornado."
         )
+    if karaokes:
+        coleta.avisos.append(f"{karaokes} vídeos de karaokê achados na busca do YouTube Music não foram abertos nem listados.")
     coleta.albuns_lidos = len(coleta.gravacoes)
     coleta.requisicoes, coleta.segundos = ytm.navegacoes, time.monotonic() - inicio
     coleta.bloqueadas = ytm.filtro.bloqueadas if ytm.filtro else 0
