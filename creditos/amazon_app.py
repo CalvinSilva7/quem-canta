@@ -36,8 +36,10 @@ ITEM_DE_CREDITOS = ("credito", "credit")
 # "Adicionar à fila" e "Adicionar à playlist" não servem: também estão na lista de playlists que o aplicativo
 # guarda escondida na página, e ela não pode passar por menu de faixa.
 ITENS_DA_FAIXA = ("compartilhar musica", "reproduzir musicas semelhantes", "share song", "play similar")
-# Itens que só existem nessa lista escondida: se aparecem, o que foi lido não é o menu da faixa.
-ITENS_DE_OUTRO_MENU = ("criar uma playlist", "minhas curtidas", "create playlist", "my likes")
+# Itens que só existem nessa lista escondida, ou no menu de um álbum: se aparecem, o que foi lido não é o menu da faixa.
+# O menu do álbum também tem "Reproduzir músicas semelhantes" e não tem "Créditos": aceito como menu da faixa, ele
+# virava "sem créditos" falso (visto em 10 faixas achadas pela busca do aplicativo, 16/10/2026).
+ITENS_DE_OUTRO_MENU = ("criar uma playlist", "minhas curtidas", "create playlist", "my likes", "compartilhar album", "share album")
 # Itens pelos quais se reconhece um menu de faixa aberto na tela (os do aplicativo e os do site).
 SINAIS_DE_MENU = ("adicionar a fila", "adicionar a playlist", "compartilhar musica", "reproduzir a proxima", "creditos",
                   "ver album", "ver artista", "compartilhar esta musica")
@@ -102,14 +104,24 @@ _ACHAR_ITEM = "(titulo, artista) => { " + _BASE + r""" const alvo = limpo(titulo
   const do_artista = (bloco) => { const texto = ' ' + limpo(folhas(bloco).map(proprio).join(' ')).replace(/[^a-z0-9]+/g, ' ') + ' ';
     return !nomes.length || nomes.every(p => texto.includes(' ' + p + ' ')); };
   const guardado = window.__quemcanta_alvo;
-  const iguais = anda(document).filter(x => proprio(x) && visivel(x) && limpo(proprio(x)) === alvo);
+  // A seção de cada resultado é o último título de seção antes dele, na ordem da página. Com a seção "Músicas" na tela,
+  // só valem os resultados dela: a seção "Álbuns" mostra o álbum de mesmo nome, e o menu dele não tem "Créditos".
+  const todos = anda(document);
+  const SECOES = ['musicas', 'albuns', 'artistas', 'playlists', 'podcasts', 'episodios', 'videoclipes', 'videos', 'estacoes', 'principais resultados', 'songs', 'albums', 'artists'];
+  const secao_de = (x) => { let atual = ''; for (const e of todos) { if (e === x) return atual;
+      const t = limpo(proprio(e)); if (SECOES.includes(t) && e.getBoundingClientRect().height > 0) atual = t; } return atual; };
+  const tem_musicas = todos.some(e => ['musicas', 'songs'].includes(limpo(proprio(e))) && e.getBoundingClientRect().height > 0);
+  const iguais = todos.filter(x => proprio(x) && x.getBoundingClientRect().height > 0 && limpo(proprio(x)) === alvo
+    && (!tem_musicas || ['musicas', 'songs'].includes(secao_de(x))));
+  // um resultado marcado "Álbum" (ou "Single", "EP", "Playlist") não é a música: o menu dele não tem "Créditos"
+  const e_de_album = (bloco) => folhas(bloco).some(f => /^(album|single|ep|playlist)$/.test(limpo(proprio(f))));
   for (const e of (guardado && iguais.includes(guardado) ? [guardado] : []).concat(iguais)) {
     // O bloco é o maior antepassado ainda baixo e estreito: é ele que traz a capa e os botões, além do texto.
     let bloco = null, atual = e;
     for (let i = 0; i < 10 && pai(atual); i++) { atual = pai(atual); const r = atual.getBoundingClientRect();
       if (r.height > 140 || r.width > innerWidth * 0.6) break;
       if (folhas(atual).length >= 2 && r.width >= 180) bloco = atual; }
-    if (bloco && do_artista(bloco)) { const r = bloco.getBoundingClientRect();
+    if (bloco && do_artista(bloco) && !e_de_album(bloco)) { const r = bloco.getBoundingClientRect();
       bloco.scrollIntoView({block: 'center'}); window.__quemcanta_linha = bloco;
       return {titulo: centro(e), bloco: (folhas(bloco).map(proprio).join(' | ')).slice(0, 160), largura: Math.round(r.width), classe: (bloco.className || '').toString().slice(0, 60)}; }
   }
@@ -450,7 +462,9 @@ class AmazonApp:
         arquivo = self.cache / f"{cand.faixa}.json"
         if arquivo.exists():
             guardada = Leitura(**json.loads(arquivo.read_text(encoding="utf-8")))
-            if captura.serve(self.pasta, guardada.provas) or self.so_o_que_ja_foi_lido:  # print sem tela inteira é refeito
+            # print sem tela inteira é refeito; leitura feita no menu de um álbum (antes da correção) também
+            menu_valido = not guardada.menu or interpretar_menu(guardada.menu) != "invalido"
+            if (captura.serve(self.pasta, guardada.provas) or self.so_o_que_ja_foi_lido) and menu_valido:
                 return guardada
         leitura = Leitura(faixa=cand.faixa, link=cand.link, titulo=cand.titulo, interprete=cand.interprete,
                           lido_em=captura.agora().isoformat(timespec="seconds"))
@@ -526,7 +540,13 @@ class AmazonApp:
         deixam a tela vazia, e a faixa ficava mais de um minuto sendo tentada à toa.
         """
         pagina = self.pagina
-        for caminho in (f"/album/detail/{cand.album}?id={cand.album}&asin={cand.album}",):
+        caminho = f"/album/detail/{cand.album}?id={cand.album}&asin={cand.album}"
+        # Indo direto da faixa anterior, o álbum às vezes não abre; voltando ao início e esperando, abre (visto no
+        # Windows, 16/10/2026). Por isso, uma segunda tentativa a partir da tela inicial.
+        for tentativa in (1, 2):
+            if tentativa == 2:
+                self._ir_para("/home")
+                pagina.wait_for_timeout(4000)
             self._ir_para(caminho)
             limite = time.monotonic() + 20
             while time.monotonic() < limite:
