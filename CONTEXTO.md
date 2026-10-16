@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 16/10/2026, versão 0.5.50. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 16/10/2026, versão 0.5.51. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
@@ -37,7 +37,7 @@ O app roda no computador de quem usa (Windows, no escritório). Não há servido
 | `creditos/saida.py`, `provas.py` | Planilha de obras, lista da petição e provas (PDF e Word) |
 | `creditos/captura.py`, `tela.py` | O print: faixa de carimbo, SHA-256, ficha `.json`; a foto do monitor inteiro |
 | `creditos/navegador.py` | O Chromium do app (Playwright): ritmo, sinais de bloqueio, perfil com sessão guardada |
-| `creditos/deezer.py`, `apple.py`, `ytmusic.py`, `spotify.py`, `tidal.py`, `amazon.py`, `amazon_app.py`, `claro.py`, `palco.py`, `vagalume.py` | Um coletor por plataforma |
+| `creditos/deezer.py`, `apple.py`, `ytmusic.py`, `spotify.py`, `tidal.py` (com `tidal_api.py`), `amazon.py`, `amazon_app.py`, `claro.py`, `palco.py`, `vagalume.py` | Um coletor por plataforma |
 | `creditos/cdp.py` | Conversa direta com a porta de depuração do aplicativo da Amazon (o Playwright não conecta nele) |
 | `creditos/ecad.py`, `ubc.py` | Leitura do relatório em PDF e em planilha |
 | `creditos/filtro.py` | O filtro do que pode sair do computador |
@@ -90,8 +90,8 @@ Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do `cantor
 | Apple Music | API do iTunes e página do álbum | Fora da coleta de prints (decisão do dono) | Só na busca de intérpretes. Recusa buscas (403/429) em relatório grande |
 | YouTube Music | Busca do site | Menu da faixa | Validado com três gabaritos (no terceiro, Mac, 0.5.38: 29 de 31 links; os 2 restantes saem "a confirmar" por grafia do título). Intérprete conferido vale com uma letra de diferença e, se a busca mostra os músicos no lugar da banda, o app consulta o canal do vídeo (oEmbed público, só o código do vídeo sai); tela inteira validada no Windows |
 | Spotify | Busca do site (cada consulta também na forma enxuta) | Janela "Créditos" | Validado no Mac e no Windows (0.5.36): 10 de 10 e 4 de 4. As leituras anteriores à 0.5.35 podiam trazer violação falsa |
-| Tidal | Página do artista (fraco) | Tocador com a aba "Créditos" (prévia de 30 s, sem login) | **3 de 13 no gabarito.** Ver seção 6 |
-| Amazon (aplicativo) | Busca do site, depois o aplicativo de desktop | 2 por música: menu com "Créditos" e janela de créditos | Validado no Windows: 9 de 9 e 5 de 5 |
+| Tidal | API oficial pelo ISRC da Deezer (0.5.51); sem as chaves, a busca do site (fraca) | Tocador com a aba "Créditos" (prévia de 30 s, sem login) | Pela API: 4 obras reais, 9 gravações achadas, 9 de 9 prints, sem bloqueio (Windows, 16/10/2026). Nunca rodou coleta grande. Antes: 3 de 13 |
+| Amazon (aplicativo) | Busca do site, depois o aplicativo de desktop | 2 por música: menu com "Créditos" e janela de créditos | Validado no Windows: 9 de 9 e 5 de 5. Na 0.5.51, 10 de 10 refeitas certas (ver seção 5: o menu do álbum) |
 | Amazon (site) | As mesmas faixas do aplicativo, só as que vieram sem o titular nele | Menu da faixa, sem item de créditos | Funciona; a busca acha poucas faixas. Desde a 0.5.49 não roda sozinho (ver abaixo) |
 
 **Amazon é uma escolha só** (decisão do dono em 15/10/2026, 0.5.49), como o escritório faz à mão: primeiro o
@@ -148,6 +148,13 @@ Vale ler antes de mexer na plataforma correspondente.
 - *Menus escondidos na página.* O aplicativo da Amazon guarda na página uma lista de playlists invisível, com
   itens parecidos com os do menu da faixa. O app leu essa lista e concluiu "sem créditos". Regra: ler só o que
   está à vista, e reconhecer o menu por itens que só ele tem.
+- *O menu do álbum no lugar do menu da música* (Amazon, aplicativo; corrigido na 0.5.51). Quando o álbum não abria,
+  a busca do aplicativo pegava o resultado da seção "Álbuns" com o mesmo nome. O menu do álbum não tem "Créditos" e
+  virou "sem créditos" falso em 10 músicas de um caso; refeitas, 9 traziam o titular no crédito. Regras: menu com
+  "Compartilhar álbum" nunca vale; na busca, só a seção "Músicas"; o álbum que não abre de primeira abre depois de
+  voltar ao início e esperar (segunda tentativa). Leitura guardada com menu de álbum é refeita.
+- *Aba de créditos do Tidal que demora.* O tocador às vezes leva até 12 s para mostrar os créditos; com 2 s de
+  espera, 4 de 9 prints falhavam. Agora espera até os autores baterem com a página do álbum (no máximo 20 s).
 - *Navegador antigo.* O aplicativo da Amazon embute um Chromium velho: `?.` e `??` derrubam o script inteiro. Há
   um teste que proíbe essa escrita nos scripts usados ali.
 - *Carimbo escurecido.* Janela modal (créditos do Spotify) fica numa camada acima de tudo e escurece a faixa de
@@ -225,8 +232,12 @@ Vale ler antes de mexer na plataforma correspondente.
 - **Tidal com login pelo navegador do app.** A Tidal detecta a automação e bloqueia a tela de login ("acesso
   temporariamente restrito"). Não insistir nem disfarçar o navegador: é contornar bloqueio.
 - **Serviço público de links entre plataformas** (a partir do link da Deezer): foi desativado.
-- **Caminho em aberto para a Tidal:** a API oficial (developer.tidal.com), buscando pelo ISRC que a Deezer já dá.
-  Depende de o dono criar as chaves. Não foi testado.
+- **Tidal pela API oficial** (0.5.51, o caminho que resolveu): developer.tidal.com, chave de app (Client ID e
+  Secret, sem login de usuário), consulta `/v2/tracks?filter[isrc]=` com `include=albums`, um ISRC por vez (com
+  vários, ela devolve só uma faixa por ISRC). O ISRC vem das gravações que a Deezer leu na rodada e, para as obras
+  que faltarem, da busca da Deezer por título + intérprete. As chaves ficam em `chaves-tidal.txt` na pasta de dados
+  (ou nas variáveis TIDAL_CLIENT_ID e TIDAL_CLIENT_SECRET), nunca no repositório. Obra sem gravação na Deezer não é
+  procurada no Tidal (o resumo lista quais).
 - **Playwright no aplicativo da Amazon:** `connect_over_cdp` falha; por isso existe `creditos/cdp.py`.
 - **Versão da Microsoft Store do Amazon Music:** não abre por linha de comando comum; abre com
   `Invoke-CommandInDesktopPackage` e a porta de depuração.
@@ -236,7 +247,8 @@ Vale ler antes de mexer na plataforma correspondente.
 ## 7. Pendências
 
 Decisões que são do dono:
-- Chave da API da Tidal, ou aceitar a Tidal limitada.
+- Tidal: rodar uma coleta grande para ver se o volume de páginas incomoda o site (até agora, nenhum bloqueio).
+  Cada computador do escritório precisa do arquivo `chaves-tidal.txt` na pasta de dados.
 - Nome artístico com sobrenome a mais conta como o compositor?
 - No Palco MP3, compositor no meio de dezenas de nomes de obras homônimas vale como "tem crédito"?
 - Duas gravações da mesma música pelo mesmo intérprete: a petição conta por música ou por link?
