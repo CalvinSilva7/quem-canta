@@ -8,6 +8,7 @@ Uso:  python -m creditos.pipeline relatorio.pdf --saida planilha.xlsx
 """
 
 import argparse
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -61,6 +62,7 @@ class Coleta:
     segundos: float = 0.0
     sem_vinculo_nao_abertos: int = 0  # resultados de busca com o título, de artista sem ligação com o titular
     interrompida: str = ""  # preenchido quando a fila parou antes do fim (captcha, login, bloqueio)
+    clipes: list[dict] = field(default_factory=list)  # clipes (Tidal) para o print à mão: [{"obra", "titulo", "artistas", "link", "medley"}]
 
 
 def filtro_do_relatorio(relatorio: Relatorio, config: Config) -> FiltroDeSaida:
@@ -670,6 +672,55 @@ def _isrcs_para_o_tidal(titulos: dict, pares: dict, conhecidas, deezer, interpre
     return [(isrc, titulo, origem) for isrc, (titulo, origem) in pedidos.items()]
 
 
+def _artista_no_tidal(nome: str, deezer, api) -> set:
+    """O artista no Tidal (identificadores), achado pelo nome: o artista com esse nome na Deezer, o ISRC de faixas
+    dele e as mesmas faixas no Tidal. Com mais de uma faixa, vale o artista que está em todas (tira as participações)."""
+    for artista in deezer.artistas(nome, maximo=1):
+        grupos = []
+        for faixa in deezer.faixas_do_artista(artista["id"], maximo=3):
+            isrc = deezer.isrc(faixa)
+            ids = {a for f in (api.faixas(isrc) if isrc else []) for a in f.get("artistas") or []}
+            if ids:
+                grupos.append(ids)
+        if grupos:
+            comum = set.intersection(*grupos)
+            return comum or grupos[0]
+    return set()
+
+
+def _clipes_do_tidal(api, relatorio: Relatorio, titulos: dict, artistas, avisar, coleta: Coleta, pares=None) -> None:
+    """Os clipes (vídeos) do Tidal das obras buscadas, achados pela API a partir dos artistas das faixas, vão para
+    `coleta.clipes`: o print deles é tirado à mão (decisão do escritório, 16/10/2026). O vídeo do Tidal só toca no
+    Google Chrome de verdade (proteção contra cópia), e o navegador do app mostraria a tela preta. A lista sai no fim
+    das provas do Tidal, com o link de cada clipe; o clipe que junta várias músicas vem marcado como medley. O clipe
+    de um artista que não é o intérprete conferido da obra (`pares`) pode ser outra música com o mesmo nome: vai
+    para uma parte separada, "conferir se é a mesma música"."""
+    from .tidal_api import ErroNaAPI
+
+    clipes = {}
+    for i, artista in enumerate(sorted(artistas), start=1):
+        avisar(f"Tidal: procurando clipes {i}/{len(artistas)}")
+        try:
+            for clipe in api.clipes(artista):
+                clipes.setdefault(clipe["id"], clipe)
+        except ErroNaAPI as e:
+            coleta.avisos.append(f"Tidal: a lista de clipes de um artista não veio ({e}); os clipes dele ficam sem procurar")
+    for clipe in clipes.values():
+        tipo, obras = c.casar_titulo(clipe["titulo"], relatorio)
+        if tipo and any(c._titulo_base(o.titulo) in titulos for o in obras):
+            conferidos = list(dict.fromkeys(n for o in obras for n in (pares or {}).get(o.titulo, [])))
+            # a planilha às vezes junta dois intérpretes na mesma célula com vírgula ("Fulano e Beltrano, Sicrano")
+            separados = {o.titulo: [p for n in (pares or {}).get(o.titulo, []) for p in re.split(r"\s*,\s*", n) if p] for o in obras}
+            do_conferido = any(_par_conhecido(separados, o.titulo, a) for o in obras for a in clipe.get("artistas") or [])
+            coleta.clipes.append({"obra": "; ".join(dict.fromkeys(o.titulo for o in obras)), "titulo": clipe["titulo"],
+                                  "artistas": clipe.get("artistas") or [], "link": f"https://tidal.com/video/{clipe['id']}",
+                                  "medley": tipo == "medley", "do_conferido": do_conferido, "conferidos": conferidos})
+    coleta.clipes.sort(key=lambda k: (normalizar(k["obra"]), normalizar(k["titulo"])))
+    if coleta.clipes:
+        coleta.avisos.append(f"Tidal: {len(coleta.clipes)} clipes das obras buscadas. O print deles é à mão: a lista com os links "
+                             "está no fim das provas do Tidal")
+
+
 def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), pares=None, limite_de_obras=None,
                   ao_avancar=None, nomes_no_maximo=8, so_os_pares=False, api=None, deezer=None, conhecidas=None) -> Coleta:
     """Tidal: lê a página de créditos de cada álbum (sem login) e tira o print das faixas sem crédito ou com crédito
@@ -695,7 +746,7 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
         coleta.sementes = list({normalizar(n): n for titulo in titulos.values() for n in pares.get(titulo, [])}.values())
     lidas, de_onde = [], {}
     try:
-        albuns, pedidas = {}, {}  # álbum -> de onde veio; álbum -> {faixa: ISRC} (só pela API)
+        albuns, pedidas, artistas = {}, {}, set()  # álbum -> de onde veio; álbum -> {faixa: ISRC}; artistas (só pela API)
         if api is not None:
             coleta.sementes = []
             pedidos = _isrcs_para_o_tidal(titulos, pares, conhecidas, deezer, interpretes, so_os_pares, avisar, coleta)
@@ -709,6 +760,21 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
                 for faixa in achadas:
                     albuns.setdefault(faixa["album"], f"ISRC {isrc} ({origem})")
                     pedidas.setdefault(faixa["album"], {})[faixa["id"]] = isrc
+                    artistas.update(faixa.get("artistas") or [])
+            # Para os clipes, também os artistas das obras que ficaram sem gravação na Deezer (sem ISRC): achados pelo
+            # nome do intérprete conferido, por outras faixas dele.
+            if deezer is not None:
+                from .deezer import ErroDeColeta
+
+                cobertas = {c._titulo_base(t) for _, t, _ in pedidos}
+                nomes = list(dict.fromkeys(n for base, t in titulos.items() if base not in cobertas
+                                           for n in (pares.get(t) or ([] if so_os_pares else interpretes[:3]))))
+                for i, nome in enumerate(nomes, start=1):
+                    avisar(f"Tidal: procurando o artista {i}/{len(nomes)} para os clipes")
+                    try:
+                        artistas.update(_artista_no_tidal(nome, deezer, api))
+                    except (ErroNaAPI, ErroDeColeta):
+                        continue
         else:
             coleta.avisos.append("Tidal sem as chaves da API: as faixas foram procuradas pela busca do site, que sem login acha "
                                  "pouco. Com o arquivo chaves-tidal.txt na pasta de dados, o app procura pelo ISRC")
@@ -735,19 +801,22 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
                         faixa.isrc = quais[faixa.id]
                     lidas.append((faixa, album, origem))
                     de_onde[faixa.link] = (album_id, faixa)
+        if api is not None and artistas:
+            _clipes_do_tidal(api, relatorio, titulos, artistas, avisar, coleta, pares)
         _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
         from . import captura as _captura
+        # print com a aba de créditos vazia (antes da 0.5.52, a música sem créditos podia sair sem a aba aberta) é refeito
         ja_tiradas = {(f.get("url"), str((f.get("exibido") or {}).get("faixa_no_album", ""))): f["captura"]
-                      for f in _captura.capturas_guardadas(tidal.pasta)}
+                      for f in _captura.capturas_guardadas(tidal.pasta) if (f.get("exibido") or {}).get("creditos")}
         for g in coleta.gravacoes:
-            if g.classificacao.status in c.NEGATIVOS and not g.provas:
+            if g.classificacao.status in c.NEGATIVOS and not g.provas and g.link in de_onde:  # o clipe já vem fotografado
                 album_id, faixa = de_onde[g.link]
                 # só o print no formato do tocador (endereço da faixa): o antigo, da página de créditos do álbum, é refeito
                 guardada = ja_tiradas.get((f"https://tidal.com/album/{album_id}/track/{faixa.id}", str(faixa.numero)))
                 if guardada:
                     g.provas.append(guardada)
         negativas = [] if getattr(tidal, "so_o_que_ja_foi_lido", False) else [
-            g for g in coleta.gravacoes if g.classificacao.status in c.NEGATIVOS and not g.provas]
+            g for g in coleta.gravacoes if g.classificacao.status in c.NEGATIVOS and not g.provas and g.link in de_onde]
         for i, g in enumerate(negativas, start=1):
             avisar(f"Tidal: print {i}/{len(negativas)}")
             album_id, faixa = de_onde[g.link]

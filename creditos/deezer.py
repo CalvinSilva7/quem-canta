@@ -171,6 +171,10 @@ class Deezer:
             guardadas.write_text(json.dumps(buscas, ensure_ascii=False), encoding="utf-8")
         return faixas
 
+    def faixas_do_artista(self, artista_id: str, maximo=3) -> list[str]:
+        """As faixas mais tocadas do artista (API pública): os identificadores, para chegar ao ISRC."""
+        return [str(f["id"]) for f in self._get(API + f"artist/{artista_id}/top", {"limit": maximo}).get("data", []) if f.get("id")]
+
     def isrc(self, faixa_id: str) -> str:
         """O ISRC de uma faixa (API pública), "" se a Deezer não o tiver. Guardado entre rodadas."""
         guardados = self.cache / "_isrcs.json" if self.cache else None

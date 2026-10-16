@@ -2384,3 +2384,58 @@ def test_amazon_menu_de_album_nao_vale_como_menu_da_faixa():
     assert interpretar_menu(album) == "invalido"
     assert interpretar_menu(["Adicionar à fila", "Compartilhar música", "Reproduzir músicas semelhantes"]) == "sem_creditos"
     assert interpretar_menu(["Compartilhar música", "Créditos", "Reproduzir músicas semelhantes"]) == "com_creditos"
+
+
+def test_clipes_do_tidal_saem_no_fim_das_provas_para_o_print_a_mao(tmp_path):
+    import io
+    import zipfile
+
+    import docx
+
+    from creditos import provas
+    from creditos.pipeline import Coleta
+
+    coleta = Coleta("TIDAL")
+    coleta.clipes = [{"obra": "COISA FEITA", "titulo": "Coisa Feita (Ao Vivo)", "artistas": ["Zeca Lima"],
+                      "link": "https://tidal.com/video/1", "medley": False, "do_conferido": True, "conferidos": ["Zeca Lima"]},
+                     {"obra": "COISA FEITA", "titulo": "Coisa Feita / Alto Mar (Ao Vivo)", "artistas": ["Zeca Lima"],
+                      "link": "https://tidal.com/video/2", "medley": True, "do_conferido": True, "conferidos": ["Zeca Lima"]},
+                     {"obra": "COISA FEITA", "titulo": "Coisa Feita", "artistas": ["Banda do Baile"],
+                      "link": "https://tidal.com/video/3", "medley": False, "do_conferido": False, "conferidos": ["Zeca Lima"]}]
+    pacote, _, _ = provas.pacote(Relatorio(nome_titular="ZECA LIMA"), [coleta], tmp_path, b"planilha")
+    arquivos = zipfile.ZipFile(io.BytesIO(pacote))
+    assert "Tidal/Lista da petição - Tidal.docx" not in arquivos.namelist()  # sem prova, sem lista da petição
+    textos = [p.text for p in docx.Document(io.BytesIO(arquivos.read("Tidal/Provas - Tidal.docx"))).paragraphs]
+    assert provas.TITULO_DOS_CLIPES in textos and "https://tidal.com/video/1" in textos
+    assert any("(medley: a confirmar)" in t and "Alto Mar" in t for t in textos)
+    # o clipe de outro artista fica na segunda parte, com o intérprete da planilha ao lado
+    parte_2 = textos.index(provas.PARTES_DOS_CLIPES[1][1])
+    assert textos.index(provas.PARTES_DOS_CLIPES[0][1]) < parte_2
+    assert any("Banda do Baile" in t and "intérprete na planilha: Zeca Lima" in t for t in textos[parte_2:])
+
+
+def test_tidal_api_segue_as_paginas_dos_clipes_do_artista(tmp_path):
+    from creditos import tidal_api
+
+    class Resposta:
+        def __init__(self, dados):
+            self.status_code, self._dados = 200, dados
+
+        def json(self):
+            return self._dados
+
+    class Sessao:
+        def post(self, url, **_):
+            return Resposta({"access_token": "t", "expires_in": 3600})
+
+        def get(self, url, params=None, **_):
+            params = dict(params or [])
+            if url.endswith("relationships/videos"):
+                if params.get("page[cursor]") == "B":  # o cursor tem de chegar decodificado
+                    return Resposta({"data": [{"id": "3", "type": "videos"}], "links": {}})
+                return Resposta({"data": [{"id": "1", "type": "videos"}, {"id": "2", "type": "videos"}],
+                                 "links": {"next": "/artists/9/relationships/videos?countryCode=BR&page%5Bcursor%5D=B"}})
+            return Resposta({"data": [{"id": i, "attributes": {"title": f"Coisa Feita {i}"}} for i in ("1", "2", "3")]})
+
+    api = tidal_api.TidalAPI(("a", "b"), cache=tmp_path, intervalo=0, sessao=Sessao())
+    assert [k["id"] for k in api.clipes("9")] == ["1", "2", "3"]

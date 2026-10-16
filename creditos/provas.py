@@ -6,6 +6,7 @@ aproximado) sai em uma lista à parte, "a confirmar", e nunca na contagem.
 """
 
 import io
+from xml.sax.saxutils import escape
 import json
 from pathlib import Path
 
@@ -186,6 +187,37 @@ def paginas_de_prova(itens, plataforma: str, pasta, avisos: list, marca: str = "
     return paginas
 
 
+def clipes_de(coletas, plataforma: str) -> list[dict]:
+    """Os clipes que a coleta achou nesta plataforma (Tidal), para o print à mão."""
+    return [k for coleta in coletas if coleta.plataforma == plataforma for k in getattr(coleta, "clipes", [])]
+
+
+TITULO_DOS_CLIPES = "VÍDEOS COM CLIPE"
+TEXTO_DOS_CLIPES = ("Estas músicas têm clipe no Tidal. Quando há clipe, a prova é o clipe: abra cada link no Google Chrome, toque o "
+                    "vídeo, abra a aba \"Créditos\" e tire o print à mão. O clipe que junta várias músicas (medley) fica a "
+                    "confirmar.")
+PARTES_DOS_CLIPES = (
+    (True, "Clipes do intérprete da planilha conferida: tirar o print"),
+    (False, "Clipes de outro artista: conferir antes se é a mesma música (pode ser regravação ou outra música com o mesmo nome)"),
+)
+
+
+def linhas_dos_clipes(clipes: list[dict]) -> list[tuple[str, list[tuple[int, dict, str]]]]:
+    """Os clipes nas duas partes da lista, numerados em sequência: [(título da parte, [(n, clipe, texto da linha)])]."""
+    partes, n = [], 0
+    for do_conferido, titulo in PARTES_DOS_CLIPES:
+        linhas = []
+        for clipe in (k for k in clipes if bool(k.get("do_conferido", True)) == do_conferido):
+            n += 1
+            texto = f" - Clipe: {clipe['titulo']} - {', '.join(clipe['artistas'])}" + (" (medley: a confirmar)" if clipe["medley"] else "")
+            if not do_conferido:
+                texto += f" - intérprete na planilha: {', '.join(clipe.get('conferidos') or []) or '(nenhum)'}"
+            linhas.append((n, clipe, texto))
+        if linhas:
+            partes.append((titulo, linhas))
+    return partes
+
+
 def docx_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma: str = "") -> tuple[bytes, list[str]]:
     """As mesmas páginas do PDF de provas, em Word, para quem precisa editar: folha deitada, um print por página, com
     a música e o intérprete em cima, e a parte "A confirmar antes de usar" no fim.
@@ -241,6 +273,18 @@ def docx_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataform
                           "motivo da dúvida está na página de cada uma.")
         for pagina in paginas_de_prova(a_confirmar, plataforma, pasta, avisos, marca="C"):
             pagina_do_print(*pagina, com_motivo=True)
+    clipes = clipes_de(coletas, plataforma)
+    if clipes:
+        nova_pagina()
+        doc.add_heading(TITULO_DOS_CLIPES, level=1)
+        doc.add_paragraph(TEXTO_DOS_CLIPES)
+        for titulo_da_parte, linhas in linhas_dos_clipes(clipes):
+            doc.add_heading(titulo_da_parte, level=2)
+            for n, clipe, texto in linhas:
+                linha = doc.add_paragraph()
+                linha.add_run(f"{n} - Música: {clipe['obra']}").bold = True
+                linha.add_run(texto)
+                _link_clicavel(doc.add_paragraph(), clipe["link"])
     if not paginas_escritas:
         doc.add_paragraph(f"Provas - {nome}: nenhum print disponível.")
     saida = io.BytesIO()
@@ -300,6 +344,15 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
                       "da dúvida está na página de cada uma.", estilos["BodyText"])]
         for pagina in montar(a_confirmar, marca="C"):
             fluxo += [PageBreak()] + pagina_do_print(*pagina, com_motivo=True)
+    clipes = clipes_de(coletas, plataforma)
+    if clipes:
+        fluxo += ([PageBreak()] if fluxo else []) + [Paragraph(TITULO_DOS_CLIPES, estilos["Title"]),
+                                                      Paragraph(TEXTO_DOS_CLIPES, estilos["BodyText"])]
+        for titulo_da_parte, linhas in linhas_dos_clipes(clipes):
+            fluxo.append(Paragraph(escape(titulo_da_parte), estilos["Heading2"]))
+            for n, clipe, texto in linhas:
+                fluxo.append(Paragraph(f"<b>{n} - Música: {escape(clipe['obra'])}</b>{escape(texto)}"
+                                       f"<br/><link href=\"{clipe['link']}\" color=\"blue\">{clipe['link']}</link>", estilos["BodyText"]))
     if not fluxo:
         fluxo = [Paragraph(f"Provas - {nome}: nenhum print disponível.", estilos["BodyText"])]
     doc.build(fluxo)
@@ -329,11 +382,13 @@ def pacote(relatorio, coletas, pasta_do_caso, planilha: bytes) -> tuple[bytes, l
         for coleta in coletas:
             firmes, a_confirmar = itens_da_peticao(coletas, coleta.plataforma)
             resumo.append({"plataforma": NOMES.get(coleta.plataforma, coleta.plataforma), "firmes": len(firmes), "a_confirmar": len(a_confirmar)})
-            if not firmes and not a_confirmar:
+            clipes = clipes_de(coletas, coleta.plataforma)
+            if not firmes and not a_confirmar and not clipes:
                 continue
             nome = NOMES.get(coleta.plataforma, coleta.plataforma.title())
-            arquivo.writestr(f"{nome}/Lista da petição - {nome}.docx", docx_da_lista(relatorio, coletas, coleta.plataforma, nome))
-            if firmes or any(item["provas"] for item in a_confirmar):  # o PDF sai também só com a parte "a confirmar"
+            if firmes or a_confirmar:  # só com clipes, não há lista da petição: só a lista dos clipes, nas provas
+                arquivo.writestr(f"{nome}/Lista da petição - {nome}.docx", docx_da_lista(relatorio, coletas, coleta.plataforma, nome))
+            if firmes or any(item["provas"] for item in a_confirmar) or clipes:  # o PDF sai também só com "a confirmar" ou só com clipes
                 pasta = Path(pasta_do_caso) / PASTAS.get(coleta.plataforma, "")
                 pdf, do_pdf = pdf_de_provas(relatorio, coletas, coleta.plataforma, pasta, nome)
                 arquivo.writestr(f"{nome}/Provas - {nome}.pdf", pdf)
