@@ -2278,3 +2278,59 @@ def test_tela_inteira_abre_a_janela_maximizada_no_monitor_livre(monkeypatch):
     assert navegador.tamanho_da_janela([principal])[0] == "--window-position=40,40"  # um monitor só: ele mesmo
     esquerda = {"left": -1920, "top": 0, "width": 1920, "height": 1080}  # segundo monitor à esquerda do principal
     assert navegador.monitor_da_coleta([principal, esquerda]) == esquerda
+
+
+def _pdf_do_iswc(caminho, iswc):
+    from reportlab.pdfgen import canvas
+
+    folha = canvas.Canvas(str(caminho))
+    for y, linha in enumerate(["Search Results", "1 Results", f"ISWC: {iswc}", "Original Title: COISA FEITA",
+                               "Creator Name(s): LIMA ZECA", "https://iswcnet.cisac.org/search?iswc=T1234567890"]):
+        folha.drawString(50, 800 - 20 * y, linha)
+    folha.save()
+
+
+def test_iswc_guarda_o_pdf_confere_o_iswc_e_junta(tmp_path):
+    import pdfplumber
+
+    from creditos import iswc
+
+    downloads, caso = tmp_path / "Downloads", tmp_path / "iswc"
+    downloads.mkdir()
+    _pdf_do_iswc(downloads / "Search.pdf", "T-123.456.789-0")
+    salvos = [downloads / "Search.pdf"]
+
+    errado = iswc.guardar_pdf(caso, "OUTRA", "T-000.000.001-0", salvos[0])
+    assert not errado["ok"] and "salve o PDF de novo" in errado["motivo"] and salvos[0].exists()  # o errado fica onde está
+
+    certo = iswc.guardar_pdf(caso, "COISA FEITA", "T-123.456.789-0", salvos[0], ["ZECA LIMA"])
+    assert certo["ok"] and certo["titular_na_pagina"] and not salvos[0].exists()
+    assert (caso / certo["ficha"]["arquivos"]["pdf"]).exists() and certo["ficha"]["sha256"]["pdf"]
+
+    _pdf_do_iswc(downloads / "Search.pdf", "T-123.456.789-0")  # segundo PDF da mesma obra: não sobrescreve
+    outro = iswc.guardar_pdf(caso, "COISA FEITA", "T-123.456.789-0", downloads / "Search.pdf")
+    assert outro["ficha"]["arquivos"]["pdf"] != certo["ficha"]["arquivos"]["pdf"]
+    (tmp_path / "junto.pdf").write_bytes(iswc.juntar_pdfs(sorted(caso.glob("*.pdf"))))
+    assert len(pdfplumber.open(tmp_path / "junto.pdf").pages) == 2
+
+
+def test_ecadnet_junta_os_prints_da_ultima_rodada_de_cada_obra(tmp_path):
+    from PIL import Image
+    import pdfplumber
+
+    from creditos import replica
+
+    fichas = [{"obra": "A", "codigo": "1", "capturado_em": "2026-10-15T13:49:55-03:00"},  # rodada antiga: fica de fora
+              {"obra": "A", "codigo": "1", "capturado_em": "2026-10-15T13:54:23-03:00"},
+              {"obra": "A", "codigo": "1", "capturado_em": "2026-10-15T13:54:50-03:00"},  # segundo print seguido: entra
+              {"obra": "B", "codigo": "2", "capturado_em": "2026-10-16T08:16:00-03:00"}]
+    escolhidos = replica.prints_da_ultima_rodada(fichas, lambda f: f["codigo"])
+    assert [f["capturado_em"][11:19] for f in escolhidos] == ["13:54:23", "13:54:50", "08:16:00"]
+
+    imagens = []
+    for i in range(2):
+        Image.new("RGB", (1920, 945), "white").save(tmp_path / f"{i}.png")
+        imagens.append(tmp_path / f"{i}.png")
+    (tmp_path / "junto.pdf").write_bytes(replica.pdf_dos_prints(imagens))
+    paginas = pdfplumber.open(tmp_path / "junto.pdf").pages
+    assert len(paginas) == 2 and paginas[0].width > paginas[0].height  # A4 deitado

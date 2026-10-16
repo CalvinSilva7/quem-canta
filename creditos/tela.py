@@ -59,8 +59,20 @@ def conferir(monitor, pagina) -> tuple[bool, str]:
     if na_tela is None:
         return False, "a janela do navegador não está à vista neste monitor"
     escala = (na_tela[2] - na_tela[1]) / (na_pagina[2] - na_pagina[1])
-    alto, largo = pagina.shape[0] * escala, pagina.shape[1] * escala
     topo, esquerda = na_tela[0] - na_pagina[0] * escala, na_tela[1] - na_pagina[1] * escala
+    certo, motivo = _comparar(monitor, pagina, topo, esquerda, escala)
+    if not certo and "coberta" in motivo and (na_tela[1] == 0 or na_tela[2] == monitor.shape[1]):
+        # A faixa encosta na borda: o mais provável é a janela estar com um pedaço para fora do monitor.
+        return False, "a janela do navegador não cabe inteira no monitor"
+    return certo, motivo
+
+
+def _comparar(monitor, pagina, topo, esquerda, escala) -> tuple[bool, str]:
+    """A página está à vista no monitor, com o canto em (topo, esquerda) e nesta escala?"""
+    import numpy as np
+    from PIL import Image
+
+    alto, largo = pagina.shape[0] * escala, pagina.shape[1] * escala
     y0, x0 = max(0, round(topo)), max(0, round(esquerda))
     y1, x1 = min(monitor.shape[0], round(topo + alto)), min(monitor.shape[1], round(esquerda + largo))
     if y1 <= y0 or x1 <= x0 or (y1 - y0) * (x1 - x0) < A_VISTA_MINIMO * alto * largo:
@@ -74,11 +86,43 @@ def conferir(monitor, pagina) -> tuple[bool, str]:
     ]
     diferenca = float(abs(miniaturas[0] - miniaturas[1]).mean())
     if diferenca > DIFERENCA_MAXIMA:
-        if na_tela[1] == 0 or na_tela[2] == monitor.shape[1]:
-            # A faixa encosta na borda: o mais provável é a janela estar com um pedaço para fora do monitor.
-            return False, "a janela do navegador não cabe inteira no monitor"
         return False, "a janela do navegador está coberta por outra janela"
     return True, ""
+
+
+def _monitores_com_posicao():
+    """Cada monitor ligado: (número, canto (esquerda, topo) na área de trabalho, imagem RGB como matriz, PNG)."""
+    try:
+        import mss
+        import mss.tools
+        import numpy as np
+    except ImportError as e:
+        raise SemComponente('falta um componente de captura de tela: dê dois cliques em "Instalar.cmd" e abra o app de novo') from e
+    with mss.mss() as telas:
+        for numero, monitor in enumerate(telas.monitors[1:], start=1):
+            foto = telas.grab(monitor)
+            matriz = np.frombuffer(foto.rgb, dtype=np.uint8).reshape(foto.height, foto.width, 3)
+            yield numero, (monitor["left"], monitor["top"]), matriz, mss.tools.to_png(foto.rgb, foto.size)
+
+
+def fotografar_na_posicao(imagem_da_pagina: bytes, esquerda: float, topo: float, escala: float,
+                          monitores=_monitores_com_posicao) -> tuple[bytes | None, dict]:
+    """Como `fotografar`, para o print sem a faixa de carimbo: a janela diz onde a página está na área de trabalho
+    (canto e escala, em pixels da tela) e o app confere se é ela mesma que aparece ali."""
+    import numpy as np
+    from PIL import Image
+
+    pagina = np.asarray(Image.open(io.BytesIO(imagem_da_pagina)).convert("RGB"))
+    motivos = []
+    for numero, (x, y), matriz, png in monitores():
+        dentro = x <= esquerda + 2 < x + matriz.shape[1] and y <= topo + 2 < y + matriz.shape[0]
+        if not dentro:
+            continue
+        certo, motivo = _comparar(matriz, pagina, topo - y, esquerda - x, escala)
+        if certo:
+            return png, {"monitor": numero}
+        motivos.append(motivo)
+    return None, {"erro": motivos[0] if motivos else "a janela do navegador não está à vista em nenhum monitor"}
 
 
 def _monitores():

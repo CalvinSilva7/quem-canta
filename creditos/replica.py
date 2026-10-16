@@ -1,0 +1,251 @@
+"""Prints da réplica: a pessoa conduz, o app abre a página e fotografa quando ela pede.
+
+Uma janela do navegador do app fica aberta, com um perfil próprio para cada site (a sessão fica guardada nele, como
+na Deezer e na Claro Música). A pessoa faz nela o que o site pede (login, aceite dos termos, a busca) e, conferida a
+página, pede o print. O app nunca digita senha nem resolve o "não sou um robô": se aparecer, a pessoa resolve na
+janela.
+
+O Playwright só pode ser usado na linha de execução que o abriu. Por isso a janela vive numa linha própria, que
+recebe os pedidos da tela por uma fila e devolve a resposta de cada um.
+"""
+
+import json
+import queue
+import threading
+import time
+from pathlib import Path
+
+from cantor.matching import normalizar
+
+from . import captura
+
+
+def nomes_na_pagina(texto: str, nomes) -> list[str]:
+    """Os nomes do titular que aparecem no texto da página. Vale também com as palavras em outra ordem
+    ("LIMA ZECA" para "Zeca Lima", como o ISWC escreve)."""
+    pagina = normalizar(texto)
+    palavras_da_pagina = set(pagina.split())
+    achados = []
+    for nome in nomes:
+        palavras = normalizar(nome or "").split()
+        if palavras and (" ".join(palavras) in pagina or (len(palavras) >= 2 and set(palavras) <= palavras_da_pagina)):
+            achados.append(nome)
+    return achados
+
+
+class Janela:
+    """A janela de um site, numa linha de execução própria. `pedir` manda um pedido e espera a resposta."""
+
+    def __init__(self, perfil, pasta, inicio: str, plataforma: str, etapa: str, tela_inteira=False):
+        self.perfil, self.pasta, self.tela_inteira = Path(perfil), Path(pasta), tela_inteira
+        self.inicio, self.plataforma, self.etapa = inicio, plataforma, etapa
+        self._pedidos = queue.Queue()
+        self._linha = threading.Thread(target=self._rodar, daemon=True)
+        self.situacao = "abrindo a janela"
+        self.erro = ""
+
+    @property
+    def viva(self) -> bool:
+        return self._linha.is_alive()
+
+    def iniciar(self):
+        self._linha.start()
+        return self
+
+    def pedir(self, acao: str, espera=90, **dados) -> dict:
+        if not self.viva:
+            return {"ok": False, "motivo": f"a janela do {self.plataforma} não está aberta"}
+        resposta, pronto = {}, threading.Event()
+        self._pedidos.put((acao, dados, resposta, pronto))
+        if not pronto.wait(espera):
+            return {"ok": False, "motivo": "a janela demorou demais para responder"}
+        return resposta
+
+    def _rodar(self):
+        from playwright.sync_api import sync_playwright
+
+        from .navegador import maximizar, preparar_asyncio, tamanho_da_janela
+
+        preparar_asyncio()
+        antes = captura.TELA_INTEIRA
+        try:
+            with sync_playwright() as pw:
+                captura.TELA_INTEIRA = self.tela_inteira  # para a janela abrir maximizada no monitor livre
+                argumentos = ["--lang=pt-BR", "--disable-features=Translate", "--mute-audio"] + (tamanho_da_janela() or ["--window-size=1280,800"])
+                captura.TELA_INTEIRA = antes
+                contexto = pw.chromium.launch_persistent_context(
+                    str(self.perfil), headless=False, args=argumentos, no_viewport=True, locale="pt-BR", timezone_id=captura.FUSO)
+                contexto.add_init_script(f"({captura.TRAVA_DE_TRADUCAO})()")
+                pagina = contexto.pages[0] if contexto.pages else contexto.new_page()
+                if self.tela_inteira:
+                    captura.TELA_INTEIRA = True
+                    maximizar(pagina)
+                    captura.TELA_INTEIRA = antes
+                pagina.goto(self.inicio, wait_until="domcontentloaded", timeout=60000)
+                self.situacao = "janela aberta"
+                while contexto.pages:
+                    try:
+                        acao, dados, resposta, pronto = self._pedidos.get(timeout=1)
+                    except queue.Empty:
+                        continue
+                    pagina = contexto.pages[-1]
+                    try:
+                        if acao == "fechar":
+                            resposta.update(ok=True)
+                            pronto.set()
+                            break
+                        resposta.update(getattr(self, "_" + acao)(pagina, **dados))
+                    except Exception as e:
+                        resposta.update(ok=False, motivo=f"{type(e).__name__}: {str(e).splitlines()[0][:200]}")
+                    pronto.set()
+                try:
+                    contexto.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            self.erro = f"{type(e).__name__}: {str(e).splitlines()[0][:200]}"
+        finally:
+            captura.TELA_INTEIRA = antes
+            self.situacao = "janela fechada"
+
+    def _abrir(self, pagina, url: str, conferir=None, espera=30) -> dict:
+        """Abre o endereço e, com `conferir(url, texto)`, espera a página ficar pronta (motivo vazio)."""
+        pagina.goto(url, wait_until="domcontentloaded", timeout=60000)
+        if conferir is None:
+            return {"ok": True, "url": pagina.url}
+        fim = time.monotonic() + espera
+        motivo = "a página ainda não carregou"
+        while time.monotonic() < fim:  # o site monta o conteúdo depois de abrir
+            pagina.wait_for_timeout(1000)
+            motivo = conferir(pagina.url, pagina.inner_text("body"))
+            if not motivo or "login" in motivo or "não mostra a página" in motivo:  # resposta final do site: não adianta esperar
+                break
+        return {"ok": not motivo, "motivo": motivo, "url": pagina.url}
+
+    def _fotografar(self, pagina, obra: str, conferir, nomes=(), exibido=None) -> dict:
+        """Confere a página com `conferir(url, texto)` e, se estiver certa, tira o print com o carimbo."""
+        texto = pagina.inner_text("body")
+        motivo = conferir(pagina.url, texto)
+        if motivo and "não mostra a página" not in motivo:
+            return {"ok": False, "motivo": motivo}
+        # a página certa, mas o site diz que não mostra a obra: o print vale como registro disso, com o aviso na ficha
+        exibido = {**(exibido or {}), **({"aviso": motivo} if motivo else {}), "titulo": obra, "nomes_do_titular_na_pagina": nomes_na_pagina(texto, nomes), "texto": texto[:4000]}
+        antes = captura.TELA_INTEIRA
+        captura.TELA_INTEIRA = self.tela_inteira
+        try:
+            if self.tela_inteira:  # a caixa pode ter sido marcada depois de a janela abrir
+                from .navegador import maximizar
+
+                maximizar(pagina)
+                pagina.wait_for_timeout(500)
+            # sem a faixa do carimbo: na réplica o print vai como a página aparece; os dados do carimbo ficam no .json
+            ficha = captura.capturar(pagina, self.pasta, obra, "", self.plataforma, exibido, etapa=self.etapa, carimbo=False)
+        finally:
+            captura.TELA_INTEIRA = antes
+        if self.tela_inteira and not ficha.get("arquivos", {}).get("tela"):
+            # o print do monitor inteiro é obrigatório (mostra a data e a hora): sem ele, o print não vale
+            captura.descartar(self.pasta, ficha["captura"])
+            return {"ok": False, "motivo": "não consegui fotografar o monitor inteiro ("
+                    + ficha.get("tela_inteira", {}).get("erro", "motivo desconhecido")
+                    + "). Deixe a janela do Ecadnet à vista, sem nada por cima, e clique em Fotografar de novo"}
+        return {"ok": True, "ficha": ficha, "titular_na_pagina": bool(exibido["nomes_do_titular_na_pagina"]), "aviso": motivo}
+
+
+def titulos_da_lista(conteudo: bytes) -> list[str]:
+    """Os títulos das obras de uma lista da petição (.docx gerado pelo app): as linhas "N-Música: TÍTULO" da parte
+    firme. A parte "A confirmar antes de usar" fica de fora: ela não entra na petição."""
+    import io
+    import re
+
+    import docx
+
+    from docx.oxml.ns import qn
+
+    titulos = []
+    corpo = docx.Document(io.BytesIO(conteudo)).element.body
+    for paragrafo in corpo.iter(qn("w:p")):  # na ordem do documento, também os que estão dentro das tabelas
+        texto = "".join(t.text or "" for t in paragrafo.iter(qn("w:t"))).strip()
+        if normalizar(texto).startswith("a confirmar antes de usar"):
+            break
+        achado = re.match(r"^\d+\s*-\s*M[uú]sica:\s*(.+?)(?=\s+https?://|\s+Interpretada por:|\n|$)", texto)
+        if achado:
+            titulos += [t.strip() for t in achado[1].split("; ") if t.strip()]  # medley: "OBRA A; OBRA B"
+    return list(dict.fromkeys(titulos))
+
+
+def cruzar(titulos, relatorio) -> tuple[list, list[str]]:
+    """As obras do relatório que estão na lista da petição, na ordem do relatório, e os títulos da lista que o
+    relatório não tem. Título repetido no relatório (obras diferentes com o mesmo nome) traz todas."""
+    from .classificador import _titulo_base
+
+    procurados = {_titulo_base(t): t for t in titulos}
+    obras = [o for o in relatorio.obras if _titulo_base(o.titulo) in procurados]
+    achados = {_titulo_base(o.titulo) for o in obras}
+    return obras, [t for base, t in procurados.items() if base not in achados]
+
+
+def prints_da_ultima_rodada(fichas, chave, minutos=3) -> list[dict]:
+    """De cada obra (`chave(ficha)`), os prints da última rodada: o mais recente e os tirados até `minutos` antes dele
+    (a pessoa às vezes tira dois ou três prints seguidos da mesma obra). Prints de rodadas mais antigas ficam de fora.
+    Devolve na ordem em que foram tirados."""
+    from datetime import datetime, timedelta
+
+    def quando(f):
+        try:
+            return datetime.fromisoformat(f.get("capturado_em", ""))
+        except ValueError:
+            return None
+
+    validas = [f for f in fichas if quando(f) is not None]
+    ultimo = {}
+    for f in validas:
+        if chave(f) not in ultimo or quando(f) > ultimo[chave(f)]:
+            ultimo[chave(f)] = quando(f)
+    return sorted((f for f in validas if quando(f) >= ultimo[chave(f)] - timedelta(minutes=minutos)), key=quando)
+
+
+def pdf_dos_prints(imagens) -> bytes:
+    """Um PDF com uma imagem por página (A4 deitado, a imagem inteira, centrada, sem mexer nela)."""
+    import io
+
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    largura, altura = landscape(A4)
+    margem = 20
+    saida = io.BytesIO()
+    folha = canvas.Canvas(saida, pagesize=(largura, altura))
+    for imagem in imagens:
+        leitor = ImageReader(str(imagem))
+        w, h = leitor.getSize()
+        escala = min((largura - 2 * margem) / w, (altura - 2 * margem) / h)
+        folha.drawImage(leitor, (largura - w * escala) / 2, (altura - h * escala) / 2, w * escala, h * escala)
+        folha.showPage()
+    folha.save()
+    return saida.getvalue()
+
+
+JANELAS: dict[str, Janela] = {}  # a janela aberta de cada site, guardada entre um clique e outro na tela
+
+
+def janela(chave: str) -> Janela | None:
+    aberta = JANELAS.get(chave)
+    return aberta if aberta is not None and aberta.viva else None
+
+
+def abrir_janela(chave: str, **parametros) -> Janela:
+    if janela(chave) is None:
+        JANELAS[chave] = Janela(**parametros).iniciar()
+    return JANELAS[chave]
+
+
+def prints_guardados(pasta, etapa: str) -> list[dict]:
+    """As fichas dos prints já tirados neste caso, dos mais novos para os mais velhos."""
+    fichas = []
+    for arquivo in sorted(Path(pasta).glob(f"*_{etapa}*.json"), reverse=True):
+        try:
+            fichas.append(json.loads(arquivo.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return fichas

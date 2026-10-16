@@ -22,7 +22,7 @@ from creditos.modelo import SITUACOES, Relatorio
 # Onde ficam os casos (o que já foi lido e os prints): fora da pasta do programa, para uma atualização nunca tocar neles.
 PASTA_DE_DADOS = Path(os.environ.get("QUEMCANTA_DADOS") or Path.home() / "Documents" / "Quem Canta")
 
-ETAPAS = ["Buscar intérpretes", "Coleta de prints"]  # as duas abas do app
+ETAPAS = ["Buscar intérpretes", "Coleta de prints", "Réplica (ECAD)", "Réplica (ISWC)"]  # as abas do app
 
 
 @st.fragment(run_every=1)
@@ -91,10 +91,17 @@ if em_curso is not None and "etapa" not in st.session_state:  # página recarreg
 st.session_state.setdefault("etapa", ETAPAS[0])
 etapa = st.segmented_control("Aba", ETAPAS, key="etapa", label_visibility="collapsed") or ETAPAS[0]
 st.caption(
-    ("Envie o relatório do compositor e receba a planilha de intérpretes: a obra e quem gravou, para ele conferir e corrigir. "
-     if etapa == ETAPAS[0] else
-     "Do relatório do titular à planilha de obras, à lista da petição e às provas. ")
-    + "O arquivo é lido só neste computador; o app nunca acessa o ECADNET nem o portal de associação nenhuma."
+    "Envie o relatório do compositor e receba a planilha de intérpretes: a obra e quem gravou, para ele conferir e corrigir. "
+    "O arquivo é lido só neste computador; o app nunca acessa o ECADNET nem o portal de associação nenhuma."
+    if etapa == ETAPAS[0] else
+    "Do relatório do titular à planilha de obras, à lista da petição e às provas. O arquivo é lido só neste computador; "
+    "o app nunca acessa o ECADNET nem o portal de associação nenhuma."
+    if etapa == ETAPAS[1] else
+    "Os prints do Ecadnet para a réplica. O relatório é lido só neste computador. O Ecadnet abre numa janela em que você "
+    "faz o login; o app só abre a obra e fotografa quando você pede."
+    if etapa == ETAPAS[2] else
+    "Os prints do ISWC Network para a réplica. O relatório é lido só neste computador. Quem busca no ISWC é você; o app "
+    "abre a página, copia o ISWC e fotografa quando você pede."
 )
 
 arquivo = st.file_uploader(
@@ -229,6 +236,272 @@ if etapa == ETAPAS[0]:
             tabela.style.apply(lambda linha: ["", f"color: #{_interpretes.VERMELHO}" if linha["_duvida"] else "", ""], axis=1),
             hide_index=True, column_order=["Obras", "Intérpretes"],
         )
+    st.stop()
+
+# --- as abas da réplica: Ecadnet e ISWC assistidos (em teste) ------------------
+
+
+def aba_da_replica(site: str):
+    """A aba de um site da réplica: a janela do site, a obra da vez e os botões de abrir e fotografar.
+
+    `site` é "ecadnet" ou "iswc". Os dois funcionam igual: a pessoa conduz e o app fotografa quando ela pede. No
+    Ecadnet o app abre a página da obra pelo código do relatório; no ISWC (os termos do site só permitem consulta
+    manual) o app abre a busca e deixa o ISWC pronto para colar, e quem busca é a pessoa.
+    """
+    from creditos import ecadnet as _ecadnet
+    from creditos import iswc as _iswc
+    from creditos import replica as _replica
+
+    do_ecadnet = site == "ecadnet"
+    nome_do_site = "Ecadnet" if do_ecadnet else "ISWC Network"
+    pasta = pasta_do_caso / ("ecadnet" if do_ecadnet else "iswc")
+    etapa_do_print = _ecadnet.ETAPA if do_ecadnet else _iswc.ETAPA
+    st.subheader(f"Prints do {nome_do_site} (em teste)")
+    st.caption(
+        "Você conduz e o app fotografa. Abra a janela, faça o login no Ecadnet nela (o app não digita nem guarda senha) e, "
+        "abra a primeira obra. Conferida a página, clique em **Fotografar** (quantas vezes precisar, rolando a página "
+        "entre um print e outro) e depois em **Próxima obra →**, que já abre a seguinte. Se aparecer o \"não sou um "
+        "robô\", resolva na própria janela."
+        if do_ecadnet else
+        "Você conduz e o app salva. O \"não sou um robô\" do ISWC Network recusa o navegador do app, por isso o ISWC "
+        "abre no **Google Chrome**, com um perfil só para ele. Clique em **Abrir no ISWC**: o Chrome abre no resultado "
+        "daquele ISWC (na primeira vez, aceite os termos e resolva o \"não sou um robô\" lá). Com o resultado na tela, "
+        "clique em **Salvar PDF** aqui: o app confere se é o resultado deste ISWC e salva a página em PDF, igual ao "
+        "\"Imprimir > Salvar como PDF\" do Chrome. **Próxima obra →** abre a seguinte na mesma janela. No fim, "
+        "**Juntar os PDFs** gera um PDF só."
+    )
+    # A réplica só precisa das obras da petição (as sem crédito). A lista da petição diz quais são; o relatório dá o
+    # código (o endereço no Ecadnet) e o ISWC de cada uma. A lista vale para as duas abas da réplica.
+    listas = st.file_uploader("Lista(s) da petição (.docx): só as obras dela entram na fila", type=["docx"],
+                              accept_multiple_files=True, key=f"{site}_listas",
+                              help="A lista que a coleta gera para cada plataforma. Pode enviar várias: o app junta as obras de todas. "
+                              "A parte \"A confirmar antes de usar\" fica de fora.")
+    if listas:
+        assinatura = sorted((f.name, f.size) for f in listas)
+        if st.session_state.get("replica_listas_lidas") != assinatura:
+            titulos = []
+            for arquivo in listas:
+                try:
+                    titulos += _replica.titulos_da_lista(arquivo.getvalue())
+                except Exception as e:
+                    st.error(f"Não consegui ler {arquivo.name}: {e}")
+            st.session_state.replica_titulos = list(dict.fromkeys(titulos))
+            st.session_state.replica_listas_lidas = assinatura
+            st.session_state.replica_nomes_das_listas = [f.name for f in listas]
+            for chave_da_aba in ("ecadnet_indice", "iswc_indice"):
+                st.session_state[chave_da_aba] = 0
+    titulos_da_peticao = st.session_state.get("replica_titulos")
+    if titulos_da_peticao is not None:
+        obras, fora_do_relatorio = _replica.cruzar(titulos_da_peticao, relatorio)
+        st.success(f"Lista da petição: {len(titulos_da_peticao)} títulos ({', '.join(st.session_state.replica_nomes_das_listas)}) → "
+                   f"{len(obras)} obras do relatório" + (" (há títulos com mais de um registro no relatório: entram todos)"
+                                                          if len(obras) > len(titulos_da_peticao) else ""))
+        if fora_do_relatorio:
+            st.warning(f"{len(fora_do_relatorio)} títulos da lista não estão neste relatório: " + "; ".join(fora_do_relatorio))
+        if st.button("Esquecer a lista e usar todas as obras do relatório", key=f"{site}_esquecer"):
+            for nome in ("replica_titulos", "replica_listas_lidas", "replica_nomes_das_listas"):
+                st.session_state.pop(nome, None)
+            st.rerun()
+    else:
+        obras = relatorio.obras
+        st.info("Sem lista da petição, a fila tem **todas** as obras do relatório. Envie a lista para fotografar só as que entram na petição.")
+    obras = list({o.codigo or o.titulo: o for o in obras}.values())
+    if do_ecadnet:
+        obras = [o for o in obras if o.codigo]
+        if not obras:
+            st.info("Este relatório não traz o código das obras (CÓD. OBRA): sem ele, o app não sabe o endereço de cada obra no Ecadnet.")
+            return
+    else:
+        sem_iswc = [o for o in obras if not o.iswc]
+        obras = [o for o in obras if o.iswc]
+        if sem_iswc:
+            st.caption(f"{len(sem_iswc)} obras do relatório não têm ISWC e ficam de fora desta lista: "
+                       + "; ".join(o.titulo for o in sem_iswc[:30]) + ("…" if len(sem_iswc) > 30 else ""))
+        if not obras:
+            st.info("Nenhuma obra deste relatório tem ISWC.")
+            return
+
+    aberta = _replica.janela(site)
+    colunas = st.columns([2, 2, 3])
+    if not do_ecadnet and _iswc.chrome_aberto():
+        colunas[2].caption("Chrome do ISWC: aberto")
+        if colunas[0].button("Fechar o Chrome do ISWC"):
+            _iswc.fechar_chrome()
+            st.rerun()
+    if do_ecadnet:
+        # O print da réplica é sempre o do monitor inteiro: precisa mostrar a data e a hora do relógio do Windows
+        if aberta is not None:
+            aberta.tela_inteira = True
+        if aberta is None:
+            if colunas[0].button(f"Abrir janela do {nome_do_site}", type="primary"):
+                _replica.abrir_janela(site, perfil=_ecadnet.perfil_do_ecadnet(pasta_do_caso), pasta=pasta, inicio=_ecadnet.SITE,
+                                      plataforma=_ecadnet.PLATAFORMA, etapa=_ecadnet.ETAPA, tela_inteira=True)
+                st.rerun()
+        else:
+            colunas[2].caption(f"Janela: {aberta.situacao}")
+            if colunas[0].button(f"Fechar a janela do {nome_do_site}"):
+                aberta.pedir("fechar", espera=20)
+                st.rerun()
+        erro_da_janela = st.container()  # lugar fixo, pelo mesmo motivo dos avisos abaixo
+        if _replica.JANELAS.get(site) is not None and _replica.JANELAS[site].erro:
+            erro_da_janela.error(f"A janela do {nome_do_site} não abriu: {_replica.JANELAS[site].erro}")
+
+    chave = f"{site}_indice"
+    st.session_state.setdefault(chave, 0)
+    indice = min(st.session_state[chave], len(obras) - 1)
+    if do_ecadnet:
+        rotulo = lambda i: f"{i + 1}. {obras[i].titulo} (cód. {obras[i].codigo})"
+    else:
+        rotulo = lambda i: f"{i + 1}. {obras[i].titulo} ({obras[i].iswc})"
+    indice = st.selectbox(f"Obra ({len(obras)} na lista)", range(len(obras)), index=indice, format_func=rotulo)
+    st.session_state[chave] = indice
+    obra = obras[indice]
+    if do_ecadnet:
+        st.caption(f"Endereço: {_ecadnet.endereco_da_obra(obra.codigo)}")
+        conferir = lambda url, texto, obra=obra: _ecadnet.conferir_pagina(url, texto, obra.codigo, obra.titulo)
+        exibido = {"codigo_da_obra": obra.codigo}
+    else:
+        st.code(obra.iswc, language=None)
+        conferir = lambda url, texto, obra=obra: _iswc.conferir_resultado(url, texto, obra.iswc)
+        exibido = {"iswc": obra.iswc}
+    nomes = [n for n in dict.fromkeys([relatorio.nome_titular, relatorio.pseudonimo_titular]) if n]
+    # O que aconteceu no clique anterior, num lugar fixo: com ou sem recado, os botões ficam na mesma posição (se ela
+    # muda, a tela mostra os botões duplicados enquanto o clique seguinte roda)
+    avisos = st.container()
+    for tipo, texto in st.session_state.pop(f"{site}_recado", []):
+        getattr(avisos, tipo)(texto)
+    ultima = indice >= len(obras) - 1
+    botoes = st.columns(3)
+    abrir = botoes[0].button("Abrir esta obra" if do_ecadnet else "Abrir no ISWC", disabled=do_ecadnet and aberta is None)
+    fotografar = botoes[1].button("Fotografar" if do_ecadnet else "Salvar PDF", type="primary", disabled=do_ecadnet and aberta is None)
+    if botoes[2].button("Próxima obra →", disabled=ultima):
+        st.session_state[chave] = indice + 1
+        if not do_ecadnet:
+            # ISWC: abre o resultado da obra seguinte no Chrome do ISWC, na mesma aba
+            seguinte = obras[indice + 1]
+            _iswc.copiar(seguinte.iswc)
+            try:
+                onde = _iswc.abrir_no_chrome(_iswc.endereco_da_busca(seguinte.iswc), _iswc.perfil_do_chrome(pasta_do_caso))
+                st.session_state[f"{site}_recado"] = [("info", f"Aberta: **{seguinte.titulo}** ({seguinte.iswc}) no {onde}. "
+                                                               "Com o resultado na tela, clique em **Salvar PDF**.")]
+            except Exception as e:
+                st.session_state[f"{site}_recado"] = [("warning", f"{seguinte.titulo} não abriu: {e}. Clique em **Abrir no ISWC**.")]
+        elif aberta is not None:
+            # Ecadnet: passa para a obra seguinte e já abre a página dela (o print fica no botão Fotografar, que pode
+            # ser usado mais de uma vez na mesma obra)
+            seguinte = obras[indice + 1]
+            with st.spinner(f"Abrindo a próxima obra: {seguinte.titulo}…"):
+                aberta_a_seguinte = aberta.pedir("abrir", url=_ecadnet.endereco_da_obra(seguinte.codigo),
+                                                 conferir=lambda url, texto: _ecadnet.conferir_pagina(url, texto, seguinte.codigo, seguinte.titulo))
+            if aberta_a_seguinte.get("ok"):
+                st.session_state[f"{site}_recado"] = [("info", f"Aberta: **{seguinte.titulo}**. Confira na janela e clique em **Fotografar**.")]
+            else:
+                st.session_state[f"{site}_recado"] = [("warning", f"{seguinte.titulo} não abriu: {aberta_a_seguinte.get('motivo')}. "
+                                                                  "Clique em **Abrir esta obra** para tentar de novo.")]
+        st.rerun()
+    if abrir:
+        if do_ecadnet:
+            with st.spinner("Abrindo a obra no Ecadnet…"):
+                resposta = aberta.pedir("abrir", url=_ecadnet.endereco_da_obra(obra.codigo), conferir=conferir)
+            if resposta.get("ok"):
+                st.success("Página da obra aberta. Confira na janela e clique em **Fotografar**.")
+            else:
+                st.warning(f"Não deu para abrir a obra: {resposta.get('motivo')}")
+        else:
+            _iswc.copiar(obra.iswc)  # se o site pedir a busca de novo, é só colar
+            try:
+                onde = _iswc.abrir_no_chrome(_iswc.endereco_da_busca(obra.iswc), _iswc.perfil_do_chrome(pasta_do_caso))
+                st.success(f"Resultado do ISWC aberto no {onde}. Se o site pedir o \"não sou um robô\", resolva lá (o ISWC "
+                           "também ficou copiado, se precisar colar). Com o resultado na tela, clique em **Salvar PDF**.")
+            except Exception as e:
+                st.warning(f"Não deu para abrir o ISWC: {e}")
+    if fotografar and not do_ecadnet:
+        with st.spinner("Conferindo o resultado e salvando o PDF…"):
+            try:
+                resposta = _iswc.salvar_pdf(pasta, obra.titulo, obra.iswc, nomes)
+            except Exception as e:
+                resposta = {"ok": False, "motivo": f"o Chrome do ISWC não respondeu ({type(e).__name__}): feche-o e clique em **Abrir no ISWC**"}
+    elif fotografar:
+        with st.spinner("Fotografando…"):
+            resposta = aberta.pedir("fotografar", obra=obra.titulo, conferir=conferir, nomes=nomes, exibido=exibido)
+    if fotografar:
+        recado = []
+        if resposta.get("ok"):
+            ficha = resposta["ficha"]
+            recado.append(("success", f"{obra.titulo}: {'print' if do_ecadnet else 'PDF'} guardado (`{next(iter(ficha['arquivos'].values()))}`)"
+                           + (f" (monitor {ficha['monitor']})" if ficha.get("monitor") else "")
+                           + ("" if resposta.get("titular_na_pagina") or resposta.get("aviso")
+                              else " — atenção: o nome do titular não foi achado no texto da página")))
+            if resposta.get("aviso"):
+                recado.append(("warning", "Este print registra que " + resposta["aviso"].split(". Se quiser")[0] + "."))
+            if ficha.get("tela_inteira", {}).get("erro"):
+                recado.append(("warning", f"Print de tela inteira não saiu: {ficha['tela_inteira']['erro']}"))
+            if do_ecadnet:
+                recado.append(("info", "Precisa de outro print desta obra? Role a página na janela e clique em **Fotografar** de novo. "
+                                       + ("Esta é a última obra da lista." if ultima else "Senão, clique em **Próxima obra →**.")))
+        else:
+            recado.append(("warning", f"{'Não fotografei' if do_ecadnet else 'Não guardei'}: {resposta.get('motivo')}"))
+        for tipo, texto in recado:
+            getattr(st, tipo)(texto)
+    guardados = _replica.prints_guardados(pasta, etapa_do_print)
+    if guardados:
+        identificacao = "código" if do_ecadnet else "ISWC"
+        campo = "codigo_da_obra" if do_ecadnet else "iswc"
+        with st.expander(f"Prints do {nome_do_site} já tirados neste caso ({len(guardados)})"):
+            st.dataframe(pd.DataFrame([{"obra": f.get("obra"), identificacao: f.get("exibido", {}).get(campo),
+                                        "quando": f.get("capturado_em"), "arquivo": next(iter(f["arquivos"].values()))} for f in guardados]),
+                         hide_index=True)
+            st.caption(f"Pasta: `{pasta.resolve()}`")
+    pdfs = [f for f in guardados if f.get("arquivos", {}).get("pdf") and (pasta / f["arquivos"]["pdf"]).exists()]
+    if not do_ecadnet and pdfs:
+        # um PDF só, na ordem da fila (a da lista da petição / relatório), com uma página por obra: se a obra foi salva
+        # mais de uma vez, vale a mais recente
+        mais_recente = {}
+        for f in sorted(pdfs, key=lambda f: f.get("capturado_em", "")):
+            mais_recente[f.get("exibido", {}).get("iswc")] = f
+        repetidos = len(pdfs) - len(mais_recente)
+        ordem = {o.iswc: i for i, o in enumerate(obras)}
+        pdfs = sorted(mais_recente.values(), key=lambda f: ordem.get(f.get("exibido", {}).get("iswc"), len(obras)))
+        fora = sum(f.get("exibido", {}).get("iswc") not in ordem for f in pdfs)
+        st.markdown(f"**PDF único do ISWC**: {len(pdfs)} obras" + (f" ({fora} fora desta fila, no fim)" if fora else "")
+                    + (f". {repetidos} PDFs mais antigos de obras salvas de novo ficam de fora" if repetidos else ""))
+        if st.button("Juntar os PDFs"):
+            junto = _iswc.juntar_pdfs([pasta / f["arquivos"]["pdf"] for f in pdfs])
+            destino = pasta_do_caso / f"ISWC - {relatorio.pseudonimo_titular or relatorio.nome_titular or 'titular'}.pdf"
+            destino.write_bytes(junto)
+            st.session_state.iswc_junto = (destino.name, junto)
+            st.success(f"PDF único gerado ({len(pdfs)} páginas de obra): `{destino.resolve()}`")
+        if st.session_state.get("iswc_junto"):
+            nome_do_junto, junto = st.session_state.iswc_junto
+            st.download_button(f"Baixar {nome_do_junto}", junto, file_name=nome_do_junto, mime="application/pdf")
+    # só os prints do monitor inteiro (os que mostram a data e a hora); os antigos, só da página, ficam de fora
+    pngs = [f for f in guardados if f.get("arquivos", {}).get("tela") and (pasta / f["arquivos"]["tela"]).exists()]
+    if do_ecadnet and pngs:
+        # um PDF só, na ordem da fila, com os prints da última rodada de cada obra (às vezes são dois ou três seguidos);
+        codigo_de = lambda f: f.get("exibido", {}).get("codigo_da_obra")
+        escolhidos = _replica.prints_da_ultima_rodada(pngs, codigo_de)
+        ordem = {o.codigo: i for i, o in enumerate(obras)}
+        escolhidos.sort(key=lambda f: ordem.get(codigo_de(f), len(obras)))  # sort estável: na mesma obra, na ordem tirada
+        na_fila = [f for f in escolhidos if codigo_de(f) in ordem]
+        fora = len(escolhidos) - len(na_fila)
+        obras_com_print = len({codigo_de(f) for f in na_fila})
+        st.markdown(f"**PDF único do Ecadnet**: {len(na_fila)} prints de {obras_com_print} das {len(obras)} obras da fila"
+                    + (f". {len(pngs) - len(escolhidos)} prints de rodadas mais antigas ficam de fora" if len(pngs) > len(escolhidos) else "")
+                    + (f". {fora} prints de obras fora desta fila não entram" if fora else ""))
+        if st.button("Juntar os prints em PDF", disabled=not na_fila):
+            junto = _replica.pdf_dos_prints([pasta / f["arquivos"]["tela"] for f in na_fila])
+            destino = pasta_do_caso / f"Ecadnet - {relatorio.pseudonimo_titular or relatorio.nome_titular or 'titular'}.pdf"
+            destino.write_bytes(junto)
+            st.session_state.ecadnet_junto = (destino.name, junto)
+            st.success(f"PDF único gerado ({len(na_fila)} páginas): `{destino.resolve()}`")
+        if st.session_state.get("ecadnet_junto"):
+            nome_do_junto, junto = st.session_state.ecadnet_junto
+            st.download_button(f"Baixar {nome_do_junto}", junto, file_name=nome_do_junto, mime="application/pdf")
+
+
+if etapa in ETAPAS[2:]:
+    aba_da_replica("ecadnet" if etapa == ETAPAS[2] else "iswc")
+    st.caption(f"Versão {VERSAO} · casos e prints em `{PASTA_DE_DADOS}`")
     st.stop()
 
 # --- conferir e ajustar (recolhido: quase nunca precisa mexer) ----------------

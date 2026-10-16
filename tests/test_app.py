@@ -127,6 +127,19 @@ def test_tela_de_importacao_mostra_resumo_nomes_artisticos_e_duplicidades():
     assert all("titulares e percentuais" not in d.value.columns for d in at.dataframe)
 
 
+def test_aba_da_replica_mostra_o_ecadnet_e_nao_a_coleta():
+    from tests.test_creditos import relatorio_de_teste
+
+    at = AppTest.from_file("../creditos_app.py", default_timeout=30)
+    at.session_state["relatorio"] = relatorio_de_teste()
+    for aba, site in (("Réplica (ECAD)", "Ecadnet"), ("Réplica (ISWC)", "ISWC Network")):
+        at.session_state["etapa"] = aba
+        at.run()
+        assert not at.exception
+        titulos = [s.value for s in at.subheader]
+        assert f"Prints do {site} (em teste)" in titulos and "Verificar os créditos nas plataformas" not in titulos
+
+
 def test_tela_coleta_e_oferece_planilha_e_pacote_de_provas(tmp_path, monkeypatch):
     from creditos import classificador as c, pipeline
     from tests.test_creditos import relatorio_de_teste
@@ -461,9 +474,9 @@ def test_etapa_dos_prints_exige_a_planilha_conferida(tmp_path, monkeypatch):
     assert recebidos == [CONFERIDOS]
 
 
-def test_as_duas_abas_aparecem_antes_de_enviar_qualquer_arquivo():
+def test_as_abas_aparecem_antes_de_enviar_qualquer_arquivo():
     at = _tela_de_creditos().run()
-    assert not at.exception and at.button_group[0].options == [ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS]
+    assert not at.exception and at.button_group[0].options == [ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS, "Réplica (ECAD)", "Réplica (ISWC)"]
     assert at.button_group[0].value == ETAPA_DOS_INTERPRETES and any("planilha de intérpretes" in c.value for c in at.caption)
     at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
     assert any("lista da petição" in c.value for c in at.caption) and any("Envie o relatório" in i.value for i in at.info)

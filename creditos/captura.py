@@ -144,8 +144,10 @@ def capturas_guardadas(pasta) -> list[dict]:
     return fichas
 
 
-def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="") -> dict:
+def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="", carimbo=True) -> dict:
     """Carimba a página como está, salva PNG, HTML e JSON e devolve o conteúdo do JSON.
+
+    `carimbo=False`: o print sai sem a faixa no topo (os mesmos dados ficam só no JSON).
 
     `exibido`: o que o coletor leu na tela (título, intérprete, itens do menu...), que vai para o JSON.
     Levanta PaginaTraduzida em vez de capturar uma página adulterada pela tradução do navegador.
@@ -162,17 +164,18 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
         base = f"{base.rsplit('__', 1)[0]}__{numero}"
         numero += 1
     data_do_servidor = pagina.evaluate(_DATA_DO_SERVIDOR)
-    pagina.evaluate(_CARIMBAR, texto_do_carimbo(pagina.url, quando, base, data_do_servidor, so_a_url=TELA_INTEIRA))
+    if carimbo:
+        pagina.evaluate(_CARIMBAR, texto_do_carimbo(pagina.url, quando, base, data_do_servidor, so_a_url=TELA_INTEIRA))
     html = pagina.content().encode("utf-8")
     imagem = pagina.screenshot(type="png")
-    tela, da_tela = _tela_inteira(pagina, imagem) if TELA_INTEIRA else (None, None)
+    tela, da_tela = _tela_inteira(pagina, imagem, pela_posicao=not carimbo) if TELA_INTEIRA else (None, None)
     pagina.evaluate("() => { const faixa = document.getElementById('__carimbo_de_captura'); if (faixa) faixa.remove(); }")
     (pasta / f"{base}.png").write_bytes(imagem)
     (pasta / f"{base}.html").write_bytes(html)
     registro = {
         "captura": base, "url": pagina.url, "plataforma": plataforma, "obra": obra, "interprete": interprete,
         "capturado_em": quando.isoformat(timespec="seconds"), "fuso": FUSO, "data_do_servidor": data_do_servidor,
-        "exibido": exibido, "versao_do_app": VERSAO_DO_APP,
+        "exibido": exibido, "versao_do_app": VERSAO_DO_APP, "carimbo_no_print": carimbo,
         "arquivos": {"png": f"{base}.png", "html": f"{base}.html"},
         "sha256": {"png": sha256(imagem), "html": sha256(html)},
     }
@@ -204,8 +207,15 @@ def _restaurar_janela(pagina) -> None:
         pass
 
 
-def _tela_inteira(pagina, imagem: bytes) -> tuple[bytes | None, dict]:
-    """Fotografa o monitor em que a página está à vista, com a faixa de carimbo ainda na tela.
+# Onde a área da página está na área de trabalho (pixels da tela): o canto da janela mais as bordas e barras dela.
+_POSICAO_DA_PAGINA = """() => [window.screenX + (window.outerWidth - window.innerWidth) / 2,
+  window.screenY + window.outerHeight - window.innerHeight - (window.outerWidth - window.innerWidth) / 2,
+  window.devicePixelRatio || 1]"""
+
+
+def _tela_inteira(pagina, imagem: bytes, pela_posicao=False) -> tuple[bytes | None, dict]:
+    """Fotografa o monitor em que a página está à vista, com a faixa de carimbo ainda na tela. Sem a faixa
+    (`pela_posicao`), a página é achada no monitor pela posição que a janela informa.
 
     Se a janela estiver coberta ou minimizada, tenta uma vez reabri-la e trazê-la para a frente. Falha aqui nunca derruba a captura:
     a captura de página continua valendo, e o motivo fica na ficha.
@@ -214,12 +224,19 @@ def _tela_inteira(pagina, imagem: bytes) -> tuple[bytes | None, dict]:
 
     try:
         pagina.wait_for_timeout(250)  # dá tempo de o sistema desenhar a faixa na janela
-        foto, dados = tela.fotografar(imagem)
+
+        def tentar(captura_da_pagina):
+            if not pela_posicao:
+                return tela.fotografar(captura_da_pagina)
+            esquerda, topo, escala = pagina.evaluate(_POSICAO_DA_PAGINA)
+            return tela.fotografar_na_posicao(captura_da_pagina, esquerda * escala, topo * escala, escala)
+
+        foto, dados = tentar(imagem)
         if foto is None:
             _restaurar_janela(pagina)
             pagina.bring_to_front()
             pagina.wait_for_timeout(1000)
-            foto, dados = tela.fotografar(pagina.screenshot(type="png"))
+            foto, dados = tentar(pagina.screenshot(type="png"))
         return foto, dados
     except tela.SemComponente as e:
         return None, {"erro": str(e)}
