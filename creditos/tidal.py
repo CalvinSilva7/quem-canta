@@ -250,10 +250,16 @@ class Tidal:
         pagina.wait_for_timeout(2000)
         pagina.locator('[data-test="toggle-credits"]').first.click()
         pagina.mouse.move(700, 90)  # tira o mouse de cima dos nomes, para não abrir cartão de artista no print
-        pagina.wait_for_timeout(2000)
-        papeis = {rotulo: nomes for rotulo, nomes in pagina.evaluate(_LER_TOCADOR) if rotulo}
-        na_tela = [n for rotulo, nomes in papeis.items() if normalizar(rotulo) in ROTULOS_DE_AUTOR for n in nomes]
-        if {normalizar(n) for n in na_tela} != {normalizar(n) for n in faixa.creditos}:
+        # A aba às vezes leva vários segundos para trazer os créditos (vista vazia depois de 2,5 s, no Windows,
+        # 16/10/2026; uma faixa levou 12 s): espera até os autores serem os mesmos da página do álbum, por no máximo 20 s.
+        esperados = {normalizar(n) for n in faixa.creditos}
+        for _ in range(20):
+            pagina.wait_for_timeout(1000)
+            papeis = {rotulo: nomes for rotulo, nomes in pagina.evaluate(_LER_TOCADOR) if rotulo}
+            na_tela = [n for rotulo, nomes in papeis.items() if normalizar(rotulo) in ROTULOS_DE_AUTOR for n in nomes]
+            if {normalizar(n) for n in na_tela} == esperados and (papeis or not esperados):
+                break
+        if {normalizar(n) for n in na_tela} != esperados:
             raise ValueError("a aba de créditos do tocador mostra autores diferentes dos lidos na página de créditos do álbum")
         exibido = {"titulo": faixa.titulo, "interprete": faixa.interprete, "creditos": papeis, "faixa_no_album": faixa.numero,
                    "tocando": tocando}

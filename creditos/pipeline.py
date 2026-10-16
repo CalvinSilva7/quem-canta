@@ -632,16 +632,57 @@ def coletar_amazon_completa(relatorio: Relatorio, config: Config, amazon, aplica
     return [no_aplicativo, no_site]
 
 
-def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), pares=None, limite_de_obras=None,
-                  ao_avancar=None, nomes_no_maximo=8, so_os_pares=False) -> Coleta:
-    """Tidal: percorre a discografia de quem grava o titular e lê a página de créditos de cada álbum.
+def _isrcs_para_o_tidal(titulos: dict, pares: dict, conhecidas, deezer, interpretes, so_os_pares, avisar, coleta) -> list[tuple]:
+    """[(ISRC, título da obra, de onde veio)] das gravações das obras buscadas. Primeiro as que a Deezer já leu nesta
+    rodada (`conhecidas`: [(obra, intérprete, ISRC)]); para as obras que ficaram sem nenhuma, a busca da Deezer por
+    "título + intérprete" (os conferidos; sem planilha, os principais do titular), só com título igual e intérprete
+    parecido."""
+    from cantor.matching import nomes_parecidos
 
-    Depois de classificar, volta às faixas sem crédito ou com crédito errado e tira o print da tela do tocador,
-    com a aba de créditos aberta. Com `so_os_pares` (planilha conferida pelo compositor), são percorridos todos
-    os intérpretes da planilha, sem o limite de nomes e sem os nomes do próprio titular.
+    from .deezer import ErroDeColeta
+
+    pedidos = {}
+    for obra, interprete, isrc in conhecidas or []:
+        base = c._titulo_base(obra)
+        if isrc and base in titulos:
+            pedidos.setdefault(str(isrc).upper(), (titulos[base], f"gravação de {interprete} lida na Deezer"))
+    if deezer is not None:
+        cobertas = {c._titulo_base(t) for t, _ in pedidos.values()}
+        faltam = [(base, titulo) for base, titulo in titulos.items() if base not in cobertas]
+        for i, (base, titulo) in enumerate(faltam, start=1):
+            avisar(f"Tidal: procurando a gravação na Deezer {i}/{len(faltam)}")
+            for nome in pares.get(titulo) or ([] if so_os_pares else interpretes[:3]):
+                try:
+                    candidatas = deezer.buscar_faixas(f"{titulo} {nome}", maximo=50)
+                    boas = [x for x in candidatas if c._titulo_base(x["titulo"]) == base
+                            and nomes_parecidos(nome, x["interprete"], parcial=True)][:4]
+                    for x in boas:
+                        isrc = deezer.isrc(x["id"])
+                        if isrc:
+                            pedidos.setdefault(isrc.upper(), (titulo, f"{x['interprete']}, achada na busca da Deezer"))
+                except ErroDeColeta as e:
+                    coleta.avisos.append(f'Tidal: a busca da Deezer por "{titulo}" falhou ({e}); a obra fica sem procurar')
+    achadas = {c._titulo_base(t) for t, _ in pedidos.values()}
+    sem_isrc = [t for base, t in titulos.items() if base not in achadas]
+    if sem_isrc:
+        coleta.avisos.append(f"Tidal: {len(sem_isrc)} obras sem gravação achada na Deezer (de onde vem o código ISRC) não foram "
+                             "procuradas no Tidal: " + "; ".join(sem_isrc[:40]) + ("…" if len(sem_isrc) > 40 else ""))
+    return [(isrc, titulo, origem) for isrc, (titulo, origem) in pedidos.items()]
+
+
+def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), pares=None, limite_de_obras=None,
+                  ao_avancar=None, nomes_no_maximo=8, so_os_pares=False, api=None, deezer=None, conhecidas=None) -> Coleta:
+    """Tidal: lê a página de créditos de cada álbum (sem login) e tira o print das faixas sem crédito ou com crédito
+    errado, na tela do tocador com a aba de créditos aberta.
+
+    Como achar as faixas: com a API oficial (`api`, chaves do escritório), pelo ISRC de cada gravação, que vem da
+    Deezer (`conhecidas`, as lidas nesta rodada, e `deezer`, a busca para as obras que faltarem). Sem as chaves, o
+    jeito antigo: a discografia de quem grava o titular, pela busca do site, que sem login acha pouco. Com
+    `so_os_pares` (planilha conferida pelo compositor), valem os intérpretes da planilha.
     """
     from .captura import PaginaTraduzida
     from .navegador import Bloqueio
+    from .tidal_api import ErroNaAPI
 
     inicio, pares, avisar = time.monotonic(), pares or {}, ao_avancar or (lambda texto: None)
     coleta = Coleta("TIDAL")
@@ -654,11 +695,27 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
         coleta.sementes = list({normalizar(n): n for titulo in titulos.values() for n in pares.get(titulo, [])}.values())
     lidas, de_onde = [], {}
     try:
-        albuns = {}
-        for nome in coleta.sementes:
-            avisar(f"Tidal: procurando {nome}")
-            for album_id in tidal.albuns_de(nome):
-                albuns.setdefault(album_id, f"discografia de {nome}")
+        albuns, pedidas = {}, {}  # álbum -> de onde veio; álbum -> {faixa: ISRC} (só pela API)
+        if api is not None:
+            coleta.sementes = []
+            pedidos = _isrcs_para_o_tidal(titulos, pares, conhecidas, deezer, interpretes, so_os_pares, avisar, coleta)
+            for i, (isrc, titulo, origem) in enumerate(pedidos, start=1):
+                avisar(f"Tidal: procurando a gravação {i}/{len(pedidos)} pelo ISRC")
+                try:
+                    achadas = api.faixas(isrc)
+                except ErroNaAPI as e:
+                    coleta.avisos.append(f"Tidal: a API parou de responder ({e}); as gravações que faltavam ficam sem procurar")
+                    break
+                for faixa in achadas:
+                    albuns.setdefault(faixa["album"], f"ISRC {isrc} ({origem})")
+                    pedidas.setdefault(faixa["album"], {})[faixa["id"]] = isrc
+        else:
+            coleta.avisos.append("Tidal sem as chaves da API: as faixas foram procuradas pela busca do site, que sem login acha "
+                                 "pouco. Com o arquivo chaves-tidal.txt na pasta de dados, o app procura pelo ISRC")
+            for nome in coleta.sementes:
+                avisar(f"Tidal: procurando {nome}")
+                for album_id in tidal.albuns_de(nome):
+                    albuns.setdefault(album_id, f"discografia de {nome}")
         for i, (album_id, origem) in enumerate(albuns.items(), start=1):
             avisar(f"Tidal: lendo álbum {i}/{len(albuns)}")
             album = tidal.album(album_id)
@@ -668,8 +725,14 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
             coleta.albuns_lidos += 1
             if album.aviso:
                 coleta.avisos.append(f'álbum "{album.titulo}" ({album_id}): {album.aviso}; a faixa que faltou fica NÃO VERIFICADA')
+            quais = pedidas.get(album_id)
             for faixa in album.faixas:
-                if c._titulo_base(faixa.titulo) in titulos:  # só as obras buscadas nesta rodada
+                # pelo ISRC, só as faixas pedidas (a página do álbum lista também as outras); sempre só as obras buscadas
+                if quais is not None and faixa.id not in quais:
+                    continue
+                if c._titulo_base(faixa.titulo) in titulos:
+                    if quais is not None:
+                        faixa.isrc = quais[faixa.id]
                     lidas.append((faixa, album, origem))
                     de_onde[faixa.link] = (album_id, faixa)
         _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
@@ -693,12 +756,14 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
             except (Bloqueio, PaginaTraduzida):
                 raise
             except Exception as e:
-                coleta.avisos.append(f'print de "{g.titulo}" não pôde ser tirado: {type(e).__name__}')
+                coleta.avisos.append(f'print de "{g.titulo}" ({g.link}) não pôde ser tirado: {type(e).__name__}: '
+                                     f'{str(e).splitlines()[0][:160] if str(e) else ""}')
     except (Bloqueio, PaginaTraduzida) as e:
         _parar(coleta, e)
         if not coleta.gravacoes:
             _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
-    coleta.requisicoes, coleta.segundos = tidal.nav.navegacoes, time.monotonic() - inicio
+    coleta.requisicoes = tidal.nav.navegacoes + (api.requisicoes if api is not None else 0)
+    coleta.segundos = time.monotonic() - inicio
     return coleta
 
 
@@ -1289,8 +1354,8 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
 # Tempo da primeira coleta, medido nos dois primeiros casos (um de 47 e um de 119 títulos, 10 a 20 obras cada).
 # Segundos por obra em cada plataforma, mais um tempo fixo. É uma ordem de grandeza, não uma promessa: depende
 # de quantas gravações cada obra tem e de quantos intérpretes aparecem.
-SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 1, "vagalume": 0, "amazon": 10, "amazon_app": 35, "claro": 25, "palco": 25}
-SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 420, "vagalume": 30, "amazon": 20, "amazon_app": 60, "claro": 20, "palco": 20}
+SEGUNDOS_POR_OBRA = {"deezer": 10, "apple": 16, "youtube": 35, "spotify": 20, "tidal": 30, "vagalume": 0, "amazon": 10, "amazon_app": 35, "claro": 25, "palco": 25}
+SEGUNDOS_FIXOS = {"deezer": 30, "apple": 10, "youtube": 20, "spotify": 20, "tidal": 20, "vagalume": 30, "amazon": 20, "amazon_app": 60, "claro": 20, "palco": 20}
 
 
 def com_as_etapas_da_amazon(plataformas) -> set:
@@ -1447,9 +1512,19 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                                                        recorrentes, pares, limite, ao_avancar=ao_avancar)))
             if "tidal" in pedidas:
                 from .tidal import Tidal
+                from .tidal_api import TidalAPI, chaves as chaves_do_tidal
+
+                # Com as chaves da API (pasta de dados), as faixas são achadas pelo ISRC: o das gravações que a Deezer
+                # leu nesta rodada e, para as obras que faltarem, o da busca da Deezer.
+                chave = chaves_do_tidal(Path(pasta).parent.parent)
+                api = TidalAPI(chave, filtro=filtro, cache=pasta / "tidal" / "leituras") if chave and not so_o_que_ja_foi_lido else None
+                conhecidas = [(g.obra, g.interprete, g.isrc) for k in coletas if k.plataforma == "DEEZER" for g in k.gravacoes
+                              if g.isrc and g.classificacao.status != c.HOMONIMA]
                 coletas.append(ajustar(coletar_tidal(relatorio, config, Tidal(nav, pasta / "tidal", so_o_que_ja_foi_lido),
                                                      recorrentes, pares, limite, ao_avancar=ao_avancar,
-                                                     so_os_pares=conferidos is not None)))
+                                                     so_os_pares=conferidos is not None, api=api,
+                                                     deezer=Deezer(filtro=filtro, cache=pasta / "deezer") if api else None,
+                                                     conhecidas=conhecidas)))
             if "palco" in pedidas:
                 from .palco import Palco
                 coletas.append(ajustar(coletar_palco(relatorio, config, Palco(nav, pasta / "palco-mp3", so_o_que_ja_foi_lido),

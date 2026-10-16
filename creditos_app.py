@@ -679,6 +679,18 @@ with area_da_coleta:
 
             threading.Thread(target=_deezer.entrar, args=(_pipeline.perfil_da_deezer(pasta_do_caso),), daemon=True).start()
             st.info("Janela aberta. Faça o login na Deezer, feche a janela e só então clique em **Coletar e classificar**.")
+    if "tidal" in escolhidas:
+        from creditos import tidal_api as _tidal_api
+
+        if _tidal_api.chaves(pasta_do_caso.parent.parent) is None:
+            st.warning(
+                "**Tidal sem as chaves da API:** sem elas, o app procura as músicas pela busca do site, que sem login acha "
+                f"pouca coisa. Crie o arquivo `{_tidal_api.ARQUIVO_DAS_CHAVES}` em `{pasta_do_caso.parent.parent}` com as "
+                "linhas TIDAL_CLIENT_ID=... e TIDAL_CLIENT_SECRET=... (as chaves do escritório, de developer.tidal.com)."
+            )
+        else:
+            st.caption("Tidal: as músicas são achadas pelo código ISRC (API oficial do Tidal, a partir da Deezer); os créditos "
+                       "são lidos e fotografados na página do Tidal, sem login.")
     if "claro" in escolhidas:
         st.warning(
             "**Claro Música:** o site só mostra as músicas a quem está logado. Clique no botão abaixo **uma vez**: abre uma "

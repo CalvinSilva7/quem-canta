@@ -2334,3 +2334,53 @@ def test_ecadnet_junta_os_prints_da_ultima_rodada_de_cada_obra(tmp_path):
     (tmp_path / "junto.pdf").write_bytes(replica.pdf_dos_prints(imagens))
     paginas = pdfplumber.open(tmp_path / "junto.pdf").pages
     assert len(paginas) == 2 and paginas[0].width > paginas[0].height  # A4 deitado
+
+
+def test_tidal_api_le_as_chaves_e_acha_faixa_e_album_pelo_isrc(tmp_path, monkeypatch):
+    from creditos import tidal_api
+
+    monkeypatch.delenv("TIDAL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("TIDAL_CLIENT_SECRET", raising=False)
+    assert tidal_api.chaves(tmp_path) is None
+    (tmp_path / tidal_api.ARQUIVO_DAS_CHAVES).write_text("TIDAL_CLIENT_ID=abc\nTIDAL_CLIENT_SECRET=xyz=\n", encoding="utf-8")
+    assert tidal_api.chaves(tmp_path) == ("abc", "xyz=")
+
+    class Resposta:
+        def __init__(self, status, dados):
+            self.status_code, self._dados = status, dados
+
+        def json(self):
+            return self._dados
+
+    class Sessao:
+        def __init__(self):
+            self.consultas = []
+
+        def post(self, url, **_):
+            return Resposta(200, {"access_token": "t", "expires_in": 3600})
+
+        def get(self, url, params=None, **_):
+            self.consultas.append(dict(params))
+            return Resposta(200, {"data": [
+                {"id": "11", "attributes": {"title": "Coisa Feita", "version": "Ao Vivo"},
+                 "relationships": {"albums": {"data": [{"id": "900", "type": "albums"}]}}},
+                {"id": "12", "attributes": {"title": "Coisa Feita"}, "relationships": {"albums": {"data": [{"id": "901"}]}}}]})
+
+    sessao = Sessao()
+    api = tidal_api.TidalAPI(("abc", "xyz="), cache=tmp_path / "leituras", intervalo=0, sessao=sessao)
+    achadas = api.faixas("brxxx2300123")
+    assert [(f["id"], f["album"]) for f in achadas] == [("11", "900"), ("12", "901")]
+    assert sessao.consultas[0]["filter[isrc]"] == "BRXXX2300123"  # um ISRC por consulta: vêm todas as versões
+    api2 = tidal_api.TidalAPI(("abc", "xyz="), cache=tmp_path / "leituras", intervalo=0, sessao=Sessao())
+    assert api2.faixas("BRXXX2300123") == achadas and api2.requisicoes == 0  # guardado entre rodadas
+
+
+def test_amazon_menu_de_album_nao_vale_como_menu_da_faixa():
+    from creditos.amazon_app import interpretar_menu
+
+    # O menu do álbum (achado na busca do aplicativo) não tem "Créditos": não pode virar "sem créditos".
+    album = ["Reproduzir a próxima", "Adicionar à fila", "Compartilhar álbum", "Adicionar à playlist",
+             "Reproduzir músicas semelhantes", "Fazer download"]
+    assert interpretar_menu(album) == "invalido"
+    assert interpretar_menu(["Adicionar à fila", "Compartilhar música", "Reproduzir músicas semelhantes"]) == "sem_creditos"
+    assert interpretar_menu(["Compartilhar música", "Créditos", "Reproduzir músicas semelhantes"]) == "com_creditos"

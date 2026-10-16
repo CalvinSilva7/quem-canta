@@ -171,6 +171,18 @@ class Deezer:
             guardadas.write_text(json.dumps(buscas, ensure_ascii=False), encoding="utf-8")
         return faixas
 
+    def isrc(self, faixa_id: str) -> str:
+        """O ISRC de uma faixa (API pública), "" se a Deezer não o tiver. Guardado entre rodadas."""
+        guardados = self.cache / "_isrcs.json" if self.cache else None
+        lidos = json.loads(guardados.read_text(encoding="utf-8")) if guardados and guardados.exists() else {}
+        faixa_id = str(faixa_id)
+        if faixa_id not in lidos:
+            lidos[faixa_id] = str(self._get(API + f"track/{faixa_id}").get("isrc") or "")
+            if guardados:
+                self.cache.mkdir(parents=True, exist_ok=True)
+                guardados.write_text(json.dumps(lidos, ensure_ascii=False), encoding="utf-8")
+        return lidos[faixa_id]
+
     # --- créditos (estado da página do álbum) ------------------------------
 
     def album(self, album_id: str) -> Album:
