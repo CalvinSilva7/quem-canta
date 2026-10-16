@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Estado em 15/10/2026, versão 0.5.49. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
+Estado em 16/10/2026, versão 0.5.50. Escrito para quem assume o projeto sem ter acompanhado a construção: o que
 existe, o que foi validado e onde, o que deu errado e por quê, e o que está pendente.
 
 Este arquivo é público. Não traz nome de cliente, de música nem de artista; os casos reais usados nos testes ficam
@@ -8,7 +8,7 @@ em anotações privadas do dono do projeto.
 
 ## 1. O que o app faz
 
-Duas abas, independentes:
+Quatro abas, independentes:
 
 1. **Buscar intérpretes.** Entra o relatório do ECAD (PDF, ou planilha com título e compositor). Sai uma planilha
    de duas colunas, obra e intérprete. Em preto, o intérprete de que o app tem certeza; em vermelho, o que ele só
@@ -19,6 +19,9 @@ Duas abas, independentes:
    plataforma marcada, lê o crédito de compositor, classifica e tira o print. Saem a planilha de obras (formato do
    escritório), a lista da petição (.docx) e as provas por plataforma, num zip. As provas vêm em PDF e também em
    Word (decisão do dono, 14/10/2026), com as mesmas páginas, para quem precisa editar.
+3. **Réplica (ECAD)** e 4. **Réplica (ISWC)** (0.5.50). Depois que a outra parte responde à petição, o escritório
+   manda a réplica com prints do Ecadnet e do ISWC Network das obras da petição. Entram o relatório analítico e as
+   listas da petição (.docx); saem os prints e um PDF único por site. Ver a seção 4.1.
 
 O app roda no computador de quem usa (Windows, no escritório). Não há servidor. A instalação é por máquina
 (`Instalar.cmd`) e a atualização é pelo botão "Procurar atualização".
@@ -40,11 +43,15 @@ O app roda no computador de quem usa (Windows, no escritório). Não há servido
 | `creditos/filtro.py` | O filtro do que pode sair do computador |
 | `creditos/andamento.py` | Barra de progresso e a tarefa em segundo plano (uma por vez) |
 | `creditos/atualizacao.py`, `empacotar.py`, `versao-publicada.json` | A atualização dos apps instalados |
+| `creditos/replica.py` | Réplica: a janela do navegador do app numa linha própria, o cruzamento lista da petição × relatório, o PDF dos prints |
+| `creditos/ecadnet.py`, `iswc.py` | Réplica: endereço e conferência da página no Ecadnet; o Chrome do ISWC, o PDF da página e a junção dos PDFs |
 | `cantor/`, `app.py` | Primeira versão do projeto (achar o cantor de uma planilha). Ainda é usada: `cantor.matching` |
 
 Dados de quem usa: `Documentos\Quem Canta\casos\<compositor>\<plataforma>\` (leituras em `leituras\*.json`, prints
 `.png` com `.html` e `.json` ao lado). As sessões da Claro e da Deezer ficam em `Documentos\Quem Canta\perfil-claro`
-e `perfil-deezer`, fora dos casos. Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do `cantor`, usado nos testes),
+e `perfil-deezer`, fora dos casos; a do Ecadnet em `perfil-ecadnet` e o Chrome do ISWC em `perfil-iswc-chrome`.
+Os prints da réplica ficam em `casos\<compositor>\ecadnet\` e `iswc\`, e os PDFs únicos na pasta do caso.
+Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do `cantor`, usado nos testes),
 `QUEMCANTA_DEV` (mostra o campo "quantas obras", só para teste).
 
 ## 3. Como classificar (resumo)
@@ -95,6 +102,40 @@ site não fotografa nada: não dá para saber quais músicas estão sem o titula
 | Claro Música | Lista de músicas da busca, logado; página do artista como último recurso | Álbum com o menu da faixa e o cartão "Informações e créditos" | Validado no Windows: 5 de 6 (a sexta é link errado no gabarito) |
 | Palco MP3 | Caixa de busca do site | Página da música; 2º print (página de créditos) quando o site corta a linha | Validado no Windows com gabarito de 2026: 3 de 3 e 5 de 6. Com o gabarito de 2024 diverge, porque o site mudou |
 | Vagalume | Site de letras | Fora da coleta de prints (decisão do dono) | Código mantido, não exposto na tela |
+
+### 4.1 Réplica (0.5.50)
+
+**Cruzamento.** A réplica só precisa das obras da petição. As listas da petição (.docx que o app gera; pode ser
+mais de uma, a mesma música entra uma vez) dão os títulos, e só a parte firme: "A confirmar antes de usar" fica de
+fora. O relatório dá o código da obra (endereço no Ecadnet) e o ISWC. O cruzamento é pelo título
+(`_titulo_base`): título com mais de um cadastro no relatório (mesma música cadastrada por associações diferentes,
+em geral marcada BL/DU) traz todos os cadastros. São páginas diferentes no Ecadnet (autores e percentuais mudam),
+por isso entram todos; quem decide qual vai na réplica é o jurídico.
+
+**Ecadnet** (aba "Réplica (ECAD)"). A pessoa abre a janela do navegador do app e faz o login nela (o Ecadnet
+recusa navegador sem janela, "Access Denied"). O app abre a página de cada obra pelo código, sem busca. Botões
+(decisão do dono, 16/10/2026): **Fotografar** não muda de obra (às vezes são dois ou três prints da mesma, rolando
+a página); **Próxima obra →** passa para a seguinte e já abre a página dela. O print é sempre o do monitor inteiro,
+com a data e a hora do relógio do Windows (obrigatório, decisão do dono): sem ele, o print é descartado e a tela
+pede para tentar de novo. O print sai sem a faixa de carimbo (pedido do dono); os dados dela ficam no `.json`, e o
+monitor é achado pela posição que a janela informa. "Juntar os prints em PDF": uma página por print (A4 deitado),
+na ordem da fila, com os prints da última rodada de cada obra (até 3 minutos antes do mais recente; prints de
+testes anteriores ficam de fora). O Ecadnet não mostra cadastros pendentes de identificação ou em conflito ("Não há
+resultados nesta busca"): o app avisa na hora e deixa fotografar essa tela como registro. Testado no Windows
+pelo dono, com login real em dois dias seguidos (a sessão fica guardada).
+
+**ISWC Network** (aba "Réplica (ISWC)"). O "não sou um robô" recusa o navegador do app (Playwright), e os termos
+só permitem consulta manual. Por isso o app abre o **Google Chrome** da pessoa, com um perfil só dele
+(`perfil-iswc-chrome`) e uma porta local de depuração (9339), maximizado no monitor em que o app não está. A
+pessoa resolve o captcha; o app só abre o link de resultado (`/search?iswc=`), na mesma aba a cada obra, e salva a
+página em PDF quando ela clica em **Salvar PDF**. O PDF tem de sair igual ao Ctrl+P feito à mão (decisão do dono):
+A3, com data, título, endereço e "1/1" do próprio Chrome (`Page.printToPDF`). O site monta o resultado em linhas
+("ISWC:", "Original Title:", nomes completos) só em janela de até 1024 px; maximizada, vira tabela e corta os
+nomes. Na hora de salvar, o app faz a página se comportar como numa janela de 1000 px, também durante a impressão
+(as regras de CSS por largura e o `matchMedia`), e desfaz depois. "Juntar os PDFs": uma página por obra, a mais
+recente. A junção usa o `pypdfium2`, que vem com o pdfplumber: a atualização do app não instala biblioteca nova.
+Testado no Windows com o captcha resolvido à mão e 5 obras reais; posições do texto iguais às do PDF feito à mão
+(diferença menor que 1 pt).
 
 ## 5. Erros que custaram tempo, e a causa de cada um
 
@@ -220,6 +261,12 @@ Deezer com login (primeira versão, só no navegador dos prints):
 - Falta testar no Windows, com a conta do escritório: o login na janela do app (a Deezer pode recusar navegador
   automatizado, como a Tidal; se recusar, não insistir), o painel de créditos logado e o print de tela inteira.
 - Decidir depois se a leitura dos créditos também passa a usar a conta.
+
+Réplica (0.5.50):
+- Qual cadastro vai na réplica quando a mesma obra tem vários no relatório (hoje entram todos): decisão do jurídico.
+- O cruzamento é pelo título; se a lista da petição passar a trazer o código da obra, dá para cruzar por ele.
+- Gerar o documento da réplica em si (tabela com o trecho do relatório destacado): discutido, não feito.
+- Nunca rodou uma réplica inteira (dezenas de obras) de ponta a ponta.
 
 Nunca testado em tamanho real:
 - Coleta de prints com centenas de pares (o maior teste teve 14 obras).

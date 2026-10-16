@@ -15,16 +15,21 @@ programador).
   sai:** percentuais, CAE/IPI, códigos ECAD/UBC de titulares, editoras, datas de contrato ou de cadastro, CPF, RG,
   endereço, a aba de duplicidades. O filtro de saída (`creditos/filtro.py`) bloqueia isso em toda requisição; não o
   contorne.
-- **Nunca acessar ECADNET, UBC ou portais de associações de forma automatizada.** Esses dados entram só por
-  importação manual do relatório.
+- **Portais do ECAD e das associações:** os dados do relatório entram só por importação manual. A única exceção é a
+  aba "Réplica (ECAD)" (decisão do dono em 15/10/2026): o app abre no Ecadnet a página de cada obra da petição, pelo
+  código do relatório, numa janela em que a pessoa fez o login, e fotografa quando ela clica. Nada de busca em
+  massa, de varredura nem de outro portal (UBC, associações) sem decisão do dono.
+- **ISWC Network:** os termos do site só permitem consulta manual. A pessoa abre cada resultado (um por clique) e
+  resolve o "não sou um robô"; o app só abre o link da obra e salva a página em PDF quando ela pede.
 - **Nunca afirmar sem ter visto.** "Tem créditos" e "sem créditos" só com a tela lida. Erro técnico, bloqueio ou
   dúvida viram "verificar manualmente", nunca "sem créditos".
 - **Robôs:** nunca contornar captcha, bloqueio ou detecção de automação. No máximo uma página a cada 5 a 10
   segundos. Ao ser bloqueado, parar a fila daquela plataforma e guardar o que foi lido. Página traduzida pelo
   navegador é recusada.
-- **Login:** a regra é não logar em plataforma. Há três exceções decididas pelo dono, e em nenhuma o app digita ou
-  guarda senha: o aplicativo de desktop da Amazon Music (usa a conta já logada nele), a Claro Música e os prints da
-  Deezer (nas duas, a pessoa loga uma vez numa janela do navegador do app; a sessão fica num perfil local).
+- **Login:** a regra é não logar em plataforma. Há quatro exceções decididas pelo dono, e em nenhuma o app digita
+  ou guarda senha: o aplicativo de desktop da Amazon Music (usa a conta já logada nele), a Claro Música, os prints
+  da Deezer e o Ecadnet da réplica (nas três, a pessoa loga uma vez numa janela do navegador do app; a sessão fica
+  num perfil local).
 - **Chaves de API** sempre em variável de ambiente ou arquivo local fora do repositório. O repositório é público.
 - **Nada de nomes de músicas, artistas ou clientes no código, nos testes, nos commits ou nos documentos do
   repositório.** Os testes usam dados inventados ("Zeca Lima", "Banda do Baile", "COISA FEITA").
