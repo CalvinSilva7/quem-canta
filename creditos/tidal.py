@@ -228,6 +228,48 @@ class Tidal:
         if not faixa.id:
             raise ValueError("a faixa não tem endereço próprio no Tidal")
         pagina = self.nav.pagina
+        # A aba de créditos do tocador é instável (Windows, 16/10/2026): às vezes traz os créditos em 2 s, às vezes
+        # em 12 s, às vezes fica vazia até trocar de aba e voltar. O print só sai com a aba carregada de fato (ela
+        # sempre mostra ao menos "Lançamento" e "Gravadora") e com os mesmos autores da página do álbum, inclusive
+        # quando não há autor nenhum: sem isso, a música sem créditos era fotografada antes de a aba abrir.
+        esperados = {normalizar(n) for n in faixa.creditos}
+        papeis, na_tela, certo = {}, [], False
+        for tentativa in (1, 2):
+            tocando = self._tocar_e_abrir_os_creditos(album_id, faixa)
+            papeis, na_tela, certo = self._esperar_os_creditos(esperados, 12)
+            if not certo:  # trocar de aba e voltar costuma destravar
+                try:
+                    pagina.get_by_text(re.compile(r"^(Músicas semelhantes|Vídeos relacionados|Similar tracks|Related videos)$")).first.click(timeout=3000)
+                    pagina.wait_for_timeout(1500)
+                    pagina.locator('[data-test="toggle-credits"]').first.click()
+                    pagina.mouse.move(700, 90)
+                except Exception:
+                    pass
+                papeis, na_tela, certo = self._esperar_os_creditos(esperados, 12)
+            if certo:
+                break
+        if not certo:
+            raise ValueError("a aba de créditos do tocador não mostrou os mesmos autores da página de créditos do álbum"
+                             + ("" if papeis else " (ficou vazia)"))
+        exibido = {"titulo": faixa.titulo, "interprete": faixa.interprete, "creditos": papeis, "faixa_no_album": faixa.numero,
+                   "tocando": tocando}
+        if not na_tela:
+            exibido["constatacao"] = "a aba de créditos do tocador não traz COMPOSER nem LYRICIST para esta faixa"
+        pagina.evaluate(_ABRIR_ESPACO, 60)
+        pagina.wait_for_timeout(600)
+        try:
+            base = captura.capturar(pagina, self.pasta, obra, faixa.interprete, "tidal", exibido, "creditos")["captura"]
+        finally:
+            pagina.evaluate(_FECHAR_ESPACO)
+        try:  # para a prévia, para o som não seguir tocando durante o resto da coleta
+            pagina.locator('[data-test="play-controls"] [data-test="pause"], [data-test="pause"]').first.click(timeout=2000)
+        except Exception:
+            pass
+        return base
+
+    def _tocar_e_abrir_os_creditos(self, album_id: str, faixa: Faixa) -> str:
+        """Abre a faixa, põe a prévia para tocar e abre a aba de créditos do tocador. Devolve o título que está tocando."""
+        pagina = self.nav.pagina
         self.nav.ir(f"{SITE}album/{album_id}/track/{faixa.id}", pausa=(3, 5))
         linha = pagina.locator(f'[data-test="tracklist-row"][data-track-id="{faixa.id}"]').first
         linha.wait_for(state="attached", timeout=30000)
@@ -250,32 +292,19 @@ class Tidal:
         pagina.wait_for_timeout(2000)
         pagina.locator('[data-test="toggle-credits"]').first.click()
         pagina.mouse.move(700, 90)  # tira o mouse de cima dos nomes, para não abrir cartão de artista no print
-        # A aba às vezes leva vários segundos para trazer os créditos (vista vazia depois de 2,5 s, no Windows,
-        # 16/10/2026; uma faixa levou 12 s): espera até os autores serem os mesmos da página do álbum, por no máximo 20 s.
-        esperados = {normalizar(n) for n in faixa.creditos}
-        for _ in range(20):
-            pagina.wait_for_timeout(1000)
-            papeis = {rotulo: nomes for rotulo, nomes in pagina.evaluate(_LER_TOCADOR) if rotulo}
+        return tocando
+
+    def _esperar_os_creditos(self, esperados: set, segundos: int) -> tuple[dict, list, bool]:
+        """Lê a aba de créditos a cada segundo até ela estar carregada (algum grupo na tela) e com os autores
+        esperados. Devolve (papéis, autores na tela, se deu certo)."""
+        papeis, na_tela = {}, []
+        for _ in range(segundos):
+            self.nav.pagina.wait_for_timeout(1000)
+            papeis = {rotulo: nomes for rotulo, nomes in self.nav.pagina.evaluate(_LER_TOCADOR) if rotulo}
             na_tela = [n for rotulo, nomes in papeis.items() if normalizar(rotulo) in ROTULOS_DE_AUTOR for n in nomes]
-            if {normalizar(n) for n in na_tela} == esperados and (papeis or not esperados):
-                break
-        if {normalizar(n) for n in na_tela} != esperados:
-            raise ValueError("a aba de créditos do tocador mostra autores diferentes dos lidos na página de créditos do álbum")
-        exibido = {"titulo": faixa.titulo, "interprete": faixa.interprete, "creditos": papeis, "faixa_no_album": faixa.numero,
-                   "tocando": tocando}
-        if not na_tela:
-            exibido["constatacao"] = "a aba de créditos do tocador não traz COMPOSER nem LYRICIST para esta faixa"
-        pagina.evaluate(_ABRIR_ESPACO, 60)
-        pagina.wait_for_timeout(600)
-        try:
-            base = captura.capturar(pagina, self.pasta, obra, faixa.interprete, "tidal", exibido, "creditos")["captura"]
-        finally:
-            pagina.evaluate(_FECHAR_ESPACO)
-        try:  # para a prévia, para o som não seguir tocando durante o resto da coleta
-            pagina.locator('[data-test="play-controls"] [data-test="pause"], [data-test="pause"]').first.click(timeout=2000)
-        except Exception:
-            pass
-        return base
+            if papeis and {normalizar(n) for n in na_tela} == esperados:
+                return papeis, na_tela, True
+        return papeis, na_tela, False
 
 
 def _bloqueios():
