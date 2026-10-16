@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.49",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.49/quem-canta-0.5.49-windows.zip",
-  "sha256": "7d93ac563abafebc4161ef66a32fd71a456ec817548bf93098ae6551c09a072e",
-  "notas": "Amazon Music numa opção só: primeiro o aplicativo de desktop, música por música, e depois o site só para as músicas sem o compositor. Com o print de tela inteira, a janela do navegador já abre maximizada no segundo monitor."
+  "versao": "0.5.50",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.50/quem-canta-0.5.50-windows.zip",
+  "sha256": "ba8466ffd2b3edb2bb9126b01be0a3dce993a44b5e03a817c60afda97cb2a798",
+  "notas": "Réplica: abas novas para o Ecadnet e o ISWC Network. Só as obras da lista da petição entram na fila. No Ecadnet, print da tela inteira com data e hora e um PDF único no fim. No ISWC, PDF igual ao Ctrl+P feito à mão, também juntado num PDF só."
 }
