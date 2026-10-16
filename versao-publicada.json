@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.51",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.51/quem-canta-0.5.51-windows.zip",
-  "sha256": "aba750c252cb009e867c5eacabf8560390ea3ea5e0cacf5a8700e23cafe61d92",
-  "notas": "Amazon Music (aplicativo): acabou o 'sem créditos' falso que vinha do menu do álbum; rode de novo a coleta da Amazon dos casos já feitos. Tidal: as músicas são achadas pela API oficial do Tidal, pelo código ISRC da Deezer (precisa do arquivo chaves-tidal.txt na pasta Documentos\\Quem Canta)."
+  "versao": "0.5.52",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.52/quem-canta-0.5.52-windows.zip",
+  "sha256": "61abd9106fdd55658bd8c389536542a406d482345e50bfd3dd454576282c96c3",
+  "notas": "Tidal: os prints só saem com a aba de créditos aberta de verdade (acabou o print da música sem créditos com a capa). Clipes do Tidal: listados no fim das provas do Tidal, com o link, para o print à mão, separados entre os do intérprete da planilha e os de outro artista."
 }
