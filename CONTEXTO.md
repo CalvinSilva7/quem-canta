@@ -134,6 +134,13 @@ testes anteriores ficam de fora). O Ecadnet não mostra cadastros pendentes de i
 resultados nesta busca"): o app avisa na hora e deixa fotografar essa tela como registro. Testado no Windows
 pelo dono, com login real em dois dias seguidos (a sessão fica guardada).
 
+**Ordem e exclusão dos prints** (pedido do dono, 20/10/2026, Ecadnet e ISWC). A lista "Prints … já tirados" mostra
+exatamente o que vai no PDF único, na ordem dele, com ↑ ↓ e ✕ em cada linha. A ordem escolhida fica em
+`ordem.json` na pasta do site (`replica.em_ordem`/`mover`); print novo, ainda não mexido, entra depois, na ordem da
+fila. ✕ (`remover_print`) não apaga: move a ficha e os arquivos para a subpasta `removidos` (são provas; engano se
+desfaz trazendo de volta). Continuam valendo as regras de antes: no ISWC, o PDF mais recente de cada obra; no
+Ecadnet, a última rodada de cada obra e só obras da fila.
+
 **Zoom do navegador** (0.5.53). O jurídico diminui o zoom (Ctrl -) para caber mais na tela, e o print falhava
 ("janela coberta" / "não está à vista"). Duas causas: o zoom muda `innerWidth` e `devicePixelRatio`, mas não
 `screenX` nem `outerWidth` (`captura.posicao_da_pagina` agora acha o nível de zoom e a escala do Windows); e, abaixo
