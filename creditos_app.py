@@ -291,11 +291,17 @@ def aba_da_replica(site: str):
             for chave_da_aba in ("ecadnet_indice", "iswc_indice"):
                 st.session_state[chave_da_aba] = 0
     titulos_da_peticao = st.session_state.get("replica_titulos")
-    if titulos_da_peticao is not None:
-        obras, fora_do_relatorio = _replica.cruzar(titulos_da_peticao, relatorio)
+    if titulos_da_peticao == []:
+        st.error("Não achei nenhuma obra na(s) lista(s). O app lê a lista que ele mesmo gera (\"1-Música: TÍTULO\") "
+                 "ou uma tabela do Word com o número na primeira coluna e o título na segunda.")
+    elif titulos_da_peticao is not None:
+        obras, fora_do_relatorio, aproximados = _replica.cruzar(titulos_da_peticao, relatorio)
         st.success(f"Lista da petição: {len(titulos_da_peticao)} títulos ({', '.join(st.session_state.replica_nomes_das_listas)}) → "
                    f"{len(obras)} obras do relatório" + (" (há títulos com mais de um registro no relatório: entram todos)"
                                                           if len(obras) > len(titulos_da_peticao) else ""))
+        if aproximados:
+            st.info(f"{len(aproximados)} títulos entraram com o nome escrito de outro jeito no relatório (confira na hora do print): "
+                    + "; ".join(f"{lista} → {' / '.join(rel)}" for lista, rel in aproximados.items()))
         if fora_do_relatorio:
             st.warning(f"{len(fora_do_relatorio)} títulos da lista não estão neste relatório: " + "; ".join(fora_do_relatorio))
         if st.button("Esquecer a lista e usar todas as obras do relatório", key=f"{site}_esquecer"):

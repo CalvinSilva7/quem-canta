@@ -11,6 +11,7 @@ recebe os pedidos da tela por uma fila e devolve a resposta de cada um.
 
 import json
 import queue
+import re
 import threading
 import time
 from pathlib import Path
@@ -152,8 +153,12 @@ class Janela:
 
 
 def titulos_da_lista(conteudo: bytes) -> list[str]:
-    """Os títulos das obras de uma lista da petição (.docx gerado pelo app): as linhas "N-Música: TÍTULO" da parte
-    firme. A parte "A confirmar antes de usar" fica de fora: ela não entra na petição."""
+    """Os títulos das obras de uma lista da petição (.docx). A parte "A confirmar antes de usar" fica de fora: ela
+    não entra na petição. Dois formatos:
+
+    - o que o app gera: linhas "N-Música: TÍTULO";
+    - a tabela feita à mão no Word: "Nº | obra (e, na linha de baixo da mesma célula, o intérprete) | link".
+      Vale a primeira linha da segunda coluna das linhas cuja primeira coluna é só o número."""
     import io
     import re
 
@@ -161,10 +166,21 @@ def titulos_da_lista(conteudo: bytes) -> list[str]:
 
     from docx.oxml.ns import qn
 
+    def texto_de(elemento) -> str:
+        return "".join(t.text or "" for t in elemento.iter(qn("w:t"))).strip()
+
     titulos = []
     corpo = docx.Document(io.BytesIO(conteudo)).element.body
-    for paragrafo in corpo.iter(qn("w:p")):  # na ordem do documento, também os que estão dentro das tabelas
-        texto = "".join(t.text or "" for t in paragrafo.iter(qn("w:t"))).strip()
+    # Na ordem do documento: parágrafos (também os de dentro das tabelas) e linhas de tabela
+    for elemento in corpo.iter(qn("w:p"), qn("w:tr")):
+        if elemento.tag == qn("w:tr"):
+            celulas = elemento.findall(qn("w:tc"))
+            if len(celulas) >= 2 and re.fullmatch(r"\d+", texto_de(celulas[0])):
+                titulo = next((linha for linha in map(texto_de, celulas[1].iter(qn("w:p"))) if linha), "")
+                if titulo and not re.match(r"^\d+\s*-\s*M[uú]sica:", titulo):
+                    titulos.append(titulo)
+            continue
+        texto = texto_de(elemento)
         if normalizar(texto).startswith("a confirmar antes de usar"):
             break
         achado = re.match(r"^\d+\s*-\s*M[uú]sica:\s*(.+?)(?=\s+https?://|\s+Interpretada por:|\n|$)", texto)
@@ -173,15 +189,57 @@ def titulos_da_lista(conteudo: bytes) -> list[str]:
     return list(dict.fromkeys(titulos))
 
 
-def cruzar(titulos, relatorio) -> tuple[list, list[str]]:
-    """As obras do relatório que estão na lista da petição, na ordem do relatório, e os títulos da lista que o
-    relatório não tem. Título repetido no relatório (obras diferentes com o mesmo nome) traz todas."""
+_ARTIGO_OU_MONTAGEM = re.compile(r"^(?:o|a|os|as|mtg|montagem)\s+")
+SEMELHANCA_MINIMA = 0.85
+
+
+def _formas_do_titulo(titulo) -> set[str]:
+    """Os jeitos de escrever o mesmo título que o ECAD usa: o título sem parênteses, o que está dentro deles (título
+    alternativo: "PISTA TEST (PISTA TESTE)"), o começo antes de um parêntese cortado ("TÍTULO (PRIMEIRO"), cada
+    parte de "A - B", e tudo isso sem artigo ("O RIO VIROU") nem "MTG" (montagem) no começo."""
     from .classificador import _titulo_base
 
-    procurados = {_titulo_base(t): t for t in titulos}
-    obras = [o for o in relatorio.obras if _titulo_base(o.titulo) in procurados]
-    achados = {_titulo_base(o.titulo) for o in obras}
-    return obras, [t for base, t in procurados.items() if base not in achados]
+    texto = str(titulo or "")
+    pedacos = [texto, texto.split("(")[0], *re.findall(r"\(([^()]*)\)?", texto), *re.split(r"\s+[-–—]\s+", texto)]
+    formas = {_titulo_base(p) for p in pedacos} | {normalizar(p) for p in pedacos}
+    formas |= {_ARTIGO_OU_MONTAGEM.sub("", f) for f in formas}
+    return {f for f in formas if len(f) >= 3}
+
+
+def cruzar(titulos, relatorio) -> tuple[list, list[str], dict[str, list[str]]]:
+    """As obras do relatório que estão na lista da petição, na ordem do relatório; os títulos da lista que o
+    relatório não tem; e, para conferência, os que só bateram com o título escrito de outro jeito (lista -> títulos
+    do relatório). Título repetido no relatório (obras diferentes com o mesmo nome) traz todas.
+
+    Decisão do dono (20/10/2026): música que está na lista e no relatório entra, mesmo com o título escrito diferente
+    ("TOADA DE LOUCA" e "TOADA DE LOUCO (TOADA DE LOUCA)"). Em ordem: título igual; uma das formas igual
+    (`_formas_do_titulo`); uma forma começando pela outra; e, por último, formas quase iguais (letra trocada).
+    Vale a primeira regra que achar alguma obra.
+    """
+    from difflib import SequenceMatcher
+
+    from .classificador import _titulo_base
+
+    formas_das_obras = [(o, _titulo_base(o.titulo), _formas_do_titulo(o.titulo)) for o in relatorio.obras]
+    escolhidas, fora, aproximados = set(), [], {}
+    for titulo in dict.fromkeys(titulos):
+        base, formas = _titulo_base(titulo), _formas_do_titulo(titulo)
+        regras = (
+            lambda b, f: b == base,
+            lambda b, f: bool(f & formas),
+            lambda b, f: any(len(x) >= 8 and len(y) >= 8 and (x.startswith(y) or y.startswith(x)) for x in f for y in formas),
+            lambda b, f: any(SequenceMatcher(None, x, y).ratio() >= SEMELHANCA_MINIMA for x in f for y in formas),
+        )
+        for numero, regra in enumerate(regras):
+            achadas = [i for i, (_o, b, f) in enumerate(formas_das_obras) if regra(b, f)]
+            if achadas:
+                escolhidas.update(achadas)
+                if numero:
+                    aproximados[titulo] = [formas_das_obras[i][0].titulo for i in achadas]
+                break
+        else:
+            fora.append(titulo)
+    return [formas_das_obras[i][0] for i in sorted(escolhidas)], fora, aproximados
 
 
 def prints_da_ultima_rodada(fichas, chave, minutos=3) -> list[dict]:
