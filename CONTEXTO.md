@@ -134,6 +134,22 @@ testes anteriores ficam de fora). O Ecadnet não mostra cadastros pendentes de i
 resultados nesta busca"): o app avisa na hora e deixa fotografar essa tela como registro. Testado no Windows
 pelo dono, com login real em dois dias seguidos (a sessão fica guardada).
 
+**Busca alternativa na Socinpro** (0.5.55; pedido do jurídico e decisão do dono, 20/10/2026). Quando a obra não
+aparece no Ecadnet (raro), a Socinpro às vezes tem o cadastro, e o print dela vai como prova complementar. Não é para
+coletar sempre: fica num expander da aba "Réplica (ECAD)", para a obra da vez. A consulta
+(`associado.socinpro.org.br/portal-web/pages/public/consulta.xhtml`) é pública, mas pede o reCAPTCHA a cada
+pesquisa e o resultado não tem endereço próprio. Por isso (`creditos/socinpro.py`), como no ISWC, o app usa o Google
+Chrome da pessoa (perfil `perfil-socinpro-chrome`, porta 9341): preenche o título (sem o que vem entre parênteses,
+busca "Começando com"), clica em Pesquisar, espera a pessoa resolver o "não sou um robô" e clicar em Validar (até 3
+minutos), acha a linha pelo código ECAD OBRA (o mesmo do relatório) e abre os detalhes. "Fotografar na Socinpro"
+confere que os detalhes abertos são do mesmo código, traz a janela para a frente e tira o print do monitor inteiro
+(obrigatório, como no Ecadnet). O print é guardado na pasta do Ecadnet, com a etapa dele: entra no PDF único do
+Ecadnet, no lugar da obra, marcado "(Socinpro)" na lista. Termos de uso da Socinpro: proíbem copiar, baixar e
+distribuir sem consentimento; o jurídico já fazia esses prints à mão para o processo, e o aval sobre os termos é do
+jurídico. Testado: o preenchimento e a verificação no site real (uma pesquisa); a tabela, a abertura dos detalhes e
+o print numa página de imitação com a mesma estrutura, no Chrome real. Não testado: o caminho inteiro com o
+reCAPTCHA resolvido (a tabela de resultados de verdade). UBC: falta o endereço da consulta web.
+
 **Ordem e exclusão dos prints** (pedido do dono, 20/10/2026, Ecadnet e ISWC). A lista "Prints … já tirados" mostra
 exatamente o que vai no PDF único, na ordem dele, com ↑ ↓ e ✕ em cada linha. A ordem escolhida fica em
 `ordem.json` na pasta do site (`replica.em_ordem`/`mover`); print novo, ainda não mexido, entra depois, na ordem da

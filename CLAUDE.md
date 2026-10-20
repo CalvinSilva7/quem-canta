@@ -17,8 +17,11 @@ programador).
   contorne.
 - **Portais do ECAD e das associações:** os dados do relatório entram só por importação manual. A única exceção é a
   aba "Réplica (ECAD)" (decisão do dono em 15/10/2026): o app abre no Ecadnet a página de cada obra da petição, pelo
-  código do relatório, numa janela em que a pessoa fez o login, e fotografa quando ela clica. Nada de busca em
-  massa, de varredura nem de outro portal (UBC, associações) sem decisão do dono.
+  código do relatório, numa janela em que a pessoa fez o login, e fotografa quando ela clica. Segunda exceção
+  (decisão do dono em 20/10/2026): a busca alternativa na consulta web pública da Socinpro, só para a obra que não
+  aparece no Ecadnet, uma obra por clique; o app preenche o título e pesquisa, a pessoa resolve o "não sou um robô",
+  o app abre a obra pelo código ECAD e fotografa quando ela pede. Nada de busca em massa, de varredura nem de outro
+  portal (UBC, outras associações) sem decisão do dono.
 - **ISWC Network:** os termos do site só permitem consulta manual. A pessoa abre cada resultado (um por clique) e
   resolve o "não sou um robô"; o app só abre o link da obra e salva a página em PDF quando ela pede.
 - **Nunca afirmar sem ter visto.** "Tem créditos" e "sem créditos" só com a tela lida. Erro técnico, bloqueio ou
