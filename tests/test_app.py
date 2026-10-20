@@ -558,3 +558,19 @@ def test_replica_do_ecadnet_tambem_deixa_mudar_a_ordem_e_tirar(tmp_path, monkeyp
     next(b for b in at.button if b.key == "ecadnet_tira_obra-0_ecadnet").click().run()
     assert (pasta / "removidos" / "obra-0_ecadnet_tela.png").exists()
     assert any("PDF único do Ecadnet" in m.value and "1 prints" in m.value for m in at.markdown)
+
+
+def test_replica_do_ecadnet_oferece_a_busca_alternativa_na_socinpro():
+    from tests.test_creditos import relatorio_de_teste
+
+    at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
+    at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = "Réplica (ECAD)"
+    at.run()
+    assert not at.exception
+    assert any(e.label.startswith("Não achou no Ecadnet?") for e in at.expander)
+    assert {"Pesquisar na Socinpro", "Abrir a obra nos resultados", "Fotografar na Socinpro"} <= {b.label for b in at.button}
+    # Na aba do ISWC não aparece
+    at.session_state["etapa"] = "Réplica (ISWC)"
+    at.run()
+    assert not any(b.label == "Pesquisar na Socinpro" for b in at.button)

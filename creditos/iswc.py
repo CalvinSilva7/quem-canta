@@ -213,9 +213,11 @@ def _aba_do_iswc(alvos: list[dict]) -> dict | None:
     return next((a for a in alvos if "iswcnet.cisac.org" in a.get("url", "")), alvos[0] if alvos else None)
 
 
-def abrir_no_chrome(url: str, perfil, porta=PORTA) -> str:
+def abrir_no_chrome(url: str, perfil, porta=PORTA, nome="o Chrome do ISWC") -> str:
     """Abre o endereço no Chrome do ISWC: se ele já está aberto, na mesma aba (não acumula janelas); se não, abre o
-    Chrome, maximizado no monitor em que o app não está. Devolve onde abriu, para a tela dizer."""
+    Chrome, maximizado no monitor em que o app não está. Devolve onde abriu, para a tela dizer.
+
+    Serve também para outro site com Chrome próprio (a Socinpro): outra `porta`, outro `perfil`, outro `nome`."""
     alvos = _alvos(porta)
     if alvos:
         cdp, conexao = _comandos(_aba_do_iswc(alvos))
@@ -224,7 +226,7 @@ def abrir_no_chrome(url: str, perfil, porta=PORTA) -> str:
             cdp("Page.bringToFront")
         finally:
             conexao.close()
-        return "o Chrome do ISWC"
+        return nome
     import ctypes
     import subprocess
 
@@ -242,7 +244,7 @@ def abrir_no_chrome(url: str, perfil, porta=PORTA) -> str:
         movida = _levar_para_o_outro_monitor(antes, app)
     except Exception:
         movida = False
-    return "o Chrome do ISWC, no outro monitor" if movida else "o Chrome do ISWC"
+    return f"{nome}, no outro monitor" if movida else nome
 
 
 def fechar_chrome(porta=PORTA):

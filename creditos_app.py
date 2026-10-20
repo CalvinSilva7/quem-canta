@@ -449,6 +449,52 @@ def aba_da_replica(site: str):
             recado.append(("warning", f"{'Não fotografei' if do_ecadnet else 'Não guardei'}: {resposta.get('motivo')}"))
         for tipo, texto in recado:
             getattr(st, tipo)(texto)
+    if do_ecadnet:
+        # Busca alternativa (pedido do jurídico, 20/10/2026): só para a obra que não aparece no Ecadnet
+        from creditos import socinpro as _socinpro
+
+        with st.expander("Não achou no Ecadnet? Busca alternativa na Socinpro", expanded=bool(st.session_state.get("socinpro_usada"))):
+            st.caption("Só para a obra que não aparece no Ecadnet. O app abre a consulta da Socinpro no Chrome, preenche o título e "
+                       "pesquisa; você marca o **não sou um robô** e clica em **Validar**; o app acha a obra pelo código ECAD "
+                       f"({obra.codigo}) e abre os detalhes. O print entra no PDF do Ecadnet, no lugar da obra.")
+            chrome_da_socinpro = _socinpro.chrome_aberto()
+            alternativa = st.columns(3)
+            pesquisar_na_socinpro = alternativa[0].button("Pesquisar na Socinpro", key="socinpro_pesquisar")
+            abrir_na_socinpro = alternativa[1].button("Abrir a obra nos resultados", key="socinpro_abrir", disabled=not chrome_da_socinpro)
+            fotografar_na_socinpro = alternativa[2].button("Fotografar na Socinpro", type="primary", key="socinpro_fotografar",
+                                                           disabled=not chrome_da_socinpro)
+            if pesquisar_na_socinpro:
+                st.session_state.socinpro_usada = True
+                _iswc.copiar(_socinpro.titulo_para_buscar(obra.titulo))  # se precisar pesquisar de novo à mão, é só colar
+                with st.spinner("Abrindo a consulta da Socinpro e pesquisando o título…"):
+                    pesquisa = _socinpro.pesquisar(obra.titulo, _socinpro.perfil_do_chrome(pasta_do_caso))
+                if pesquisa["ok"]:
+                    abrir_na_socinpro = True  # já espera o "não sou um robô" e abre a obra
+                else:
+                    st.warning(f"Não consegui pesquisar na Socinpro: {pesquisa['motivo']}. O título ficou copiado para colar na janela.")
+            if abrir_na_socinpro:
+                with st.spinner("Marque o **não sou um robô** na janela da Socinpro e clique em **Validar**. Esperando para abrir a obra…"):
+                    aberta_na_socinpro = _socinpro.esperar_e_abrir(obra.codigo)
+                if aberta_na_socinpro["ok"]:
+                    st.success("Detalhes da obra abertos na Socinpro. Confira na janela e clique em **Fotografar na Socinpro**.")
+                else:
+                    codigos = aberta_na_socinpro.get("codigos")
+                    st.warning(f"{aberta_na_socinpro['motivo']}."
+                               + (f" Códigos ECAD nos resultados: {', '.join(c or '—' for c in codigos[:20])}. Se a obra for uma "
+                                  "delas com outro código, abra os detalhes na janela e clique em Fotografar." if codigos else ""))
+            if fotografar_na_socinpro:
+                with st.spinner("Fotografando a Socinpro…"):
+                    foto_da_socinpro = _socinpro.fotografar(pasta, obra.titulo, obra.codigo, nomes)
+                if foto_da_socinpro["ok"]:
+                    st.success(f"{obra.titulo}: print da Socinpro guardado (`{foto_da_socinpro['ficha']['arquivos']['tela']}`). "
+                               "Ele entra no PDF do Ecadnet, no lugar desta obra.")
+                    if not foto_da_socinpro["titular_na_pagina"]:
+                        st.warning("Atenção: o nome do titular não foi achado nos detalhes da obra.")
+                else:
+                    st.warning(f"Não fotografei: {foto_da_socinpro['motivo']}")
+            if chrome_da_socinpro and st.button("Fechar o Chrome da Socinpro", key="socinpro_fechar"):
+                _socinpro.fechar_chrome()
+                st.rerun()
     guardados = _replica.prints_guardados(pasta, etapa_do_print)
     identificacao = "código" if do_ecadnet else "ISWC"
     campo = "codigo_da_obra" if do_ecadnet else "iswc"
@@ -479,7 +525,7 @@ def aba_da_replica(site: str):
                 captura_id = f.get("captura", "")
                 fora = chave_da_obra(f) not in ordem
                 colunas = st.columns([6, 3, 3, 1, 1, 1])
-                colunas[0].markdown(f"{posicao + 1}. {f.get('obra')}"
+                colunas[0].markdown(f"{posicao + 1}. {f.get('obra')}" + (f" ({f['plataforma']})" if f.get("plataforma") == "Socinpro" else "")
                                     + (" — *fora desta fila*" + (", não entra no PDF" if do_ecadnet else ", vai no fim") if fora else ""))
                 colunas[1].write(f"{identificacao}: {chave_da_obra(f) or '—'}")
                 colunas[2].write(str(f.get("capturado_em", ""))[:19].replace("T", " "))

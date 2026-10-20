@@ -2562,3 +2562,25 @@ def test_replica_tirar_um_print_nao_apaga_a_prova(tmp_path):
     assert sorted(p.name for p in (tmp_path / replica.REMOVIDOS).iterdir()) == ["obra-1_iswc.json", "obra-1_iswc.pdf"]
     # Nome com caminho (vindo de fora) não mexe em nada fora da pasta
     assert replica.remover_print(tmp_path, "../obra-0_iswc") == 0 and (tmp_path / "obra-0_iswc.pdf").exists()
+
+
+def test_socinpro_pesquisa_pelo_titulo_sem_o_alternativo_e_confere_o_codigo_ecad():
+    from creditos import socinpro
+
+    assert socinpro.titulo_para_buscar("PISTA TEST (PISTA TESTE)") == "PISTA TEST"
+    assert socinpro.titulo_para_buscar("COISA FEITA") == "COISA FEITA"
+    aberta = {"detalhes": True, "campos": {"ECAD OBRA": "12345678"}}
+    assert socinpro.conferir_detalhes(aberta, "12345678", "COISA FEITA") == ""
+    assert "outra obra" in socinpro.conferir_detalhes(aberta, "87654321", "COISA FEITA")
+    assert "não estão abertos" in socinpro.conferir_detalhes({"detalhes": False}, "12345678", "COISA FEITA")
+
+
+def test_socinpro_print_entra_na_replica_do_ecadnet(tmp_path):
+    # O print da Socinpro é guardado com a etapa do Ecadnet: aparece na lista e no PDF único dele, no lugar da obra
+    import json
+
+    from creditos import ecadnet, replica, socinpro
+
+    base = f"coisa-feita_sem-nome_socinpro_2026-10-20_13h00_{ecadnet.ETAPA}"
+    (tmp_path / f"{base}.json").write_text(json.dumps({"captura": base, "plataforma": socinpro.PLATAFORMA}), encoding="utf-8")
+    assert [f["captura"] for f in replica.prints_guardados(tmp_path, ecadnet.ETAPA)] == [base]
