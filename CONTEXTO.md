@@ -105,9 +105,19 @@ site não fotografa nada: não dá para saber quais músicas estão sem o titula
 
 ### 4.1 Réplica (0.5.50)
 
-**Cruzamento.** A réplica só precisa das obras da petição. As listas da petição (.docx que o app gera; pode ser
+**Cruzamento.** A réplica só precisa das obras da petição. As listas da petição (.docx; pode ser
 mais de uma, a mesma música entra uma vez) dão os títulos, e só a parte firme: "A confirmar antes de usar" fica de
-fora. O relatório dá o código da obra (endereço no Ecadnet) e o ISWC. O cruzamento é pelo título
+fora. Dois formatos de lista (0.5.53): a que o app gera ("N-Música: TÍTULO") e a tabela feita à mão no Word
+("Nº | obra, com o intérprete na linha de baixo da mesma célula | link"). Lista sem nenhuma obra reconhecível dá erro
+na tela (antes ficava em silêncio, com 0 obras).
+
+**Título escrito de outro jeito** (decisão do dono, 20/10/2026: "se está no relatório e na lista, entra"). O ECAD
+cadastra com título alternativo entre parênteses, sem artigo, com "MTG" de montagem, com parêntese cortado ou com
+letra trocada. `replica.cruzar` tenta, em ordem: título igual; uma das formas igual (`_formas_do_titulo`); uma
+forma começando pela outra; formas quase iguais (`SEMELHANCA_MINIMA` 0,85). Vale a primeira regra que achar alguma
+obra, e entram todas que ela achar. A tela lista os que entraram por aproximação, para conferir na hora do print.
+Num caso real (82 títulos, relatório de 1.135 obras): antes 74 títulos, agora os 82 (8 por aproximação).
+ O relatório dá o código da obra (endereço no Ecadnet) e o ISWC. O cruzamento é pelo título
 (`_titulo_base`): título com mais de um cadastro no relatório (mesma música cadastrada por associações diferentes,
 em geral marcada BL/DU) traz todos os cadastros. São páginas diferentes no Ecadnet (autores e percentuais mudam),
 por isso entram todos; quem decide qual vai na réplica é o jurídico.
@@ -123,6 +133,13 @@ na ordem da fila, com os prints da última rodada de cada obra (até 3 minutos a
 testes anteriores ficam de fora). O Ecadnet não mostra cadastros pendentes de identificação ou em conflito ("Não há
 resultados nesta busca"): o app avisa na hora e deixa fotografar essa tela como registro. Testado no Windows
 pelo dono, com login real em dois dias seguidos (a sessão fica guardada).
+
+**Zoom do navegador** (0.5.53). O jurídico diminui o zoom (Ctrl -) para caber mais na tela, e o print falhava
+("janela coberta" / "não está à vista"). Duas causas: o zoom muda `innerWidth` e `devicePixelRatio`, mas não
+`screenX` nem `outerWidth` (`captura.posicao_da_pagina` agora acha o nível de zoom e a escala do Windows); e, abaixo
+de 100%, o print do Playwright sai maior que a janela, com a página num canto e o resto branco (sem carimbo, o print
+vem do próprio Chrome por CDP, `_print_da_pagina`, certo em qualquer zoom). Testado no Windows (escala 100%) com
+zoom de 50%, 67%, 80%, 100%, 125% e 150%, janela maximizada e solta. Falta testar com o Windows em 125% ou 150%.
 
 **ISWC Network** (aba "Réplica (ISWC)"). O "não sou um robô" recusa o navegador do app (Playwright), e os termos
 só permitem consulta manual. Por isso o app abre o **Google Chrome** da pessoa, com um perfil só dele

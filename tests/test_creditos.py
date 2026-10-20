@@ -2439,3 +2439,85 @@ def test_tidal_api_segue_as_paginas_dos_clipes_do_artista(tmp_path):
 
     api = tidal_api.TidalAPI(("a", "b"), cache=tmp_path, intervalo=0, sessao=Sessao())
     assert [k["id"] for k in api.clipes("9")] == ["1", "2", "3"]
+
+
+def _docx(montar) -> bytes:
+    import io
+
+    from docx import Document
+
+    doc = Document()
+    montar(doc)
+    saida = io.BytesIO()
+    doc.save(saida)
+    return saida.getvalue()
+
+
+def test_replica_le_a_lista_que_o_app_gera_e_para_no_a_confirmar():
+    from creditos import provas, replica
+
+    def montar(doc):
+        provas.tabela_da_lista(doc, [{"n": 1, "obra": "Coisa Feita", "interprete": "Zeca Lima", "link": "https://x.com/1"},
+                                     {"n": 2, "obra": "Outra Toada", "interprete": "Dupla Tal", "link": "https://x.com/2"}])
+        doc.add_paragraph("A confirmar antes de usar")
+        provas.tabela_da_lista(doc, [{"n": 3, "obra": "Talvez", "interprete": "Alguém", "link": "https://x.com/3"}])
+
+    assert replica.titulos_da_lista(_docx(montar)) == ["COISA FEITA", "OUTRA TOADA"]
+
+
+def test_replica_le_a_tabela_feita_a_mao_no_word():
+    from creditos import replica
+
+    def montar(doc):
+        tabela = doc.add_table(rows=1, cols=3)
+        tabela.rows[0].cells[0].text, tabela.rows[0].cells[1].text = "Nº", "Obras Intelectuais e Intérpretes"
+        for n, obra, interprete in ((1, "Coisa Feita", "Zeca Lima"), (2, "Coisa Feita", "Dupla Tal"), (3, "Outra Toada", "")):
+            linha = tabela.add_row().cells
+            linha[0].text = str(n)
+            linha[1].text = obra
+            if interprete:
+                linha[1].add_paragraph(interprete)  # o intérprete na linha de baixo, na mesma célula
+            linha[2].text = f"https://x.com/{n}"
+
+    assert replica.titulos_da_lista(_docx(montar)) == ["Coisa Feita", "Outra Toada"]
+
+
+@pytest.mark.parametrize(("medidas", "largura_do_print"), [
+    ([100, 80, 1100, 750, 1084, 655, 1.0], 1084),   # zoom 100%
+    ([100, 80, 1100, 750, 1355, 818, 0.8], 1084),   # zoom 80% (a pessoa diminuiu para caber mais)
+    ([100, 80, 1100, 750, 1617, 977, 0.67], 1084),  # zoom 67%
+    ([100, 80, 1100, 750, 867, 524, 1.25], 1084),   # zoom 125%
+])
+def test_replica_acha_a_pagina_no_monitor_com_qualquer_zoom_do_navegador(medidas, largura_do_print):
+    # Medidas tiradas do Chromium do app no Windows (escala 100%): só innerWidth e devicePixelRatio mudam com o zoom
+    esquerda, topo, por_pixel = captura.posicao_da_pagina(medidas, largura_do_print)
+    assert abs(esquerda - 108) < 1 and abs(topo - 167) < 1 and abs(por_pixel - 1) < 0.01  # o arredondamento do zoom dá menos de 1 pixel
+
+
+def test_replica_acha_a_pagina_com_a_escala_do_windows_e_zoom():
+    # Windows em 125% e navegador em 80%: devicePixelRatio = 1,25 x 0,8 = 1
+    esquerda, topo, por_pixel = captura.posicao_da_pagina([100, 80, 1100, 750, 1355, 818, 1.0], 1355)
+    assert (round(esquerda), round(topo), por_pixel) == (135, 210, 1.0)
+
+
+def test_replica_cruza_a_lista_com_o_relatorio_mesmo_com_o_titulo_escrito_de_outro_jeito():
+    from creditos import replica
+
+    titulos = ["Coisa Feita", "Toada de Louca", "O Rio Virou", "Pista Teste", "Beira Mar Aberto", "Volta Pra Casa",
+               "Canto Novo", "Nada Parecido"]
+    relatorio = Relatorio(nome_titular="ZECA LIMA", obras=[
+        Obra(codigo="1", titulo="COISA FEITA"),
+        Obra(codigo="2", titulo="COISA FEITA (AO VIVO)"),      # o mesmo título: entram os dois cadastros
+        Obra(codigo="3", titulo="TOADA DE LOUCO ( TOADA DE LOUCA)"),  # título alternativo entre parênteses
+        Obra(codigo="4", titulo="RIO VIROU"),                  # sem o artigo
+        Obra(codigo="5", titulo="PISTA TEST (PISTA TESTE)"),
+        Obra(codigo="6", titulo="BEIRA MAR ABERTO (PRIMEIRO"),  # parêntese cortado no relatório
+        Obra(codigo="7", titulo="EU QUERIA (VOLTA PRA CASA)"),
+        Obra(codigo="8", titulo="MTG CANTO NOVO"),             # montagem
+        Obra(codigo="9", titulo="OUTRA COISA"),
+    ])
+    obras, fora, aproximados = replica.cruzar(titulos, relatorio)
+    assert [o.codigo for o in obras] == ["1", "2", "3", "4", "5", "6", "7", "8"]
+    assert fora == ["Nada Parecido"]
+    assert "Coisa Feita" not in aproximados  # título igual não precisa de conferência
+    assert aproximados["Toada de Louca"] == ["TOADA DE LOUCO ( TOADA DE LOUCA)"]
