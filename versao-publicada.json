@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.56",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.56/quem-canta-0.5.56-windows.zip",
-  "sha256": "214f3b747d7b28644a9da6c060c4aa6dc5dd6a6599e591d28bcc961f2a2bcda8",
-  "notas": "Socinpro (Réplica ECAD): os botões \"Abrir a obra nos resultados\" e \"Fotografar na Socinpro\" não ficam mais apagados depois da pesquisa."
+  "versao": "0.5.57",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.57/quem-canta-0.5.57-windows.zip",
+  "sha256": "0bc69d1e2f2f47b2c96571a97154cc3a34da1aa7dd5a2b28a7b16d9ab5ce3716",
+  "notas": "Socinpro (Réplica ECAD): só dois botões. \"Buscar na Socinpro\" pesquisa, espera o \"não sou um robô\" e abre a obra; \"Fotografar na Socinpro\" tira o print."
 }
