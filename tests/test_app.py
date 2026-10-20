@@ -572,6 +572,8 @@ def test_replica_do_ecadnet_oferece_a_busca_alternativa_na_socinpro():
     rotulos = {b.label for b in at.button}
     assert {"Buscar na Socinpro", "Fotografar na Socinpro"} <= rotulos  # só dois botões: a pessoa não se perde
     assert not rotulos & {"Pesquisar na Socinpro", "Abrir a obra nos resultados", "Fechar o Chrome da Socinpro"}
+    assert {"Buscar na UBC", "Fotografar na UBC"} <= rotulos
+    assert any(e.label == "Não achou no Ecadnet? Busca alternativa na UBC" for e in at.expander)
     # Na aba do ISWC não aparece
     at.session_state["etapa"] = "Réplica (ISWC)"
     at.run()
@@ -619,7 +621,7 @@ def test_prints_da_socinpro_tem_lista_e_pdf_separados_dos_do_ecadnet(tmp_path, m
     pasta.mkdir(parents=True)
     from PIL import Image
 
-    for i, (obra, plataforma) in enumerate(zip(relatorio.obras[:2], ("Ecadnet", "Socinpro"))):
+    for i, (obra, plataforma) in enumerate(zip(relatorio.obras[:3], ("Ecadnet", "Socinpro", "UBC"))):
         base = f"obra-{i}_{plataforma.lower()}_ecadnet"
         Image.new("RGB", (40, 30), "white").save(pasta / f"{base}_tela.png")
         (pasta / f"{base}.json").write_text(json.dumps({
@@ -633,6 +635,7 @@ def test_prints_da_socinpro_tem_lista_e_pdf_separados_dos_do_ecadnet(tmp_path, m
     rotulos = [e.label for e in at.expander]
     assert any(r.startswith("Prints do Ecadnet já tirados neste caso (1;") for r in rotulos)
     assert any(r.startswith("Prints da Socinpro já tirados neste caso (1;") for r in rotulos)
+    assert any(r.startswith("Prints da UBC já tirados neste caso (1;") for r in rotulos)
     _botao(at, "Juntar os prints da Socinpro em PDF").click().run()
     _botao(at, "Juntar os prints em PDF").click().run()
     import pypdfium2
@@ -640,3 +643,5 @@ def test_prints_da_socinpro_tem_lista_e_pdf_separados_dos_do_ecadnet(tmp_path, m
     titular = relatorio.pseudonimo_titular or relatorio.nome_titular
     assert len(pypdfium2.PdfDocument(str(caso / f"Socinpro - {titular}.pdf"))) == 1
     assert len(pypdfium2.PdfDocument(str(caso / f"Ecadnet - {titular}.pdf"))) == 1
+    _botao(at, "Juntar os prints da UBC em PDF").click().run()
+    assert len(pypdfium2.PdfDocument(str(caso / f"UBC - {titular}.pdf"))) == 1

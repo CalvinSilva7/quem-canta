@@ -450,53 +450,58 @@ def aba_da_replica(site: str):
         for tipo, texto in recado:
             getattr(st, tipo)(texto)
     if do_ecadnet:
-        # Busca alternativa (pedido do jurídico, 20/10/2026): só para a obra que não aparece no Ecadnet
+        # Busca alternativa (pedido do jurídico, 20/10/2026): só para a obra que não aparece no Ecadnet. Uma por associação,
+        # todas iguais na tela (ver creditos/consulta_web.py)
         from creditos import socinpro as _socinpro
+        from creditos import ubc_web as _ubc_web
 
-        with st.expander("Não achou no Ecadnet? Busca alternativa na Socinpro", expanded=bool(st.session_state.get("socinpro_usada"))):
-            st.markdown(f"1. **Buscar na Socinpro**: o app pesquisa o título no Chrome. "
-                        "2. Na janela da Socinpro, marque o **não sou um robô** e clique em **Validar**: o app acha a obra pelo "
-                        f"código ECAD ({obra.codigo}) e abre os detalhes. 3. **Fotografar na Socinpro**: o print vai para a lista "
-                        "e o PDF da Socinpro, separados dos do Ecadnet.")
-            alternativa = st.columns(2)
-            buscar_na_socinpro = alternativa[0].button("Buscar na Socinpro", key="socinpro_buscar")
-            fotografar_na_socinpro = alternativa[1].button("Fotografar na Socinpro", type="primary", key="socinpro_fotografar")
-            if buscar_na_socinpro:
-                st.session_state.socinpro_usada = True
-                _iswc.copiar(_socinpro.titulo_para_buscar(obra.titulo))  # se precisar pesquisar de novo à mão, é só colar
-                # Pesquisa já em andamento (verificação ou resultados na tela): não pesquisa de novo, só espera e abre a obra
-                na_tela = (_socinpro.estado() if _socinpro.chrome_aberto() else None) or {}
-                ja_aberta = na_tela.get("detalhes") and na_tela.get("campos", {}).get("ECAD OBRA") == obra.codigo
-                pesquisa = {"ok": True}
-                # (só se for a pesquisa desta obra: os resultados da obra anterior podem continuar na tela)
-                em_andamento = _socinpro.pesquisa_desta_obra(na_tela, obra.titulo) and (na_tela.get("verificacao") or na_tela.get("linhas"))
-                if not ja_aberta and not em_andamento:
-                    with st.spinner("Abrindo a consulta da Socinpro e pesquisando o título…"):
-                        pesquisa = _socinpro.pesquisar(obra.titulo, _socinpro.perfil_do_chrome(pasta_do_caso))
-                if not pesquisa["ok"]:
-                    st.warning(f"Não consegui pesquisar na Socinpro: {pesquisa['motivo']}. O título ficou copiado para colar na janela.")
-                elif ja_aberta:
-                    st.success("Os detalhes desta obra já estão abertos na Socinpro. Clique em **Fotografar na Socinpro**.")
-                else:
-                    with st.spinner("Marque o **não sou um robô** na janela da Socinpro e clique em **Validar**. Esperando para abrir a obra…"):
-                        aberta_na_socinpro = _socinpro.esperar_e_abrir(obra.codigo)
-                    if aberta_na_socinpro["ok"]:
-                        st.success("Detalhes da obra abertos na Socinpro. Confira na janela e clique em **Fotografar na Socinpro**.")
+        for _assoc in (_socinpro, _ubc_web):
+            sigla = _assoc.CONSULTA.plataforma
+            chave_assoc = sigla.lower()
+            with st.expander(f"Não achou no Ecadnet? Busca alternativa na {sigla}", expanded=bool(st.session_state.get(f"{chave_assoc}_usada"))):
+                st.markdown(f"1. **Buscar na {sigla}**: o app abre a consulta no Chrome e preenche o título. "
+                            f"2. Na janela da {sigla}, {_assoc.CONSULTA.como_resolver}: o app acha a obra pelo código ECAD "
+                            f"({obra.codigo}) e abre os detalhes. 3. **Fotografar na {sigla}**: o print vai para a lista e o PDF "
+                            f"da {sigla}, separados dos do Ecadnet.")
+                alternativa = st.columns(2)
+                buscar = alternativa[0].button(f"Buscar na {sigla}", key=f"{chave_assoc}_buscar")
+                fotografar_aqui = alternativa[1].button(f"Fotografar na {sigla}", type="primary", key=f"{chave_assoc}_fotografar")
+                if buscar:
+                    st.session_state[f"{chave_assoc}_usada"] = True
+                    _iswc.copiar(_socinpro.titulo_para_buscar(obra.titulo))  # se precisar pesquisar de novo à mão, é só colar
+                    # Pesquisa desta obra já em andamento (verificação ou resultados na tela): não pesquisa de novo, só
+                    # espera e abre a obra. Os resultados da obra anterior podem continuar na tela: esses não servem
+                    na_tela = (_assoc.estado() if _assoc.chrome_aberto() else None) or {}
+                    ja_aberta = na_tela.get("detalhes") and na_tela.get("campos", {}).get(_assoc.CONSULTA.campo_do_codigo) == obra.codigo
+                    em_andamento = _assoc.pesquisa_desta_obra(na_tela, obra.titulo) and (na_tela.get("verificacao") or na_tela.get("linhas"))
+                    pesquisa = {"ok": True}
+                    if not ja_aberta and not em_andamento:
+                        with st.spinner(f"Abrindo a consulta da {sigla} e preenchendo o título…"):
+                            pesquisa = _assoc.pesquisar(obra.titulo, _assoc.perfil_do_chrome(pasta_do_caso))
+                    if not pesquisa["ok"]:
+                        st.warning(f"Não consegui pesquisar na {sigla}: {pesquisa['motivo']}. O título ficou copiado para colar na janela.")
+                    elif ja_aberta:
+                        st.success(f"Os detalhes desta obra já estão abertos na {sigla}. Clique em **Fotografar na {sigla}**.")
                     else:
-                        codigos = aberta_na_socinpro.get("codigos")
-                        st.warning(f"{aberta_na_socinpro['motivo']}."
-                                   + (f" Códigos ECAD nos resultados: {', '.join(c or '—' for c in codigos[:20])}. Se a obra for uma "
-                                      "delas com outro código, abra os detalhes na janela e clique em Fotografar." if codigos else ""))
-            if fotografar_na_socinpro:
-                with st.spinner("Fotografando a Socinpro…"):
-                    foto_da_socinpro = _socinpro.fotografar(pasta, obra.titulo, obra.codigo, nomes)
-                if foto_da_socinpro["ok"]:
-                    st.success(f"{obra.titulo}: print da Socinpro guardado (`{foto_da_socinpro['ficha']['arquivos']['tela']}`). "
-                               "Ele vai para a lista e o PDF da Socinpro, logo abaixo.")
-                    if not foto_da_socinpro["titular_na_pagina"]:
-                        st.warning("Atenção: o nome do titular não foi achado nos detalhes da obra.")
-                else:
-                    st.warning(f"Não fotografei: {foto_da_socinpro['motivo']}")
+                        with st.spinner(f"Na janela da {sigla}, {_assoc.CONSULTA.como_resolver}. Esperando para abrir a obra…"):
+                            aberta_la = _assoc.esperar_e_abrir(obra.codigo)
+                        if aberta_la["ok"]:
+                            st.success(f"Detalhes da obra abertos na {sigla}. Confira na janela e clique em **Fotografar na {sigla}**.")
+                        else:
+                            codigos = aberta_la.get("codigos")
+                            st.warning(f"{aberta_la['motivo']}."
+                                       + (f" Códigos ECAD nos resultados: {', '.join(c or '—' for c in codigos[:20])}. Se a obra for uma "
+                                          "delas com outro código, abra os detalhes na janela e clique em Fotografar." if codigos else ""))
+                if fotografar_aqui:
+                    with st.spinner(f"Fotografando a {sigla}…"):
+                        foto_la = _assoc.fotografar(pasta, obra.titulo, obra.codigo, nomes)
+                    if foto_la["ok"]:
+                        st.success(f"{obra.titulo}: print da {sigla} guardado (`{foto_la['ficha']['arquivos']['tela']}`). "
+                                   f"Ele vai para a lista e o PDF da {sigla}, logo abaixo.")
+                        if not foto_la["titular_na_pagina"]:
+                            st.warning("Atenção: o nome do titular não foi achado nos detalhes da obra.")
+                    else:
+                        st.warning(f"Não fotografei: {foto_la['motivo']}")
     guardados = _replica.prints_guardados(pasta, etapa_do_print)
     identificacao = "código" if do_ecadnet else "ISWC"
     campo = "codigo_da_obra" if do_ecadnet else "iswc"
@@ -569,11 +574,12 @@ def aba_da_replica(site: str):
             st.download_button(f"Baixar {nome_do_junto}", junto, file_name=nome_do_junto, mime="application/pdf", key=f"{prefixo}_baixar")
 
     if do_ecadnet:
-        da_socinpro = lambda f: f.get("plataforma") == "Socinpro"
-        lista_e_pdf([f for f in guardados if not da_socinpro(f)], f"do {nome_do_site}", site, "tela", _replica.pdf_dos_prints,
-                    "Juntar os prints em PDF", f"Ecadnet - {titular}.pdf")
-        lista_e_pdf([f for f in guardados if da_socinpro(f)], "da Socinpro", "socinpro", "tela", _replica.pdf_dos_prints,
-                    "Juntar os prints da Socinpro em PDF", f"Socinpro - {titular}.pdf")
+        associacoes = ("Socinpro", "UBC")  # as buscas alternativas: cada uma com lista e PDF próprios
+        lista_e_pdf([f for f in guardados if f.get("plataforma") not in associacoes], f"do {nome_do_site}", site, "tela",
+                    _replica.pdf_dos_prints, "Juntar os prints em PDF", f"Ecadnet - {titular}.pdf")
+        for sigla in associacoes:
+            lista_e_pdf([f for f in guardados if f.get("plataforma") == sigla], f"da {sigla}", sigla.lower(), "tela",
+                        _replica.pdf_dos_prints, f"Juntar os prints da {sigla} em PDF", f"{sigla} - {titular}.pdf")
     else:
         lista_e_pdf(guardados, f"do {nome_do_site}", site, "pdf", _iswc.juntar_pdfs, "Juntar os PDFs", f"ISWC - {titular}.pdf")
 

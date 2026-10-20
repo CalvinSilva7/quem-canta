@@ -2594,3 +2594,60 @@ def test_socinpro_resultados_na_tela_de_outra_obra_nao_servem():
     assert socinpro.pesquisa_desta_obra(na_tela, "Coisa Feita (Ao Vivo)")
     assert not socinpro.pesquisa_desta_obra(na_tela, "Outra Toada")
     assert not socinpro.pesquisa_desta_obra({}, "Coisa Feita")
+
+
+def _consulta_falsa(monkeypatch, telas, consulta):
+    """Faz a consulta ver uma sequência de telas (uma por olhada) e registra o que o app mandou fazer na página."""
+    from creditos import consulta_web
+
+    feitos = []
+    sequencia = iter(telas)
+    atual = {"tela": {}}
+
+    def estado(self):
+        atual["tela"] = next(sequencia, atual["tela"])
+        return atual["tela"]
+
+    def rodar(self, expressao, *argumentos):
+        feitos.append("pesquisar" if expressao == self.js_clicar_pesquisar else ("abrir", *argumentos))
+        return ""
+
+    monkeypatch.setattr(consulta_web.ConsultaWeb, "estado", estado)
+    monkeypatch.setattr(consulta_web.ConsultaWeb, "_rodar", rodar)
+    monkeypatch.setattr(consulta_web.time, "sleep", lambda s: None)
+    return feitos
+
+
+def test_ubc_espera_a_verificacao_clica_em_pesquisar_e_abre_a_obra(monkeypatch):
+    from creditos import ubc_web
+
+    detalhes = {"detalhes": True, "campos": {"ECAD": "55554444"}}
+    feitos = _consulta_falsa(monkeypatch, [
+        {"verificacao": True},                                   # a pessoa ainda não marcou
+        {"pode_pesquisar": True},                                # marcou: o app clica em Pesquisar (uma vez só)
+        {"carregando": True},
+        {"linhas": [{"codigo": "11111111"}, {"codigo": "55554444"}]},
+        detalhes,
+    ], ubc_web.CONSULTA)
+    assert ubc_web.CONSULTA.esperar_e_abrir("55554444") == {"ok": True, "motivo": ""}
+    assert feitos == ["pesquisar", ("abrir", "55554444")]
+
+
+def test_socinpro_nao_clica_em_pesquisar_depois_da_verificacao(monkeypatch):
+    # Na Socinpro, o próprio preencher já clicou em Pesquisar: depois da verificação, só abre a obra
+    from creditos import socinpro
+
+    feitos = _consulta_falsa(monkeypatch, [
+        {"verificacao": True}, {"linhas": [{"codigo": "12345678"}]}, {"detalhes": True, "campos": {"ECAD OBRA": "12345678"}},
+    ], socinpro.CONSULTA)
+    assert socinpro.CONSULTA.esperar_e_abrir("12345678")["ok"]
+    assert feitos == [("abrir", "12345678")]
+
+
+def test_ubc_obra_fora_dos_resultados_diz_quais_codigos_vieram(monkeypatch):
+    from creditos import consulta_web, ubc_web
+
+    _consulta_falsa(monkeypatch, [{"pode_pesquisar": True}, {"linhas": [{"codigo": "11111111"}]}], ubc_web.CONSULTA)
+    monkeypatch.setattr(consulta_web.ConsultaWeb, "_rodar", lambda self, e, *a: "a obra não está nos resultados" if a else "")
+    resposta = ubc_web.CONSULTA.esperar_e_abrir("55554444")
+    assert not resposta["ok"] and resposta["codigos"] == ["11111111"]
