@@ -604,3 +604,39 @@ def test_socinpro_buscar_pesquisa_espera_e_abre_e_nao_pesquisa_de_novo_se_ja_est
     na_tela.update(verificacao=False, linhas=[{"codigo": "11111111"}], titulo_pesquisado="OUTRA OBRA")
     _botao(at, "Buscar na Socinpro").click().run()
     assert (len(pesquisas), len(esperas)) == (2, 3)
+
+
+def test_prints_da_socinpro_tem_lista_e_pdf_separados_dos_do_ecadnet(tmp_path, monkeypatch):
+    import json
+
+    from creditos.captura import slug
+    from tests.test_creditos import relatorio_de_teste
+
+    monkeypatch.setenv("QUEMCANTA_DADOS", str(tmp_path))
+    relatorio = relatorio_de_teste()
+    caso = tmp_path / "casos" / slug(relatorio.pseudonimo_titular or relatorio.nome_titular or "caso")
+    pasta = caso / "ecadnet"
+    pasta.mkdir(parents=True)
+    from PIL import Image
+
+    for i, (obra, plataforma) in enumerate(zip(relatorio.obras[:2], ("Ecadnet", "Socinpro"))):
+        base = f"obra-{i}_{plataforma.lower()}_ecadnet"
+        Image.new("RGB", (40, 30), "white").save(pasta / f"{base}_tela.png")
+        (pasta / f"{base}.json").write_text(json.dumps({
+            "captura": base, "obra": obra.titulo, "plataforma": plataforma, "capturado_em": f"2026-10-20T10:0{i}:00-03:00",
+            "exibido": {"codigo_da_obra": obra.codigo}, "arquivos": {"tela": f"{base}_tela.png"}}), encoding="utf-8")
+    at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
+    at.session_state["relatorio"] = relatorio
+    at.session_state["etapa"] = "Réplica (ECAD)"
+    at.run()
+    assert not at.exception
+    rotulos = [e.label for e in at.expander]
+    assert any(r.startswith("Prints do Ecadnet já tirados neste caso (1;") for r in rotulos)
+    assert any(r.startswith("Prints da Socinpro já tirados neste caso (1;") for r in rotulos)
+    _botao(at, "Juntar os prints da Socinpro em PDF").click().run()
+    _botao(at, "Juntar os prints em PDF").click().run()
+    import pypdfium2
+
+    titular = relatorio.pseudonimo_titular or relatorio.nome_titular
+    assert len(pypdfium2.PdfDocument(str(caso / f"Socinpro - {titular}.pdf"))) == 1
+    assert len(pypdfium2.PdfDocument(str(caso / f"Ecadnet - {titular}.pdf"))) == 1

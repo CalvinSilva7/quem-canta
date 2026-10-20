@@ -9,7 +9,8 @@ Google Chrome da pessoa (perfil e porta próprios) e nunca resolve a verificaç�
 Pesquisar; a pessoa marca o "não sou um robô" e clica em Validar; o app acha a obra nos resultados pelo código
 ECAD OBRA (o mesmo do relatório), abre os detalhes e, quando a pessoa pede, fotografa o monitor inteiro.
 
-O print fica na pasta do Ecadnet, com a etapa do Ecadnet: entra no PDF único do Ecadnet, no lugar da obra.
+O print fica na pasta do Ecadnet, com a etapa do Ecadnet e a plataforma "Socinpro" na ficha. Desde a 0.5.59 ele tem
+lista e PDF próprios ("Socinpro - <titular>.pdf"): não se mistura com os prints do Ecadnet (pedido do dono).
 """
 
 import base64

@@ -143,8 +143,9 @@ Chrome da pessoa (perfil `perfil-socinpro-chrome`, porta 9341): preenche o títu
 busca "Começando com"), clica em Pesquisar, espera a pessoa resolver o "não sou um robô" e clicar em Validar (até 3
 minutos), acha a linha pelo código ECAD OBRA (o mesmo do relatório) e abre os detalhes. "Fotografar na Socinpro"
 confere que os detalhes abertos são do mesmo código, traz a janela para a frente e tira o print do monitor inteiro
-(obrigatório, como no Ecadnet). O print é guardado na pasta do Ecadnet, com a etapa dele: entra no PDF único do
-Ecadnet, no lugar da obra, marcado "(Socinpro)" na lista. Termos de uso da Socinpro: proíbem copiar, baixar e
+(obrigatório, como no Ecadnet). O print é guardado na pasta do Ecadnet, com a etapa dele e a plataforma "Socinpro"
+na ficha. Desde a 0.5.59 (pedido do dono) os prints da Socinpro têm lista própria (↑ ↓ ✕) e PDF próprio,
+"Socinpro - <titular>.pdf": não se misturam com os do Ecadnet, que continuam em "Ecadnet - <titular>.pdf". Termos de uso da Socinpro: proíbem copiar, baixar e
 distribuir sem consentimento; o jurídico já fazia esses prints à mão para o processo, e o aval sobre os termos é do
 jurídico. Testado: o preenchimento e a verificação no site real (uma pesquisa); a tabela, a abertura dos detalhes e
 o print numa página de imitação com a mesma estrutura, no Chrome real. Não testado: o caminho inteiro com o
