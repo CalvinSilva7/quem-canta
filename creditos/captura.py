@@ -184,11 +184,28 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
     }
     if da_tela is not None:
         registro["tela_inteira"] = da_tela  # o monitor fotografado, ou o motivo de não ter sido possível
+        if tela is None and not carimbo:
+            _guardar_diagnostico(pasta, base, imagem, da_tela)
     if tela is not None:
         (pasta / f"{base}_tela.png").write_bytes(tela)
         registro["arquivos"]["tela"], registro["sha256"]["tela"] = f"{base}_tela.png", sha256(tela)
     (pasta / f"{base}.json").write_text(json.dumps(registro, ensure_ascii=False, indent=1), encoding="utf-8")
     return registro
+
+
+def _guardar_diagnostico(pasta, base, imagem: bytes, da_tela: dict, maximo=10) -> None:
+    """Quando o print do monitor falha, guarda o print da página e as medidas em `diagnostico/`, para entender o
+    motivo (monitor diferente, escala do Windows, zoom). Fica só na pasta do caso, no computador; só os últimos 10."""
+    try:
+        pasta = Path(pasta) / "diagnostico"
+        pasta.mkdir(exist_ok=True)
+        (pasta / f"{base}_pagina.png").write_bytes(imagem)
+        (pasta / f"{base}.json").write_text(json.dumps(da_tela, ensure_ascii=False, indent=1), encoding="utf-8")
+        for velho in sorted(pasta.glob("*.json"))[:-maximo]:
+            velho.unlink(missing_ok=True)
+            (pasta / f"{velho.stem}_pagina.png").unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def descartar(pasta, base) -> None:
@@ -245,6 +262,69 @@ def posicao_da_pagina(medidas, largura_do_print: int | None = None) -> tuple[flo
     return x * sistema + borda, y * sistema + altura_fora * sistema - altura_dentro * escala - borda, por_pixel_do_print
 
 
+def janela_da_pagina(avaliar) -> tuple[int, int, int, int] | None:
+    """Onde está a janela desta página, em pixels de verdade, perguntando ao Windows (`tela.retangulo_da_janela`).
+
+    Para não confundir com outra janela aberta na mesma página (o Chrome da pessoa, outro teste), a página ganha por
+    um instante um título único; o título de antes volta logo em seguida, antes de qualquer print do monitor.
+    `avaliar(js)` roda um script na página (Playwright ou CDP)."""
+    import secrets
+    import time
+
+    from . import tela
+
+    marca = f"quem-canta-{secrets.token_hex(6)}"
+    try:
+        antes = avaliar("() => document.title")
+        avaliar(f"() => {{ document.title = {json.dumps(marca)}; }}")
+    except Exception:
+        return None
+    try:
+        for _ in range(15):  # o Windows leva um instante para mostrar o título novo
+            time.sleep(0.1)
+            janela = tela.retangulo_da_janela(marca)
+            if janela:
+                return janela
+        return None
+    finally:
+        try:
+            avaliar(f"() => {{ document.title = {json.dumps(antes)}; }}")
+            time.sleep(0.3)  # a aba volta a mostrar o título certo antes do print
+        except Exception:
+            pass
+
+
+def fotografar_o_monitor_da_pagina(imagem: bytes, medidas, janela=None) -> tuple[bytes | None, dict]:
+    """O monitor em que a página (`imagem`, o print da página) está à vista, achada sem a faixa de carimbo.
+
+    Primeiro pela `janela` que o próprio Windows informa (`janela_da_pagina`: pixels de verdade, vale com qualquer
+    resolução, escala e mistura de monitores); depois pela conta com as medidas do navegador; por último, procurando
+    alguns pixels em volta.
+    """
+    from PIL import Image
+
+    from . import tela
+
+    largura, altura = Image.open(io.BytesIO(imagem)).size
+    esquerda, topo, escala = posicao_da_pagina(medidas, largura)
+    candidatos = []
+    if janela:
+        a_esquerda, _, a_direita, embaixo = janela
+        borda = max(0.0, ((a_direita - a_esquerda) - largura * escala) / 2)  # a página fica embaixo, centrada
+        candidatos.append((a_esquerda + borda, embaixo - altura * escala - borda))
+    candidatos.append((esquerda, topo))
+    dados = {}
+    for x, y in candidatos:
+        foto, dados = tela.fotografar_na_posicao(imagem, x, y, escala)
+        if foto is not None:
+            return foto, {**dados, "achada_pela": "janela" if janela and (x, y) == candidatos[0] else "conta"}
+    foto, dados_de_perto = tela.fotografar_na_posicao(imagem, *candidatos[0], escala, procurar=12)
+    if foto is not None:
+        return foto, dados_de_perto
+    return None, {**dados, "medidas": list(medidas), "janela": list(janela) if janela else None,
+                  "posicoes_tentadas": [[round(x), round(y)] for x, y in candidatos], "escala": escala}
+
+
 def _tela_inteira(pagina, imagem: bytes, pela_posicao=False) -> tuple[bytes | None, dict]:
     """Fotografa o monitor em que a página está à vista, com a faixa de carimbo ainda na tela. Sem a faixa
     (`pela_posicao`), a página é achada no monitor pela posição que a janela informa.
@@ -260,11 +340,8 @@ def _tela_inteira(pagina, imagem: bytes, pela_posicao=False) -> tuple[bytes | No
         def tentar(captura_da_pagina):
             if not pela_posicao:
                 return tela.fotografar(captura_da_pagina)
-            from PIL import Image
-
-            largura = Image.open(io.BytesIO(captura_da_pagina)).width
-            esquerda, topo, escala = posicao_da_pagina(pagina.evaluate(_MEDIDAS_DA_JANELA), largura)
-            return tela.fotografar_na_posicao(captura_da_pagina, esquerda, topo, escala)
+            janela = janela_da_pagina(pagina.evaluate)
+            return fotografar_o_monitor_da_pagina(captura_da_pagina, pagina.evaluate(_MEDIDAS_DA_JANELA), janela)
 
         foto, dados = tentar(imagem)
         if foto is None:

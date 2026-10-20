@@ -105,10 +105,50 @@ def _monitores_com_posicao():
             yield numero, (monitor["left"], monitor["top"]), matriz, mss.tools.to_png(foto.rgb, foto.size)
 
 
+def retangulo_da_janela(titulo: str) -> tuple[int, int, int, int] | None:
+    """Onde a janela do navegador com esta página está, em pixels de verdade da área de trabalho (esquerda, topo,
+    direita, baixo), perguntando ao próprio Windows. Não depende da escala do Windows nem da mistura de monitores
+    diferentes (a posição que o navegador informa vem em outra medida e, com monitores de escalas diferentes, não bate
+    com os pixels do monitor). None fora do Windows ou se a janela não for achada pelo título."""
+    if sys.platform != "win32" or not titulo:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        try:  # pixels de verdade em qualquer monitor (o mss também pede isso)
+            user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+        except Exception:
+            pass
+        achadas = []
+
+        def olhar(janela, _):
+            if user32.IsWindowVisible(janela) and not user32.IsIconic(janela):
+                classe, texto = ctypes.create_unicode_buffer(64), ctypes.create_unicode_buffer(512)
+                user32.GetClassNameW(janela, classe, 64)
+                user32.GetWindowTextW(janela, texto, 512)
+                if classe.value == "Chrome_WidgetWin_1" and texto.value.startswith(titulo[:60]):
+                    achadas.append(janela)
+            return True
+
+        user32.EnumWindows(ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(olhar), 0)
+        if len(achadas) != 1:  # nenhuma, ou duas janelas com a mesma página: aí vale a conta pela posição
+            return None
+        retangulo = wintypes.RECT()
+        # A moldura visível (sem a borda invisível que o Windows põe em volta das janelas)
+        if ctypes.windll.dwmapi.DwmGetWindowAttribute(achadas[0], 9, ctypes.byref(retangulo), ctypes.sizeof(retangulo)) != 0:
+            user32.GetWindowRect(achadas[0], ctypes.byref(retangulo))
+        return retangulo.left, retangulo.top, retangulo.right, retangulo.bottom
+    except Exception:
+        return None
+
+
 def fotografar_na_posicao(imagem_da_pagina: bytes, esquerda: float, topo: float, escala: float,
-                          monitores=_monitores_com_posicao) -> tuple[bytes | None, dict]:
+                          monitores=_monitores_com_posicao, procurar: int = 0) -> tuple[bytes | None, dict]:
     """Como `fotografar`, para o print sem a faixa de carimbo: a janela diz onde a página está na área de trabalho
-    (canto e escala, em pixels da tela) e o app confere se é ela mesma que aparece ali."""
+    (canto e escala, em pixels da tela) e o app confere se é ela mesma que aparece ali. Com `procurar`, também
+    tenta até tantos pixels para cada lado (a posição pode vir com um pequeno erro)."""
     import numpy as np
     from PIL import Image
 
@@ -119,6 +159,12 @@ def fotografar_na_posicao(imagem_da_pagina: bytes, esquerda: float, topo: float,
         if not dentro:
             continue
         certo, motivo = _comparar(matriz, pagina, topo - y, esquerda - x, escala)
+        if not certo and procurar:
+            desvios = sorted(((dx, dy) for dy in range(-procurar, procurar + 1, 3) for dx in range(-procurar, procurar + 1, 3)),
+                             key=lambda d: abs(d[0]) + abs(d[1]))
+            for dx, dy in desvios[1:]:
+                if _comparar(matriz, pagina, topo - y + dy, esquerda - x + dx, escala)[0]:
+                    return png, {"monitor": numero, "desvio": [dx, dy]}
         if certo:
             return png, {"monitor": numero}
         motivos.append(motivo)

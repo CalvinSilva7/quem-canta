@@ -2651,3 +2651,48 @@ def test_ubc_obra_fora_dos_resultados_diz_quais_codigos_vieram(monkeypatch):
     monkeypatch.setattr(consulta_web.ConsultaWeb, "_rodar", lambda self, e, *a: "a obra não está nos resultados" if a else "")
     resposta = ubc_web.CONSULTA.esperar_e_abrir("55554444")
     assert not resposta["ok"] and resposta["codigos"] == ["11111111"]
+
+
+def test_replica_acha_a_pagina_pela_janela_do_windows_quando_a_conta_do_navegador_erra(monkeypatch):
+    # Monitor diferente (outra escala, outra resolução): a posição que o navegador informa não bate com os pixels do
+    # monitor, mas a janela que o Windows informa está certa
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    from creditos import tela
+
+    linhas, colunas = np.indices((300, 400))
+    pagina = np.repeat((((linhas // 20 + colunas // 20) % 2) * 255).astype("uint8")[:, :, None], 3, axis=2)
+    monitor = np.full((1080, 1920, 3), 128, dtype="uint8")
+    monitor[500:800, 900:1300] = pagina  # a página está aqui de verdade
+    png = io.BytesIO(); Image.fromarray(pagina).save(png, format="PNG")
+    original = tela.fotografar_na_posicao
+    monkeypatch.setattr(tela, "fotografar_na_posicao",
+                        lambda *a, **k: original(*a, monitores=lambda: [(1, (0, 0), monitor, b"png do monitor")], **k))
+    medidas = [100, 80, 1100, 750, 400, 300, 1.0]  # o navegador diz que a janela está em outro lugar
+    foto, dados = captura.fotografar_o_monitor_da_pagina(png.getvalue(), medidas, janela=(900, 400, 1300, 800))
+    assert foto == b"png do monitor" and dados["achada_pela"] == "janela"
+    foto, dados = captura.fotografar_o_monitor_da_pagina(png.getvalue(), medidas, janela=None)
+    assert foto is None and dados["posicoes_tentadas"]  # sem a janela, não acha (e diz onde procurou)
+
+
+def test_replica_procura_a_pagina_alguns_pixels_em_volta():
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    from creditos import tela
+
+    # Xadrez de 20 px: deslocada alguns pixels, a página já não bate (ruído aleatório, reduzido, bateria em qualquer lugar)
+    linhas, colunas = np.indices((300, 400))
+    pagina = np.repeat((((linhas // 20 + colunas // 20) % 2) * 255).astype("uint8")[:, :, None], 3, axis=2)
+    monitor = np.full((1080, 1920, 3), 128, dtype="uint8")
+    monitor[206:506, 309:709] = pagina
+    png = io.BytesIO(); Image.fromarray(pagina).save(png, format="PNG")
+    monitores = lambda: [(1, (0, 0), monitor, b"m")]
+    assert tela.fotografar_na_posicao(png.getvalue(), 300, 200, 1.0, monitores=monitores)[0] is None
+    foto, dados = tela.fotografar_na_posicao(png.getvalue(), 300, 200, 1.0, monitores=monitores, procurar=12)
+    assert foto == b"m" and dados["desvio"] == [9, 6]

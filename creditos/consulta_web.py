@@ -18,7 +18,6 @@ obra). Os módulos `socinpro` e `ubc_web` só montam a sua e expõem as funçõe
 """
 
 import base64
-import io
 import json
 import time
 from dataclasses import dataclass
@@ -208,10 +207,6 @@ class ConsultaWeb:
         """Print do monitor inteiro com os detalhes da obra abertos, mais o print e o HTML da página e a ficha.
         O print do monitor é obrigatório (mostra a data e a hora): sem ele, nada é guardado.
         Devolve {"ok", "ficha" ou "motivo", "titular_na_pagina"}, como a réplica do Ecadnet."""
-        from PIL import Image
-
-        from . import tela
-
         aba = self._aba()
         if aba is None:
             return {"ok": False, "motivo": f"{self.nome} não está aberto: clique em **{self.botao_buscar}**"}
@@ -228,8 +223,8 @@ class ConsultaWeb:
             def tentar():
                 pagina = base64.b64decode(cdp("Page.captureScreenshot", format="png")["data"])
                 medidas = _avaliar(cdp, captura._MEDIDAS_DA_JANELA)
-                esquerda, topo, escala = captura.posicao_da_pagina(medidas, Image.open(io.BytesIO(pagina)).width)
-                return pagina, *tela.fotografar_na_posicao(pagina, esquerda, topo, escala)
+                janela = captura.janela_da_pagina(lambda js: _avaliar(cdp, js))
+                return pagina, *captura.fotografar_o_monitor_da_pagina(pagina, medidas, janela)
 
             pagina, foto, sobre_a_tela = tentar()
             if foto is None:
