@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.58",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.58/quem-canta-0.5.58-windows.zip",
-  "sha256": "926b385194e6f0f797dfc4ce6611bee825af7133932a0b77165b85e50c044899",
-  "notas": "Socinpro (Réplica ECAD): da segunda obra em diante, o \"Buscar na Socinpro\" pesquisa a obra nova (antes procurava nos resultados da obra anterior)."
+  "versao": "0.5.59",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.59/quem-canta-0.5.59-windows.zip",
+  "sha256": "abd0bf0643255b8143a80b980c755776d14f38d69ab6e74d526eeb38c9c8d751",
+  "notas": "Réplica (ECAD): os prints da Socinpro têm lista e PDF próprios (\"Socinpro - <titular>.pdf\") e não se misturam mais com os do Ecadnet."
 }
