@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.54",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.54/quem-canta-0.5.54-windows.zip",
-  "sha256": "ed914cf52cf6f59531930e30de0b18e21052402a228fc8433386a771c0902b19",
-  "notas": "Réplica (ECAD e ISWC): na lista dos prints já tirados dá para mudar a ordem (↑ ↓) e tirar um print (✕). A lista mostra o que vai no PDF único, na ordem dele. Tirar não apaga: os arquivos vão para a subpasta \"removidos\"."
+  "versao": "0.5.55",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.55/quem-canta-0.5.55-windows.zip",
+  "sha256": "4c6a7d981700606c312197f1207160b0035db8b13545b842b7662e27f0ff0f1e",
+  "notas": "Réplica (ECAD): busca alternativa na Socinpro para a obra que não aparece no Ecadnet. O app abre a consulta no Chrome, preenche o título e pesquisa; você resolve o \"não sou um robô\" e clica em Validar; o app acha a obra pelo código ECAD, abre os detalhes e tira o print do monitor inteiro, que entra no PDF do Ecadnet no lugar da obra."
 }
