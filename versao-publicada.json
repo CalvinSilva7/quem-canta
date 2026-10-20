@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.60",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.60/quem-canta-0.5.60-windows.zip",
-  "sha256": "e52ccf83a11f7ee995ccbfe3ae8709e9e5e95221db9757d03a9bd934a4857308",
-  "notas": "Réplica (ECAD): busca alternativa também na UBC. O app abre a Consulta Web no Chrome e preenche o título; você marca o \"não sou um robô\" e o app clica em Pesquisar, acha a obra pelo código ECAD e abre os detalhes. O print vai para a lista e o PDF da UBC."
+  "versao": "0.5.61",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.61/quem-canta-0.5.61-windows.zip",
+  "sha256": "f93cd897a454ac55360082d04c84f086c1cbac858d852bc3557453e691bf74ab",
+  "notas": "Réplica: o print do Ecadnet, da Socinpro e da UBC acha a janela pelo próprio Windows. Resolve o \"algo por cima da tela\" com zoom de 67% em monitores diferentes."
 }
