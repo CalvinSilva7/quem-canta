@@ -2584,3 +2584,13 @@ def test_socinpro_print_entra_na_replica_do_ecadnet(tmp_path):
     base = f"coisa-feita_sem-nome_socinpro_2026-10-20_13h00_{ecadnet.ETAPA}"
     (tmp_path / f"{base}.json").write_text(json.dumps({"captura": base, "plataforma": socinpro.PLATAFORMA}), encoding="utf-8")
     assert [f["captura"] for f in replica.prints_guardados(tmp_path, ecadnet.ETAPA)] == [base]
+
+
+def test_socinpro_resultados_na_tela_de_outra_obra_nao_servem():
+    # Erro da 0.5.57: os resultados da obra anterior continuavam na tela e o Buscar não pesquisava a obra nova
+    from creditos import socinpro
+
+    na_tela = {"titulo_pesquisado": "COISA FEITA", "linhas": [{"codigo": "11111111"}]}
+    assert socinpro.pesquisa_desta_obra(na_tela, "Coisa Feita (Ao Vivo)")
+    assert not socinpro.pesquisa_desta_obra(na_tela, "Outra Toada")
+    assert not socinpro.pesquisa_desta_obra({}, "Coisa Feita")

@@ -595,7 +595,12 @@ def test_socinpro_buscar_pesquisa_espera_e_abre_e_nao_pesquisa_de_novo_se_ja_est
     assert (len(pesquisas), len(esperas)) == (1, 1)
     assert any("Detalhes da obra abertos" in s.value for s in at.success)
     assert not _botao(at, "Fotografar na Socinpro").disabled
-    # A verificação ainda está na tela (a pessoa demorou): o segundo clique só espera e abre, sem pesquisar de novo
-    na_tela.update(verificacao=True)
+    # A verificação desta obra ainda está na tela (a pessoa demorou): o segundo clique só espera e abre
+    titulo = socinpro.titulo_para_buscar(at.session_state["relatorio"].obras[0].titulo)
+    na_tela.update(verificacao=True, titulo_pesquisado=titulo)
     _botao(at, "Buscar na Socinpro").click().run()
     assert (len(pesquisas), len(esperas)) == (1, 2)
+    # Resultados na tela, mas da pesquisa de outra obra: pesquisa de novo
+    na_tela.update(verificacao=False, linhas=[{"codigo": "11111111"}], titulo_pesquisado="OUTRA OBRA")
+    _botao(at, "Buscar na Socinpro").click().run()
+    assert (len(pesquisas), len(esperas)) == (2, 3)

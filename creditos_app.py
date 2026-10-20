@@ -468,7 +468,9 @@ def aba_da_replica(site: str):
                 na_tela = (_socinpro.estado() if _socinpro.chrome_aberto() else None) or {}
                 ja_aberta = na_tela.get("detalhes") and na_tela.get("campos", {}).get("ECAD OBRA") == obra.codigo
                 pesquisa = {"ok": True}
-                if not ja_aberta and not na_tela.get("verificacao") and not na_tela.get("linhas"):
+                # (só se for a pesquisa desta obra: os resultados da obra anterior podem continuar na tela)
+                em_andamento = _socinpro.pesquisa_desta_obra(na_tela, obra.titulo) and (na_tela.get("verificacao") or na_tela.get("linhas"))
+                if not ja_aberta and not em_andamento:
                     with st.spinner("Abrindo a consulta da Socinpro e pesquisando o título…"):
                         pesquisa = _socinpro.pesquisar(obra.titulo, _socinpro.perfil_do_chrome(pasta_do_caso))
                 if not pesquisa["ok"]:

@@ -154,6 +154,10 @@ os desenhava antes de o Chrome abrir). Agora ficam sempre clicáveis e avisam se
 0.5.57 (pedido do dono: "muito botão, a pessoa se perde"): só dois botões. **Buscar na Socinpro** pesquisa, espera o
 "não sou um robô" e abre a obra; se a pesquisa já está na tela (verificação ou resultados), não pesquisa de novo, só
 espera e abre. **Fotografar na Socinpro** tira o print. Fechar o Chrome é no X da própria janela.
+0.5.58: na segunda obra, os resultados da primeira continuavam na tela e o Buscar não pesquisava de novo (procurava o
+código novo nos resultados velhos: "a obra não está nos resultados" para qualquer música). Agora só aproveita a
+pesquisa da tela se o título no campo de busca for o desta obra (`pesquisa_desta_obra`). Também visto no teste do
+dono: o reCAPTCHA travou uma vez (o Verificar não ia); recarregar a página resolveu. Causa não confirmada.
 UBC: consulta web em ubc.org.br/ferramentas/consulta-web (título, titular, intérprete; reCAPTCHA na própria página,
 antes do Pesquisar). Falta ver a página de resultados e a de detalhes para saber como achar a obra.
 

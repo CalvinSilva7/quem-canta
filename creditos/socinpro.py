@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 
 
+from cantor.matching import normalizar
+
 from . import captura, ecadnet, iswc
 from .replica import nomes_na_pagina
 
@@ -68,7 +70,10 @@ _ESTADO = """() => {
       if (celulas.length > coluna) linhas.push({i, codigo: celulas[coluna].innerText.trim(), texto: tr.innerText.replace(/\\s+/g, ' ').trim()});
     });
   }
-  return {verificacao: visivel(caixa), detalhes: visivel(detalhes), campos,
+  // O título que está no campo de busca: diz de qual obra são a verificação e os resultados que estão na tela
+  const rotulo = [...document.querySelectorAll('label')].find(l => visivel(l) && l.innerText.trim() === 'Titulo da Obra');
+  const campo = rotulo && rotulo.parentElement && rotulo.parentElement.querySelector('input[type=text]');
+  return {verificacao: visivel(caixa), detalhes: visivel(detalhes), campos, titulo_pesquisado: campo ? campo.value.trim() : '',
           texto_dos_detalhes: visivel(detalhes) ? detalhes.innerText : '', linhas, url: location.href};
 }"""
 
@@ -133,6 +138,12 @@ def estado(porta=PORTA) -> dict | None:
         return _avaliar(cdp, _ESTADO)
     finally:
         conexao.close()
+
+
+def pesquisa_desta_obra(na_tela: dict, titulo: str) -> bool:
+    """A verificação ou os resultados que estão na tela são da pesquisa deste título? (Senão, são da obra anterior e
+    é preciso pesquisar de novo.)"""
+    return bool(na_tela) and normalizar(na_tela.get("titulo_pesquisado", "")) == normalizar(titulo_para_buscar(titulo))
 
 
 def pesquisar(titulo: str, perfil, porta=PORTA, espera_da_pagina=30) -> dict:
