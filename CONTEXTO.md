@@ -148,7 +148,11 @@ Ecadnet, no lugar da obra, marcado "(Socinpro)" na lista. Termos de uso da Socin
 distribuir sem consentimento; o jurídico já fazia esses prints à mão para o processo, e o aval sobre os termos é do
 jurídico. Testado: o preenchimento e a verificação no site real (uma pesquisa); a tabela, a abertura dos detalhes e
 o print numa página de imitação com a mesma estrutura, no Chrome real. Não testado: o caminho inteiro com o
-reCAPTCHA resolvido (a tabela de resultados de verdade). UBC: falta o endereço da consulta web.
+reCAPTCHA resolvido (a tabela de resultados de verdade). 0.5.56: no primeiro teste do dono, com o reCAPTCHA resolvido,
+o app achou a obra pelo código ECAD e abriu os detalhes sozinho; mas "Abrir" e "Fotografar" ficavam apagados (a tela
+os desenhava antes de o Chrome abrir). Agora ficam sempre clicáveis e avisam se o Chrome não estiver aberto.
+UBC: consulta web em ubc.org.br/ferramentas/consulta-web (título, titular, intérprete; reCAPTCHA na própria página,
+antes do Pesquisar). Falta ver a página de resultados e a de detalhes para saber como achar a obra.
 
 **Ordem e exclusão dos prints** (pedido do dono, 20/10/2026, Ecadnet e ISWC). A lista "Prints … já tirados" mostra
 exatamente o que vai no PDF único, na ordem dele, com ↑ ↓ e ✕ em cada linha. A ordem escolhida fica em

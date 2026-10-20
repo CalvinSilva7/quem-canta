@@ -574,3 +574,27 @@ def test_replica_do_ecadnet_oferece_a_busca_alternativa_na_socinpro():
     at.session_state["etapa"] = "Réplica (ISWC)"
     at.run()
     assert not any(b.label == "Pesquisar na Socinpro" for b in at.button)
+
+
+def test_socinpro_pesquisar_deixa_fotografar_sem_precisar_atualizar_a_tela(monkeypatch):
+    # Erro da 0.5.55: os botões eram desenhados apagados antes de o Chrome abrir e ficavam assim depois da pesquisa
+    from creditos import socinpro
+    from tests.test_creditos import relatorio_de_teste
+
+    aberto = {"sim": False}
+
+    def pesquisar(*_a, **_k):
+        aberto["sim"] = True
+        return {"ok": True, "motivo": "", "onde": "o Chrome da Socinpro"}
+
+    monkeypatch.setattr(socinpro, "chrome_aberto", lambda *a, **k: aberto["sim"])
+    monkeypatch.setattr(socinpro, "pesquisar", pesquisar)
+    monkeypatch.setattr(socinpro, "esperar_e_abrir", lambda *a, **k: {"ok": True, "motivo": ""})
+    at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
+    at.session_state["relatorio"] = relatorio_de_teste()
+    at.session_state["etapa"] = "Réplica (ECAD)"
+    at.run()
+    assert not _botao(at, "Fotografar na Socinpro").disabled
+    _botao(at, "Pesquisar na Socinpro").click().run()
+    assert any("Detalhes da obra abertos" in s.value for s in at.success)
+    assert not _botao(at, "Fotografar na Socinpro").disabled and not _botao(at, "Abrir a obra nos resultados").disabled

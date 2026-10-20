@@ -460,9 +460,10 @@ def aba_da_replica(site: str):
             chrome_da_socinpro = _socinpro.chrome_aberto()
             alternativa = st.columns(3)
             pesquisar_na_socinpro = alternativa[0].button("Pesquisar na Socinpro", key="socinpro_pesquisar")
-            abrir_na_socinpro = alternativa[1].button("Abrir a obra nos resultados", key="socinpro_abrir", disabled=not chrome_da_socinpro)
-            fotografar_na_socinpro = alternativa[2].button("Fotografar na Socinpro", type="primary", key="socinpro_fotografar",
-                                                           disabled=not chrome_da_socinpro)
+            # Sempre clicáveis: o Chrome abre no meio do clique em Pesquisar, depois de a tela já ter desenhado os botões
+            # (sem o Chrome aberto, o próprio botão avisa)
+            abrir_na_socinpro = alternativa[1].button("Abrir a obra nos resultados", key="socinpro_abrir")
+            fotografar_na_socinpro = alternativa[2].button("Fotografar na Socinpro", type="primary", key="socinpro_fotografar")
             if pesquisar_na_socinpro:
                 st.session_state.socinpro_usada = True
                 _iswc.copiar(_socinpro.titulo_para_buscar(obra.titulo))  # se precisar pesquisar de novo à mão, é só colar
@@ -472,7 +473,9 @@ def aba_da_replica(site: str):
                     abrir_na_socinpro = True  # já espera o "não sou um robô" e abre a obra
                 else:
                     st.warning(f"Não consegui pesquisar na Socinpro: {pesquisa['motivo']}. O título ficou copiado para colar na janela.")
-            if abrir_na_socinpro:
+            if abrir_na_socinpro and not _socinpro.chrome_aberto():
+                st.warning("O Chrome da Socinpro não está aberto: clique em **Pesquisar na Socinpro**.")
+            elif abrir_na_socinpro:
                 with st.spinner("Marque o **não sou um robô** na janela da Socinpro e clique em **Validar**. Esperando para abrir a obra…"):
                     aberta_na_socinpro = _socinpro.esperar_e_abrir(obra.codigo)
                 if aberta_na_socinpro["ok"]:
@@ -492,7 +495,7 @@ def aba_da_replica(site: str):
                         st.warning("Atenção: o nome do titular não foi achado nos detalhes da obra.")
                 else:
                     st.warning(f"Não fotografei: {foto_da_socinpro['motivo']}")
-            if chrome_da_socinpro and st.button("Fechar o Chrome da Socinpro", key="socinpro_fechar"):
+            if (chrome_da_socinpro or _socinpro.chrome_aberto()) and st.button("Fechar o Chrome da Socinpro", key="socinpro_fechar"):
                 _socinpro.fechar_chrome()
                 st.rerun()
     guardados = _replica.prints_guardados(pasta, etapa_do_print)
