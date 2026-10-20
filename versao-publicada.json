@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.55",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.55/quem-canta-0.5.55-windows.zip",
-  "sha256": "4c6a7d981700606c312197f1207160b0035db8b13545b842b7662e27f0ff0f1e",
-  "notas": "Réplica (ECAD): busca alternativa na Socinpro para a obra que não aparece no Ecadnet. O app abre a consulta no Chrome, preenche o título e pesquisa; você resolve o \"não sou um robô\" e clica em Validar; o app acha a obra pelo código ECAD, abre os detalhes e tira o print do monitor inteiro, que entra no PDF do Ecadnet no lugar da obra."
+  "versao": "0.5.56",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.56/quem-canta-0.5.56-windows.zip",
+  "sha256": "214f3b747d7b28644a9da6c060c4aa6dc5dd6a6599e591d28bcc961f2a2bcda8",
+  "notas": "Socinpro (Réplica ECAD): os botões \"Abrir a obra nos resultados\" e \"Fotografar na Socinpro\" não ficam mais apagados depois da pesquisa."
 }
