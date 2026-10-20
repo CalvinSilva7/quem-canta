@@ -160,7 +160,19 @@ código novo nos resultados velhos: "a obra não está nos resultados" para qual
 pesquisa da tela se o título no campo de busca for o desta obra (`pesquisa_desta_obra`). Também visto no teste do
 dono: o reCAPTCHA travou uma vez (o Verificar não ia); recarregar a página resolveu. Causa não confirmada.
 UBC: consulta web em ubc.org.br/ferramentas/consulta-web (título, titular, intérprete; reCAPTCHA na própria página,
-antes do Pesquisar). Falta ver a página de resultados e a de detalhes para saber como achar a obra.
+antes do Pesquisar). Feita na 0.5.60 (pedido do dono), no mesmo modelo.
+
+**Busca alternativa na UBC** (0.5.60, pedido do dono). As duas associações agora usam o mesmo motor
+(`creditos/consulta_web.py`, classe `ConsultaWeb`); `socinpro.py` e `ubc_web.py` só têm o endereço, a porta do Chrome
+(9341 e 9342), o rótulo do código ECAD nos detalhes e os três scripts da página (preencher, ler a tela, abrir a obra).
+Na UBC o "não sou um robô" vem antes do Pesquisar: o app preenche o título (página em React: `value` nativo + evento
+`input`, senão o site não vê o texto), espera o reCAPTCHA preencher `g-recaptcha-response` e clica em Pesquisar uma
+vez só; acha a linha pela coluna ECAD (`cdObraEcad`) e clica no botão "Detalhes" do fim da linha; confere o "ECAD" da
+janela "Detalhes da Obra". A estrutura da tabela e dos detalhes saiu do código da própria página (o resultado de
+verdade só aparece com a verificação resolvida). Testado: no site real, o preenchimento e a verificação pendente;
+numa imitação, a tabela, os detalhes e a sequência verificação → Pesquisar → resultados → detalhes. Não testado: o
+resultado de verdade. Lista e PDF próprios: "UBC - <titular>.pdf". Enquanto a verificação está na tela, o app olha a
+página a cada 2 s (antes 1 s, nas duas associações).
 
 **Ordem e exclusão dos prints** (pedido do dono, 20/10/2026, Ecadnet e ISWC). A lista "Prints … já tirados" mostra
 exatamente o que vai no PDF único, na ordem dele, com ↑ ↓ e ✕ em cada linha. A ordem escolhida fica em
