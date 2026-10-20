@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.52",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.52/quem-canta-0.5.52-windows.zip",
-  "sha256": "61abd9106fdd55658bd8c389536542a406d482345e50bfd3dd454576282c96c3",
-  "notas": "Tidal: os prints só saem com a aba de créditos aberta de verdade (acabou o print da música sem créditos com a capa). Clipes do Tidal: listados no fim das provas do Tidal, com o link, para o print à mão, separados entre os do intérprete da planilha e os de outro artista."
+  "versao": "0.5.53",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.53/quem-canta-0.5.53-windows.zip",
+  "sha256": "a79464811392420930894de177153e27b25bc24736942ace095917ac416ab067",
+  "notas": "Réplica (ECAD): o print funciona com o zoom do navegador diminuído ou aumentado. A lista da petição em tabela do Word passa a ser lida, e música que está na lista e no relatório entra mesmo com o título escrito de outro jeito (a tela mostra quais, para conferir)."
 }
