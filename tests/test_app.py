@@ -504,3 +504,57 @@ def test_botao_de_apagar_o_guardado_pede_confirmacao_e_limpa_so_o_marcado(tmp_pa
     next(c for c in at.checkbox if "Sim, apagar" in c.label).check().run()
     _botao(at, "Apagar o que foi guardado").click().run()
     assert apagados == [["spotify"]] and any("Apagado" in m.value for m in at.success)
+
+
+def test_replica_lista_os_prints_na_ordem_do_pdf_e_deixa_mudar_e_tirar(tmp_path, monkeypatch):
+    from creditos.captura import slug
+    from tests.test_creditos import _prints_falsos, relatorio_de_teste
+
+    monkeypatch.setenv("QUEMCANTA_DADOS", str(tmp_path))
+    relatorio = relatorio_de_teste()
+    pasta = tmp_path / "casos" / slug(relatorio.pseudonimo_titular or relatorio.nome_titular or "caso") / "iswc"
+    _prints_falsos(pasta)
+    at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
+    at.session_state["relatorio"] = relatorio
+    at.session_state["etapa"] = "Réplica (ISWC)"
+    at.run()
+    assert not at.exception
+
+    def ordem():
+        return [m.value.split(". ", 1)[1].split(" —")[0] for m in at.markdown if m.value[:2] in ("1.", "2.", "3.")]
+
+    assert ordem() == ["OBRA 0", "OBRA 1", "OBRA 2"]
+    next(b for b in at.button if b.key == "iswc_desce_obra-0_iswc").click().run()
+    assert ordem() == ["OBRA 1", "OBRA 0", "OBRA 2"]
+    next(b for b in at.button if b.key == "iswc_tira_obra-2_iswc").click().run()
+    assert ordem() == ["OBRA 1", "OBRA 0"]
+    assert (pasta / "removidos" / "obra-2_iswc.pdf").exists() and not (pasta / "obra-2_iswc.pdf").exists()
+
+
+def test_replica_do_ecadnet_tambem_deixa_mudar_a_ordem_e_tirar(tmp_path, monkeypatch):
+    import json
+
+    from creditos.captura import slug
+    from tests.test_creditos import relatorio_de_teste
+
+    monkeypatch.setenv("QUEMCANTA_DADOS", str(tmp_path))
+    relatorio = relatorio_de_teste()
+    pasta = tmp_path / "casos" / slug(relatorio.pseudonimo_titular or relatorio.nome_titular or "caso") / "ecadnet"
+    pasta.mkdir(parents=True)
+    for i, obra in enumerate(relatorio.obras[:2]):  # obras da fila, uma rodada cada
+        base = f"obra-{i}_ecadnet"
+        (pasta / f"{base}_tela.png").write_bytes(b"png falso")
+        (pasta / f"{base}.json").write_text(json.dumps({
+            "captura": base, "obra": obra.titulo, "capturado_em": f"2026-10-20T10:0{i}:00-03:00",
+            "exibido": {"codigo_da_obra": obra.codigo}, "arquivos": {"tela": f"{base}_tela.png"}}), encoding="utf-8")
+    at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
+    at.session_state["relatorio"] = relatorio
+    at.session_state["etapa"] = "Réplica (ECAD)"
+    at.run()
+    assert not at.exception
+    primeiro = [m.value for m in at.markdown if m.value.startswith("1. ")]
+    next(b for b in at.button if b.key == "ecadnet_sobe_obra-1_ecadnet").click().run()
+    assert [m.value for m in at.markdown if m.value.startswith("1. ")] != primeiro
+    next(b for b in at.button if b.key == "ecadnet_tira_obra-0_ecadnet").click().run()
+    assert (pasta / "removidos" / "obra-0_ecadnet_tela.png").exists()
+    assert any("PDF único do Ecadnet" in m.value and "1 prints" in m.value for m in at.markdown)

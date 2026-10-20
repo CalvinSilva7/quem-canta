@@ -2521,3 +2521,44 @@ def test_replica_cruza_a_lista_com_o_relatorio_mesmo_com_o_titulo_escrito_de_out
     assert fora == ["Nada Parecido"]
     assert "Coisa Feita" not in aproximados  # título igual não precisa de conferência
     assert aproximados["Toada de Louca"] == ["TOADA DE LOUCO ( TOADA DE LOUCA)"]
+
+
+def _prints_falsos(pasta, quantos=3, etapa="iswc"):
+    import json
+
+    pasta.mkdir(parents=True, exist_ok=True)
+    fichas = []
+    for i in range(quantos):
+        base = f"obra-{i}_{etapa}"
+        (pasta / f"{base}.pdf").write_bytes(b"%PDF-1.4 falso")
+        ficha = {"captura": base, "obra": f"OBRA {i}", "capturado_em": f"2026-10-20T10:0{i}:00-03:00",
+                 "exibido": {"iswc": f"T-999.999.99{i}-9"}, "arquivos": {"pdf": f"{base}.pdf"}}
+        (pasta / f"{base}.json").write_text(json.dumps(ficha), encoding="utf-8")
+        fichas.append(ficha)
+    return fichas
+
+
+def test_replica_muda_a_ordem_dos_prints_e_guarda(tmp_path):
+    from creditos import replica
+
+    fichas = _prints_falsos(tmp_path)
+    assert [f["captura"] for f in replica.em_ordem(fichas, tmp_path)] == ["obra-0_iswc", "obra-1_iswc", "obra-2_iswc"]
+    replica.mover(tmp_path, fichas, "obra-2_iswc", -1)
+    ordem = replica.em_ordem(fichas, tmp_path)
+    assert [f["captura"] for f in ordem] == ["obra-0_iswc", "obra-2_iswc", "obra-1_iswc"]
+    replica.mover(tmp_path, ordem, "obra-0_iswc", -1)  # o primeiro não sobe mais
+    assert [f["captura"] for f in replica.em_ordem(fichas, tmp_path)] == ["obra-0_iswc", "obra-2_iswc", "obra-1_iswc"]
+    # Print novo, que a pessoa ainda não mexeu, vai depois dos que ela ordenou
+    novo = {"captura": "obra-9_iswc"}
+    assert replica.em_ordem([novo, *fichas], tmp_path)[-1] is novo
+
+
+def test_replica_tirar_um_print_nao_apaga_a_prova(tmp_path):
+    from creditos import replica
+
+    _prints_falsos(tmp_path)
+    assert replica.remover_print(tmp_path, "obra-1_iswc") == 2
+    assert [f["captura"] for f in replica.prints_guardados(tmp_path, "iswc")] == ["obra-2_iswc", "obra-0_iswc"]
+    assert sorted(p.name for p in (tmp_path / replica.REMOVIDOS).iterdir()) == ["obra-1_iswc.json", "obra-1_iswc.pdf"]
+    # Nome com caminho (vindo de fora) não mexe em nada fora da pasta
+    assert replica.remover_print(tmp_path, "../obra-0_iswc") == 0 and (tmp_path / "obra-0_iswc.pdf").exists()

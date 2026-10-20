@@ -307,3 +307,58 @@ def prints_guardados(pasta, etapa: str) -> list[dict]:
         except (OSError, ValueError):
             continue
     return fichas
+
+
+# ---------------------------------------------------------------- ordem e exclusão dos prints (pedido do dono, 20/10/2026)
+
+ORDEM = "ordem.json"
+REMOVIDOS = "removidos"
+
+
+def em_ordem(fichas, pasta) -> list[dict]:
+    """As fichas na ordem que a pessoa escolheu (ordem.json da pasta) e, depois, as que ela ainda não mexeu, na ordem
+    em que vieram (a da fila)."""
+    try:
+        escolhida = json.loads((Path(pasta) / ORDEM).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        escolhida = []
+    posicao = {captura: i for i, captura in enumerate(escolhida) if isinstance(captura, str)}
+    return sorted(fichas, key=lambda f: posicao.get(f.get("captura"), len(posicao)))  # sort estável: o resto como veio
+
+
+def mover(pasta, fichas_em_ordem, captura: str, passo: int) -> None:
+    """Sobe (passo -1) ou desce (passo +1) um print na ordem do PDF e guarda a ordem inteira."""
+    ordem = [f.get("captura") for f in fichas_em_ordem]
+    if captura not in ordem:
+        return
+    i = ordem.index(captura)
+    j = max(0, min(len(ordem) - 1, i + passo))
+    ordem[i], ordem[j] = ordem[j], ordem[i]
+    (Path(pasta) / ORDEM).write_text(json.dumps(ordem, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def remover_print(pasta, captura: str) -> int:
+    """Tira o print da lista e do PDF único. Os arquivos não são apagados: vão para a subpasta `removidos` (são
+    provas; se foi engano, basta trazê-los de volta). Devolve quantos arquivos foram movidos."""
+    import shutil
+
+    pasta = Path(pasta)
+    ficha_json = pasta / f"{captura}.json"
+    if "/" in captura or "\\" in captura or not ficha_json.is_file():
+        return 0
+    try:
+        arquivos = list(json.loads(ficha_json.read_text(encoding="utf-8")).get("arquivos", {}).values())
+    except (OSError, ValueError):
+        arquivos = []
+    destino = pasta / REMOVIDOS
+    destino.mkdir(exist_ok=True)
+    movidos = 0
+    for nome in [*arquivos, ficha_json.name]:
+        origem = pasta / Path(str(nome)).name
+        if origem.is_file():
+            alvo, n = destino / origem.name, 2
+            while alvo.exists():  # o mesmo print removido duas vezes (trazido de volta e removido de novo)
+                alvo, n = destino / f"{origem.stem} ({n}){origem.suffix}", n + 1
+            shutil.move(str(origem), str(alvo))
+            movidos += 1
+    return movidos

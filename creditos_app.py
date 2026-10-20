@@ -450,56 +450,75 @@ def aba_da_replica(site: str):
         for tipo, texto in recado:
             getattr(st, tipo)(texto)
     guardados = _replica.prints_guardados(pasta, etapa_do_print)
-    if guardados:
-        identificacao = "código" if do_ecadnet else "ISWC"
-        campo = "codigo_da_obra" if do_ecadnet else "iswc"
-        with st.expander(f"Prints do {nome_do_site} já tirados neste caso ({len(guardados)})"):
-            st.dataframe(pd.DataFrame([{"obra": f.get("obra"), identificacao: f.get("exibido", {}).get(campo),
-                                        "quando": f.get("capturado_em"), "arquivo": next(iter(f["arquivos"].values()))} for f in guardados]),
-                         hide_index=True)
-            st.caption(f"Pasta: `{pasta.resolve()}`")
-    pdfs = [f for f in guardados if f.get("arquivos", {}).get("pdf") and (pasta / f["arquivos"]["pdf"]).exists()]
-    if not do_ecadnet and pdfs:
-        # um PDF só, na ordem da fila (a da lista da petição / relatório), com uma página por obra: se a obra foi salva
-        # mais de uma vez, vale a mais recente
+    identificacao = "código" if do_ecadnet else "ISWC"
+    campo = "codigo_da_obra" if do_ecadnet else "iswc"
+    chave_da_obra = lambda f: f.get("exibido", {}).get(campo)
+    if do_ecadnet:
+        # só os prints do monitor inteiro (os que mostram a data e a hora); os antigos, só da página, ficam de fora.
+        # De cada obra, os prints da última rodada (às vezes são dois ou três seguidos)
+        validos = [f for f in guardados if f.get("arquivos", {}).get("tela") and (pasta / f["arquivos"]["tela"]).exists()]
+        escolhidos = _replica.prints_da_ultima_rodada(validos, chave_da_obra)
+        ordem = {o.codigo: i for i, o in enumerate(obras)}
+    else:
+        # uma página por obra: se a obra foi salva mais de uma vez, vale a mais recente
+        validos = [f for f in guardados if f.get("arquivos", {}).get("pdf") and (pasta / f["arquivos"]["pdf"]).exists()]
         mais_recente = {}
-        for f in sorted(pdfs, key=lambda f: f.get("capturado_em", "")):
-            mais_recente[f.get("exibido", {}).get("iswc")] = f
-        repetidos = len(pdfs) - len(mais_recente)
+        for f in sorted(validos, key=lambda f: f.get("capturado_em", "")):
+            mais_recente[chave_da_obra(f)] = f
+        escolhidos = list(mais_recente.values())
         ordem = {o.iswc: i for i, o in enumerate(obras)}
-        pdfs = sorted(mais_recente.values(), key=lambda f: ordem.get(f.get("exibido", {}).get("iswc"), len(obras)))
-        fora = sum(f.get("exibido", {}).get("iswc") not in ordem for f in pdfs)
-        st.markdown(f"**PDF único do ISWC**: {len(pdfs)} obras" + (f" ({fora} fora desta fila, no fim)" if fora else "")
-                    + (f". {repetidos} PDFs mais antigos de obras salvas de novo ficam de fora" if repetidos else ""))
+    escolhidos.sort(key=lambda f: ordem.get(chave_da_obra(f), len(obras)))  # sort estável: na mesma obra, na ordem tirada
+    escolhidos = _replica.em_ordem(escolhidos, pasta)  # a ordem que a pessoa escolheu nos botões vale por cima
+    fora_da_fila = [f for f in escolhidos if chave_da_obra(f) not in ordem]
+    no_pdf = [f for f in escolhidos if chave_da_obra(f) in ordem] if do_ecadnet else escolhidos
+    if guardados:
+        with st.expander(f"Prints do {nome_do_site} já tirados neste caso ({len(guardados)}; {len(no_pdf)} no PDF único)"):
+            st.caption("Na ordem do PDF único. **↑ ↓** mudam a ordem; **✕** tira o print da lista e do PDF "
+                       f"(os arquivos não são apagados: vão para a subpasta `{_replica.REMOVIDOS}`).")
+            for posicao, f in enumerate(escolhidos):
+                captura_id = f.get("captura", "")
+                fora = chave_da_obra(f) not in ordem
+                colunas = st.columns([6, 3, 3, 1, 1, 1])
+                colunas[0].markdown(f"{posicao + 1}. {f.get('obra')}"
+                                    + (" — *fora desta fila*" + (", não entra no PDF" if do_ecadnet else ", vai no fim") if fora else ""))
+                colunas[1].write(f"{identificacao}: {chave_da_obra(f) or '—'}")
+                colunas[2].write(str(f.get("capturado_em", ""))[:19].replace("T", " "))
+                if colunas[3].button("↑", key=f"{site}_sobe_{captura_id}", disabled=posicao == 0, help="Subir na ordem do PDF"):
+                    _replica.mover(pasta, escolhidos, captura_id, -1)
+                    st.rerun()
+                if colunas[4].button("↓", key=f"{site}_desce_{captura_id}", disabled=posicao == len(escolhidos) - 1,
+                                     help="Descer na ordem do PDF"):
+                    _replica.mover(pasta, escolhidos, captura_id, +1)
+                    st.rerun()
+                if colunas[5].button("✕", key=f"{site}_tira_{captura_id}", help="Tirar este print da lista e do PDF"):
+                    _replica.remover_print(pasta, captura_id)
+                    st.session_state.pop("ecadnet_junto" if do_ecadnet else "iswc_junto", None)  # o PDF juntado antes ficou velho
+                    st.rerun()
+            deixados = len(validos) - len(escolhidos)
+            if deixados:
+                st.caption(f"{deixados} prints mais antigos de obras fotografadas de novo não entram no PDF (continuam na pasta).")
+            st.caption(f"Pasta: `{pasta.resolve()}`")
+    if not do_ecadnet and no_pdf:
+        st.markdown(f"**PDF único do ISWC**: {len(no_pdf)} obras" + (f" ({len(fora_da_fila)} fora desta fila)" if fora_da_fila else ""))
         if st.button("Juntar os PDFs"):
-            junto = _iswc.juntar_pdfs([pasta / f["arquivos"]["pdf"] for f in pdfs])
+            junto = _iswc.juntar_pdfs([pasta / f["arquivos"]["pdf"] for f in no_pdf])
             destino = pasta_do_caso / f"ISWC - {relatorio.pseudonimo_titular or relatorio.nome_titular or 'titular'}.pdf"
             destino.write_bytes(junto)
             st.session_state.iswc_junto = (destino.name, junto)
-            st.success(f"PDF único gerado ({len(pdfs)} páginas de obra): `{destino.resolve()}`")
+            st.success(f"PDF único gerado ({len(no_pdf)} páginas de obra): `{destino.resolve()}`")
         if st.session_state.get("iswc_junto"):
             nome_do_junto, junto = st.session_state.iswc_junto
             st.download_button(f"Baixar {nome_do_junto}", junto, file_name=nome_do_junto, mime="application/pdf")
-    # só os prints do monitor inteiro (os que mostram a data e a hora); os antigos, só da página, ficam de fora
-    pngs = [f for f in guardados if f.get("arquivos", {}).get("tela") and (pasta / f["arquivos"]["tela"]).exists()]
-    if do_ecadnet and pngs:
-        # um PDF só, na ordem da fila, com os prints da última rodada de cada obra (às vezes são dois ou três seguidos);
-        codigo_de = lambda f: f.get("exibido", {}).get("codigo_da_obra")
-        escolhidos = _replica.prints_da_ultima_rodada(pngs, codigo_de)
-        ordem = {o.codigo: i for i, o in enumerate(obras)}
-        escolhidos.sort(key=lambda f: ordem.get(codigo_de(f), len(obras)))  # sort estável: na mesma obra, na ordem tirada
-        na_fila = [f for f in escolhidos if codigo_de(f) in ordem]
-        fora = len(escolhidos) - len(na_fila)
-        obras_com_print = len({codigo_de(f) for f in na_fila})
-        st.markdown(f"**PDF único do Ecadnet**: {len(na_fila)} prints de {obras_com_print} das {len(obras)} obras da fila"
-                    + (f". {len(pngs) - len(escolhidos)} prints de rodadas mais antigas ficam de fora" if len(pngs) > len(escolhidos) else "")
-                    + (f". {fora} prints de obras fora desta fila não entram" if fora else ""))
-        if st.button("Juntar os prints em PDF", disabled=not na_fila):
-            junto = _replica.pdf_dos_prints([pasta / f["arquivos"]["tela"] for f in na_fila])
+    if do_ecadnet and escolhidos:
+        obras_com_print = len({chave_da_obra(f) for f in no_pdf})
+        st.markdown(f"**PDF único do Ecadnet**: {len(no_pdf)} prints de {obras_com_print} das {len(obras)} obras da fila"
+                    + (f". {len(fora_da_fila)} prints de obras fora desta fila não entram" if fora_da_fila else ""))
+        if st.button("Juntar os prints em PDF", disabled=not no_pdf):
+            junto = _replica.pdf_dos_prints([pasta / f["arquivos"]["tela"] for f in no_pdf])
             destino = pasta_do_caso / f"Ecadnet - {relatorio.pseudonimo_titular or relatorio.nome_titular or 'titular'}.pdf"
             destino.write_bytes(junto)
             st.session_state.ecadnet_junto = (destino.name, junto)
-            st.success(f"PDF único gerado ({len(na_fila)} páginas): `{destino.resolve()}`")
+            st.success(f"PDF único gerado ({len(no_pdf)} páginas): `{destino.resolve()}`")
         if st.session_state.get("ecadnet_junto"):
             nome_do_junto, junto = st.session_state.ecadnet_junto
             st.download_button(f"Baixar {nome_do_junto}", junto, file_name=nome_do_junto, mime="application/pdf")
