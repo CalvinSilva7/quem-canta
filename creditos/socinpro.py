@@ -194,7 +194,7 @@ def esperar_e_abrir(codigo: str, porta=PORTA, espera=180) -> dict:
         return {"ok": False, "motivo": "cliquei na lupa da obra, mas os detalhes não abriram: abra na janela e clique em Fotografar"}
     if ultimo.get("verificacao"):
         return {"ok": False, "motivo": "o \"não sou um robô\" não foi resolvido a tempo: resolva, clique em Validar e depois em "
-                                       "**Abrir a obra nos resultados**"}
+                                       "**Buscar na Socinpro** de novo"}
     return {"ok": False, "motivo": "a pesquisa não trouxe resultados (a obra pode não estar na Socinpro)"}
 
 
@@ -243,7 +243,7 @@ def fotografar(pasta, obra: str, codigo: str, nomes=(), porta=PORTA) -> dict:
 
     aba = _aba(porta)
     if aba is None:
-        return {"ok": False, "motivo": f"{NOME} não está aberto: clique em **Pesquisar na Socinpro**"}
+        return {"ok": False, "motivo": f"{NOME} não está aberto: clique em **Buscar na Socinpro**"}
     cdp, conexao = iswc._comandos(aba)
     try:
         dados = _avaliar(cdp, _ESTADO)

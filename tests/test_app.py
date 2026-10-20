@@ -569,32 +569,33 @@ def test_replica_do_ecadnet_oferece_a_busca_alternativa_na_socinpro():
     at.run()
     assert not at.exception
     assert any(e.label.startswith("Não achou no Ecadnet?") for e in at.expander)
-    assert {"Pesquisar na Socinpro", "Abrir a obra nos resultados", "Fotografar na Socinpro"} <= {b.label for b in at.button}
+    rotulos = {b.label for b in at.button}
+    assert {"Buscar na Socinpro", "Fotografar na Socinpro"} <= rotulos  # só dois botões: a pessoa não se perde
+    assert not rotulos & {"Pesquisar na Socinpro", "Abrir a obra nos resultados", "Fechar o Chrome da Socinpro"}
     # Na aba do ISWC não aparece
     at.session_state["etapa"] = "Réplica (ISWC)"
     at.run()
-    assert not any(b.label == "Pesquisar na Socinpro" for b in at.button)
+    assert not any(b.label == "Buscar na Socinpro" for b in at.button)
 
 
-def test_socinpro_pesquisar_deixa_fotografar_sem_precisar_atualizar_a_tela(monkeypatch):
-    # Erro da 0.5.55: os botões eram desenhados apagados antes de o Chrome abrir e ficavam assim depois da pesquisa
+def test_socinpro_buscar_pesquisa_espera_e_abre_e_nao_pesquisa_de_novo_se_ja_esta_na_tela(monkeypatch):
     from creditos import socinpro
     from tests.test_creditos import relatorio_de_teste
 
-    aberto = {"sim": False}
-
-    def pesquisar(*_a, **_k):
-        aberto["sim"] = True
-        return {"ok": True, "motivo": "", "onde": "o Chrome da Socinpro"}
-
-    monkeypatch.setattr(socinpro, "chrome_aberto", lambda *a, **k: aberto["sim"])
-    monkeypatch.setattr(socinpro, "pesquisar", pesquisar)
-    monkeypatch.setattr(socinpro, "esperar_e_abrir", lambda *a, **k: {"ok": True, "motivo": ""})
+    na_tela, pesquisas, esperas = {}, [], []
+    monkeypatch.setattr(socinpro, "chrome_aberto", lambda *a, **k: bool(pesquisas))
+    monkeypatch.setattr(socinpro, "estado", lambda *a, **k: na_tela)
+    monkeypatch.setattr(socinpro, "pesquisar", lambda *a, **k: pesquisas.append(1) or {"ok": True, "motivo": "", "onde": ""})
+    monkeypatch.setattr(socinpro, "esperar_e_abrir", lambda *a, **k: esperas.append(1) or {"ok": True, "motivo": ""})
     at = AppTest.from_file(str(Path(__file__).parent.parent / "creditos_app.py"), default_timeout=60)
     at.session_state["relatorio"] = relatorio_de_teste()
     at.session_state["etapa"] = "Réplica (ECAD)"
     at.run()
-    assert not _botao(at, "Fotografar na Socinpro").disabled
-    _botao(at, "Pesquisar na Socinpro").click().run()
+    _botao(at, "Buscar na Socinpro").click().run()
+    assert (len(pesquisas), len(esperas)) == (1, 1)
     assert any("Detalhes da obra abertos" in s.value for s in at.success)
-    assert not _botao(at, "Fotografar na Socinpro").disabled and not _botao(at, "Abrir a obra nos resultados").disabled
+    assert not _botao(at, "Fotografar na Socinpro").disabled
+    # A verificação ainda está na tela (a pessoa demorou): o segundo clique só espera e abre, sem pesquisar de novo
+    na_tela.update(verificacao=True)
+    _botao(at, "Buscar na Socinpro").click().run()
+    assert (len(pesquisas), len(esperas)) == (1, 2)

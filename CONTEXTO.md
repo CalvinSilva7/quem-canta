@@ -151,6 +151,9 @@ o print numa página de imitação com a mesma estrutura, no Chrome real. Não t
 reCAPTCHA resolvido (a tabela de resultados de verdade). 0.5.56: no primeiro teste do dono, com o reCAPTCHA resolvido,
 o app achou a obra pelo código ECAD e abriu os detalhes sozinho; mas "Abrir" e "Fotografar" ficavam apagados (a tela
 os desenhava antes de o Chrome abrir). Agora ficam sempre clicáveis e avisam se o Chrome não estiver aberto.
+0.5.57 (pedido do dono: "muito botão, a pessoa se perde"): só dois botões. **Buscar na Socinpro** pesquisa, espera o
+"não sou um robô" e abre a obra; se a pesquisa já está na tela (verificação ou resultados), não pesquisa de novo, só
+espera e abre. **Fotografar na Socinpro** tira o print. Fechar o Chrome é no X da própria janela.
 UBC: consulta web em ubc.org.br/ferramentas/consulta-web (título, titular, intérprete; reCAPTCHA na própria página,
 antes do Pesquisar). Falta ver a página de resultados e a de detalhes para saber como achar a obra.
 
