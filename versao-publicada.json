@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.53",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.53/quem-canta-0.5.53-windows.zip",
-  "sha256": "a79464811392420930894de177153e27b25bc24736942ace095917ac416ab067",
-  "notas": "Réplica (ECAD): o print funciona com o zoom do navegador diminuído ou aumentado. A lista da petição em tabela do Word passa a ser lida, e música que está na lista e no relatório entra mesmo com o título escrito de outro jeito (a tela mostra quais, para conferir)."
+  "versao": "0.5.54",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.54/quem-canta-0.5.54-windows.zip",
+  "sha256": "ed914cf52cf6f59531930e30de0b18e21052402a228fc8433386a771c0902b19",
+  "notas": "Réplica (ECAD e ISWC): na lista dos prints já tirados dá para mudar a ordem (↑ ↓) e tirar um print (✕). A lista mostra o que vai no PDF único, na ordem dele. Tirar não apaga: os arquivos vão para a subpasta \"removidos\"."
 }
