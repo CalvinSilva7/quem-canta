@@ -17,7 +17,9 @@ com a barra de endereço e o relógio (ver tela.py).
 É prova documental unilateral: não substitui ata notarial.
 """
 
+import base64
 import hashlib
+import io
 import json
 import re
 import unicodedata
@@ -167,7 +169,8 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
     if carimbo:
         pagina.evaluate(_CARIMBAR, texto_do_carimbo(pagina.url, quando, base, data_do_servidor, so_a_url=TELA_INTEIRA))
     html = pagina.content().encode("utf-8")
-    imagem = pagina.screenshot(type="png")
+    # Sem carimbo (réplica), o print vem do próprio Chrome: é o único que sai certo com o zoom do navegador mudado
+    imagem = pagina.screenshot(type="png") if carimbo else _print_da_pagina(pagina)
     tela, da_tela = _tela_inteira(pagina, imagem, pela_posicao=not carimbo) if TELA_INTEIRA else (None, None)
     pagina.evaluate("() => { const faixa = document.getElementById('__carimbo_de_captura'); if (faixa) faixa.remove(); }")
     (pasta / f"{base}.png").write_bytes(imagem)
@@ -207,10 +210,39 @@ def _restaurar_janela(pagina) -> None:
         pass
 
 
-# Onde a área da página está na área de trabalho (pixels da tela): o canto da janela mais as bordas e barras dela.
-_POSICAO_DA_PAGINA = """() => [window.screenX + (window.outerWidth - window.innerWidth) / 2,
-  window.screenY + window.outerHeight - window.innerHeight - (window.outerWidth - window.innerWidth) / 2,
-  window.devicePixelRatio || 1]"""
+_MEDIDAS_DA_JANELA = """() => [window.screenX, window.screenY, window.outerWidth, window.outerHeight,
+  window.innerWidth, window.innerHeight, window.devicePixelRatio || 1]"""
+# Os níveis de zoom do Chrome (Ctrl + / Ctrl -)
+_ZOOMS = (0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5)
+
+
+def _print_da_pagina(pagina) -> bytes:
+    """O que a janela mostra da página, tirado pelo próprio Chrome (CDP). Com o zoom do navegador abaixo de 100%,
+    o print do Playwright sai maior que a janela, com a página num canto e o resto em branco."""
+    try:
+        sessao = pagina.context.new_cdp_session(pagina)
+        try:
+            return base64.b64decode(sessao.send("Page.captureScreenshot", {"format": "png"})["data"])
+        finally:
+            sessao.detach()
+    except Exception:  # navegador sem esse comando
+        return pagina.screenshot(type="png")
+
+
+def posicao_da_pagina(medidas, largura_do_print: int | None = None) -> tuple[float, float, float]:
+    """Onde a área da página está na área de trabalho, em pixels da tela: (esquerda, topo, pixels da tela por pixel
+    do print). É o canto da janela mais as bordas e barras dela. Sem `largura_do_print`, vale um pixel do print por
+    pixel da página.
+
+    O zoom do navegador (a pessoa diminui para caber mais na tela) muda `innerWidth` e `devicePixelRatio`, mas não
+    `screenX` nem `outerWidth`, que ficam em pixels do sistema. O zoom é o nível do Chrome mais perto da razão entre
+    as duas larguras (as bordas laterais, de até uns 16 pixels, não chegam a mudar o nível)."""
+    x, y, largura_fora, altura_fora, largura_dentro, altura_dentro, escala = medidas
+    zoom = min(_ZOOMS, key=lambda z: abs(z - (largura_fora - 8) / largura_dentro))
+    sistema = escala / zoom  # a escala do Windows (100%, 125%, 150%...)
+    borda = (largura_fora * sistema - largura_dentro * escala) / 2
+    por_pixel_do_print = largura_dentro * escala / largura_do_print if largura_do_print else escala
+    return x * sistema + borda, y * sistema + altura_fora * sistema - altura_dentro * escala - borda, por_pixel_do_print
 
 
 def _tela_inteira(pagina, imagem: bytes, pela_posicao=False) -> tuple[bytes | None, dict]:
@@ -228,15 +260,18 @@ def _tela_inteira(pagina, imagem: bytes, pela_posicao=False) -> tuple[bytes | No
         def tentar(captura_da_pagina):
             if not pela_posicao:
                 return tela.fotografar(captura_da_pagina)
-            esquerda, topo, escala = pagina.evaluate(_POSICAO_DA_PAGINA)
-            return tela.fotografar_na_posicao(captura_da_pagina, esquerda * escala, topo * escala, escala)
+            from PIL import Image
+
+            largura = Image.open(io.BytesIO(captura_da_pagina)).width
+            esquerda, topo, escala = posicao_da_pagina(pagina.evaluate(_MEDIDAS_DA_JANELA), largura)
+            return tela.fotografar_na_posicao(captura_da_pagina, esquerda, topo, escala)
 
         foto, dados = tentar(imagem)
         if foto is None:
             _restaurar_janela(pagina)
             pagina.bring_to_front()
             pagina.wait_for_timeout(1000)
-            foto, dados = tentar(pagina.screenshot(type="png"))
+            foto, dados = tentar(_print_da_pagina(pagina) if pela_posicao else pagina.screenshot(type="png"))
         return foto, dados
     except tela.SemComponente as e:
         return None, {"erro": str(e)}
