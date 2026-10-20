@@ -188,6 +188,16 @@ de 100%, o print do Playwright sai maior que a janela, com a página num canto e
 vem do próprio Chrome por CDP, `_print_da_pagina`, certo em qualquer zoom). Testado no Windows (escala 100%) com
 zoom de 50%, 67%, 80%, 100%, 125% e 150%, janela maximizada e solta. Falta testar com o Windows em 125% ou 150%.
 
+0.5.61: no computador de um colega (monitor diferente), o print falhava com zoom de 67% ("algo por cima"); até 75%
+funcionava. Aqui, com monitores iguais em escala 100%, 67% sempre funcionou: a conta que transforma a posição que o
+navegador informa em pixels do monitor não vale com qualquer monitor (escala do Windows, monitores de escalas
+diferentes). Agora (`captura.janela_da_pagina` + `tela.retangulo_da_janela`) o app pergunta ao próprio Windows onde a
+janela está, em pixels de verdade; para não confundir com outra janela aberta na mesma página, a página ganha por um
+instante um título único, que volta ao normal antes do print. A conta antiga fica de reserva, e por último o app
+procura a página até 12 pixels em volta. Testado aqui forçando a conta a errar 150 px: o app acha a página pela janela
+com 50% e 67%, maximizada e solta, nos dois monitores. Quando o print falha, o print da página e as medidas ficam em
+`ecadnet/diagnostico/` (os últimos 10). Falta o teste no computador do colega.
+
 **ISWC Network** (aba "Réplica (ISWC)"). O "não sou um robô" recusa o navegador do app (Playwright), e os termos
 só permitem consulta manual. Por isso o app abre o **Google Chrome** da pessoa, com um perfil só dele
 (`perfil-iswc-chrome`) e uma porta local de depuração (9339), maximizado no monitor em que o app não está. A
