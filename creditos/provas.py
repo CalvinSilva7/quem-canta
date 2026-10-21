@@ -192,6 +192,8 @@ def clipes_de(coletas, plataforma: str) -> list[dict]:
     return [k for coleta in coletas if coleta.plataforma == plataforma for k in getattr(coleta, "clipes", [])]
 
 
+TEXTO_A_CONFIRMAR = ("Estas gravações não entram na contagem da lista da petição: dependem de conferência humana. Os prints "
+                     "seguem a ordem da parte \"A confirmar\" da lista da petição (C1, C2...), onde está o motivo de cada uma.")
 TITULO_DOS_CLIPES = "VÍDEOS COM CLIPE"
 TEXTO_DOS_CLIPES = ("Estas músicas têm clipe no Tidal. Quando há clipe, a prova é o clipe: abra cada link no Google Chrome, toque o "
                     "vídeo, abra a aba \"Créditos\" e tire o print à mão. O clipe que junta várias músicas (medley) fica a "
@@ -219,8 +221,8 @@ def linhas_dos_clipes(clipes: list[dict]) -> list[tuple[str, list[tuple[int, dic
 
 
 def docx_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma: str = "") -> tuple[bytes, list[str]]:
-    """As mesmas páginas do PDF de provas, em Word, para quem precisa editar: folha deitada, um print por página, com
-    a música e o intérprete em cima, e a parte "A confirmar antes de usar" no fim.
+    """As mesmas páginas do PDF de provas, em Word, para quem precisa editar: folha deitada, um print por página, só o
+    print (sem número, música ou intérprete), e a parte "A confirmar antes de usar" no fim.
 
     O Word pode ser alterado por quem o abre; a prova íntegra continua sendo o print guardado na pasta do caso, com o
     SHA-256 no .json ao lado. Devolve (docx, avisos), com os mesmos avisos do PDF.
@@ -228,7 +230,7 @@ def docx_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataform
     from docx import Document
     from docx.enum.section import WD_ORIENT
     from docx.enum.text import WD_BREAK
-    from docx.shared import Cm, Pt
+    from docx.shared import Cm
     from PIL import Image as Imagem
 
     firmes, a_confirmar = itens_da_peticao(coletas, plataforma)
@@ -248,20 +250,14 @@ def docx_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataform
             doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
         paginas_escritas += 1
 
-    def pagina_do_print(item, registro, parte, numero, com_motivo=False):
+    def pagina_do_print(item, registro, parte, numero):
+        # Só o print: sem número, música ou intérprete em cima (pedido do escritório, 21/10/2026). A ordem das páginas
+        # é a da lista da petição; o que é cada print está na lista e na planilha.
         nova_pagina()
-        titulo = doc.add_paragraph()
-        trecho = titulo.add_run(f"{numero} - Música: {item['obra']} - Interpretada por: {item['interprete']}{parte}")
-        trecho.bold, trecho.font.size = True, Pt(13)
-        if com_motivo:
-            motivo = doc.add_paragraph()
-            motivo.add_run("A confirmar antes de usar. ").bold = True
-            motivo.add_run(f"{item['status']}: {item['fundamento']}").font.size = Pt(9)
         arquivo = pasta / registro["arquivos"][registro["imagem"]]
         with Imagem.open(arquivo) as imagem:
             largura, altura = imagem.size
-        # o espaço da folha deitada, tirando as margens e o título (e o motivo, na parte "a confirmar")
-        escala = min(27.3 / largura, (18.6 - (3.2 if com_motivo else 2.0)) / altura)
+        escala = min(27.3 / largura, 18.0 / altura)  # o espaço da folha deitada, tirando as margens
         doc.add_paragraph().add_run().add_picture(str(arquivo), width=Cm(largura * escala))
 
     for pagina in paginas_de_prova(firmes, plataforma, pasta, avisos):
@@ -269,10 +265,9 @@ def docx_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataform
     if a_confirmar:
         nova_pagina()
         doc.add_heading("A confirmar antes de usar", level=1)
-        doc.add_paragraph("Estas gravações não entram na contagem da lista da petição: dependem de conferência humana. O "
-                          "motivo da dúvida está na página de cada uma.")
+        doc.add_paragraph(TEXTO_A_CONFIRMAR)
         for pagina in paginas_de_prova(a_confirmar, plataforma, pasta, avisos, marca="C"):
-            pagina_do_print(*pagina, com_motivo=True)
+            pagina_do_print(*pagina)
     clipes = clipes_de(coletas, plataforma)
     if clipes:
         nova_pagina()
@@ -293,10 +288,10 @@ def docx_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataform
 
 
 def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma: str = "") -> tuple[bytes, list[str]]:
-    """PDF só com os prints, um por página, na ordem da lista: em cima de cada um, a música e o intérprete.
+    """PDF só com os prints, um por página, na ordem da lista da petição: sem número, música ou intérprete.
 
-    Duas partes: as gravações firmes (as da contagem da petição) e, depois, "A confirmar antes de usar", com o
-    print e o motivo da dúvida de cada gravação que depende de conferência (numeradas C1, C2...).
+    Duas partes: as gravações firmes (as da contagem da petição) e, depois de uma página que separa, "A confirmar
+    antes de usar", com o print de cada gravação que depende de conferência (na ordem da lista C1, C2...).
 
     Cada música leva um print, o primeiro válido. No aplicativo da Amazon Music a prova são dois (o menu da faixa
     e a janela de créditos): lá entram todos, um por página, com o mesmo número.
@@ -307,12 +302,11 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib.units import cm
-    from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
     firmes, a_confirmar = itens_da_peticao(coletas, plataforma)
     nome, pasta, avisos = nome_da_plataforma or plataforma.title(), Path(pasta), []
     estilos = getSampleStyleSheet()
-    pequeno = estilos["BodyText"].clone("pequeno", fontSize=7.5, leading=9.5)
     largura, altura = landscape(A4)
     saida = io.BytesIO()
     doc = SimpleDocTemplate(saida, pagesize=(largura, altura), leftMargin=1.2 * cm, rightMargin=1.2 * cm,
@@ -322,17 +316,15 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
     def montar(itens, marca=""):
         return paginas_de_prova(itens, plataforma, pasta, avisos, marca)
 
-    def pagina_do_print(item, registro, parte, numero, com_motivo=False):
-        bloco = [Paragraph(f"{numero} - Música: {item['obra']} - Interpretada por: {item['interprete']}{parte}", estilos["Heading3"])]
-        if com_motivo:
-            bloco.append(Paragraph(f"<b>A confirmar antes de usar.</b> {item['status']}: {item['fundamento']}", pequeno))
+    def pagina_do_print(item, registro, parte, numero):
         imagem = Image(str(pasta / registro["arquivos"][registro["imagem"]]))
-        escala = min((largura - 2.4 * cm) / imagem.imageWidth, (altura - (5.4 if com_motivo else 4.2) * cm) / imagem.imageHeight)
+        escala = min((largura - 2.4 * cm) / imagem.imageWidth, (altura - 2.6 * cm) / imagem.imageHeight)
         imagem.drawWidth, imagem.drawHeight = imagem.imageWidth * escala, imagem.imageHeight * escala
-        return bloco + [Spacer(1, 0.2 * cm), imagem]
+        return [imagem]
 
-    # Só o print, com a música e o intérprete em cima: um por página. O link de cada número está na lista da petição
-    # (o Word do pacote); a data, a hora e o SHA-256 ficam no arquivo .json que acompanha cada captura.
+    # Só o print, um por página: sem número, música ou intérprete em cima (pedido do escritório, 21/10/2026). A ordem é
+    # a da lista da petição (o Word do pacote), que traz o número, a música, o intérprete e o link de cada um; a data,
+    # a hora e o SHA-256 ficam no arquivo .json que acompanha cada captura.
     fluxo = []
     for pagina in montar(firmes):
         fluxo += ([PageBreak()] if fluxo else []) + pagina_do_print(*pagina)
@@ -340,10 +332,9 @@ def pdf_de_provas(relatorio, coletas, plataforma: str, pasta, nome_da_plataforma
         # Segunda parte: o que depende de conferência humana. Fica fora da contagem da petição, mas com o print à mão.
         fluxo += ([PageBreak()] if fluxo else []) + [
             Paragraph("A confirmar antes de usar", estilos["Title"]),
-            Paragraph("Estas gravações <b>não entram na contagem</b> da lista da petição: dependem de conferência humana. O motivo "
-                      "da dúvida está na página de cada uma.", estilos["BodyText"])]
+            Paragraph(TEXTO_A_CONFIRMAR.replace("não entram na contagem", "<b>não entram na contagem</b>"), estilos["BodyText"])]
         for pagina in montar(a_confirmar, marca="C"):
-            fluxo += [PageBreak()] + pagina_do_print(*pagina, com_motivo=True)
+            fluxo += [PageBreak()] + pagina_do_print(*pagina)
     clipes = clipes_de(coletas, plataforma)
     if clipes:
         fluxo += ([PageBreak()] if fluxo else []) + [Paragraph(TITULO_DOS_CLIPES, estilos["Title"]),

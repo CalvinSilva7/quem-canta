@@ -703,20 +703,19 @@ def test_lista_da_peticao_so_conta_o_que_esta_firme(rel, tmp_path):
     assert ordem.index("tblBorders") < ordem.index("tblLook") and ordem.index("tblW") < ordem.index("tblBorders")
 
 
-def test_pdf_de_provas_tem_so_o_print_com_musica_e_interprete_e_recusa_imagem_alterada(rel, tmp_path):
+def test_pdf_de_provas_tem_so_o_print_sem_musica_nem_interprete_e_recusa_imagem_alterada(rel, tmp_path):
     import pdfplumber
 
     coleta = _coleta_para_peticao(tmp_path)
     pdf, avisos = provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path, "YouTube Music")
     with pdfplumber.open(io.BytesIO(pdf)) as lido:
-        paginas = [p.extract_text() for p in lido.pages]
-    # Só o print, com a música e o intérprete em cima: sem índice, link, data, hora ou SHA-256.
-    assert len(paginas) == 4 and paginas[0].strip() == "1 - Música: Coisa Feita - Interpretada por: Banda do Baile"
-    assert paginas[1].strip() == "3 - Música: Ligue o Radio - Interpretada por: Banda do Baile"
-    assert not any("SHA-256" in p or "Capturado em" in p or "https://" in p for p in paginas)
-    # segunda parte: o que depende de conferência, fora da contagem, com o print e o motivo da dúvida
+        paginas = [(p.extract_text() or "").strip() for p in lido.pages]
+        imagens = [len(p.images) for p in lido.pages]
+    # Só o print: sem número, música, intérprete, link, data, hora ou SHA-256 (pedido do escritório, 21/10/2026).
+    assert len(paginas) == 4 and paginas[0] == paginas[1] == paginas[3] == "" and imagens == [1, 1, 0, 1]
+    # A página que separa o que depende de conferência (fora da contagem) continua, sem nome de música nenhum
     assert "A confirmar antes de usar" in paginas[2] and "não entram na contagem" in paginas[2]
-    assert "C1 - Música: A Danca da Panela" in paginas[3] and "A confirmar antes de usar." in paginas[3] and "motivo" in paginas[3]
+    assert not any(nome in "".join(paginas) for nome in ("Coisa Feita", "Ligue o Radio", "Danca", "Banda do Baile", "Música:"))
     assert avisos == ["2 (Danca da Panella / Banda do Baile): sem captura de tela"]
     (tmp_path / "prova-1.png").write_bytes(b"imagem trocada depois")
     _, avisos = provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path)
@@ -732,9 +731,9 @@ def test_provas_em_word_tem_as_mesmas_paginas_do_pdf(rel, tmp_path):
     lido = Document(io.BytesIO(docx))
     texto = [p.text for p in lido.paragraphs if p.text.strip()]
     assert lido.sections[0].orientation == WD_ORIENT.LANDSCAPE  # folha deitada, como o PDF
-    assert texto[0] == "1 - Música: Coisa Feita - Interpretada por: Banda do Baile"
-    assert texto[1] == "3 - Música: Ligue o Radio - Interpretada por: Banda do Baile"
-    assert "A confirmar antes de usar" in texto[2] and any(t.startswith("C1 - Música: A Danca da Panela") for t in texto)
+    # Só os prints: o único texto é a página que separa a parte "A confirmar antes de usar"
+    assert texto[0] == "A confirmar antes de usar" and len(texto) == 2
+    assert not any(nome in "".join(texto) for nome in ("Coisa Feita", "Ligue o Radio", "Danca", "Banda do Baile", "Música:"))
     assert len(lido.inline_shapes) == 3  # um print por página: dois firmes e um a confirmar
     assert avisos == provas.pdf_de_provas(rel, [coleta], "YOUTUBE", tmp_path, "YouTube Music")[1]
 
@@ -1821,10 +1820,11 @@ def test_pdf_de_provas_do_aplicativo_da_amazon_leva_os_dois_prints_de_cada_music
     coleta.gravacoes[0].provas = ["prova-1", "prova-3"]  # LIGUE O RADIO: menu e créditos
     pdf, avisos = provas.pdf_de_provas(rel, [coleta], "AMAZON", tmp_path, "Amazon Music (aplicativo)")
     with pdfplumber.open(io.BytesIO(pdf)) as lido:
-        paginas = [p.extract_text() for p in lido.pages]
-    assert len(paginas) == 5 and "A confirmar antes de usar" in paginas[3]
-    assert "Ligue o Radio" in paginas[1] and "(1 de 2)" in paginas[1]
-    assert "Ligue o Radio" in paginas[2] and "(2 de 2)" in paginas[2]
+        paginas = [(p.extract_text() or "").strip() for p in lido.pages]
+        imagens = [len(p.images) for p in lido.pages]
+    # COISA FEITA (1 print), LIGUE O RADIO (2 prints, seguidos), a página que separa e o print a confirmar; só imagens
+    assert len(paginas) == 5 and "A confirmar antes de usar" in paginas[3] and imagens == [1, 1, 1, 0, 1]
+    assert paginas[:3] == ["", "", ""]
     # nas outras plataformas continua um print por música
     coleta.plataforma = "YOUTUBE"
     for g in coleta.gravacoes:
