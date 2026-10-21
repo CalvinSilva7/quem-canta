@@ -2696,3 +2696,100 @@ def test_replica_procura_a_pagina_alguns_pixels_em_volta():
     assert tela.fotografar_na_posicao(png.getvalue(), 300, 200, 1.0, monitores=monitores)[0] is None
     foto, dados = tela.fotografar_na_posicao(png.getvalue(), 300, 200, 1.0, monitores=monitores, procurar=12)
     assert foto == b"m" and dados["desvio"] == [9, 6]
+
+
+# --- juntar planilhas de coletas feitas em separado ----------------------------
+
+
+def _coleta_de(plataforma, *gravacoes, coletado_em="2026-10-20T10:00:00-03:00"):
+    """Uma coleta pronta: (obra, intérprete, link, status) por gravação."""
+    from creditos.classificador import Classificacao
+
+    return pipeline.Coleta(plataforma, gravacoes=[
+        pipeline.Gravacao(plataforma=plataforma, obra=obra, titulo=obra.title(), interprete=interprete, link=link,
+                          creditos=["Fulano de Tal"] if status == c.VIOLACAO else [], coletado_em=coletado_em,
+                          classificacao=Classificacao(status=status, fundamento="teste"))
+        for obra, interprete, link, status in gravacoes
+    ])  # fmt: skip
+
+
+def _celulas(planilha_bytes, plataforma):
+    import io
+
+    from openpyxl import load_workbook
+
+    ws = load_workbook(io.BytesIO(planilha_bytes))["Obras"]
+    coluna = saida.PLATAFORMAS.index(plataforma) + 3
+    return {(ws.cell(r, 1).value, ws.cell(r, 2).value): ws.cell(r, coluna).value for r in range(3, ws.max_row)}
+
+
+def test_juntar_planilhas_casa_pela_obra_e_pelo_interprete_e_nao_pela_posicao(rel):
+    from creditos import juntar
+
+    # Coleta 1: YouTube, com dois intérpretes de COISA FEITA. Coleta 2: Palco MP3, só com o Banda do Baile.
+    youtube = saida.planilha(rel, [_coleta_de("YOUTUBE", ("COISA FEITA", "Arlindo Som", "https://yt/1", c.SEM_CREDITOS),
+                                              ("COISA FEITA", "Banda do Baile", "https://yt/2", c.OK),
+                                              ("LIGUE O RADIO", "Banda do Baile", "https://yt/3", c.SEM_CREDITOS))])
+    palco = saida.planilha(rel, [_coleta_de("PALCO MP3", ("COISA FEITA", "Banda do Baile", "https://palco/coisa", c.SEM_CREDITOS),
+                                            ("BAILE NA SERRA", "Trio da Serra", "https://palco/baile", c.VIOLACAO))])
+    j = juntar.juntar([juntar.ler(youtube, "youtube.xlsx"), juntar.ler(palco, "palco.xlsx")], rel)
+    assert j.de_onde == {"YOUTUBE": "youtube.xlsx", "PALCO MP3": "palco.xlsx"} and j.avisos == []
+
+    no_palco, no_youtube = _celulas(j.planilha, "PALCO MP3"), _celulas(j.planilha, "YOUTUBE")
+    assert no_palco[("COISA FEITA", "Banda do Baile")] == "https://palco/coisa"  # na linha certa, não na posição
+    assert no_palco[("COISA FEITA", "Arlindo Som")] == "N/A"  # o Palco foi verificado e não tem essa gravação
+    assert no_youtube[("COISA FEITA", "Arlindo Som")] == "https://yt/1"
+    # Gravação que só a coleta do Palco achou entra; a obra deixa de aparecer como "nenhuma gravação"
+    assert no_palco[("BAILE NA SERRA", "Trio da Serra")] == "https://palco/baile" and no_youtube[("BAILE NA SERRA", "Trio da Serra")] == "N/A"
+    assert ("BAILE NA SERRA", "(nenhuma gravação encontrada)") not in no_palco
+    assert no_palco[("A DANCA DA PANELA", "(nenhuma gravação encontrada)")] == "N/A"
+    assert set(no_palco.values()) <= {"https://palco/coisa", "https://palco/baile", "N/A"}
+    # Rodapé e abas de detalhe também juntam as duas
+    lida = juntar.ler(j.planilha, "junta.xlsx")
+    assert lida.coletadas == ["YOUTUBE", "PALCO MP3"] and len(lida.gravacoes["YOUTUBE"]) == 3 and len(lida.gravacoes["PALCO MP3"]) == 2
+    assert "Gravações do repertório: verificadas / coletadas" in [r for r, _ in lida.resumo["PALCO MP3"]]
+
+
+def test_juntar_ignora_coluna_colada_a_mao_e_usa_a_coleta_mais_recente(rel):
+    import io
+
+    from openpyxl import load_workbook
+
+    from creditos import juntar
+
+    youtube = saida.planilha(rel, [_coleta_de("YOUTUBE", ("COISA FEITA", "Banda do Baile", "https://yt/2", c.SEM_CREDITOS))])
+    wb = load_workbook(io.BytesIO(youtube))
+    wb["Obras"].cell(3, saida.PLATAFORMAS.index("PALCO MP3") + 3, "https://palco/colado-na-linha-errada")
+    colada = io.BytesIO()
+    wb.save(colada)
+    antigo = saida.planilha(rel, [_coleta_de("PALCO MP3", ("COISA FEITA", "Banda do Baile", "https://palco/antigo", c.SEM_CREDITOS),
+                                             coletado_em="2026-10-01T10:00:00-03:00")])
+    novo = saida.planilha(rel, [_coleta_de("PALCO MP3", ("COISA FEITA", "Banda do Baile", "https://palco/novo", c.SEM_CREDITOS),
+                                           coletado_em="2026-10-20T10:00:00-03:00")])
+    j = juntar.juntar([juntar.ler(colada.getvalue(), "a.xlsx"), juntar.ler(novo, "novo.xlsx"), juntar.ler(antigo, "antigo.xlsx")])
+    celulas = _celulas(j.planilha, "PALCO MP3")
+    assert celulas[("COISA FEITA", "Banda do Baile")] == "https://palco/novo"
+    assert "https://palco/colado-na-linha-errada" not in celulas.values()
+    assert j.de_onde["PALCO MP3"] == "novo.xlsx" and any("PALCO MP3 veio em 2 planilhas" in a for a in j.avisos)
+
+
+def test_juntar_recusa_compositores_diferentes_e_arquivo_que_nao_e_do_app(rel):
+    import io
+
+    from openpyxl import Workbook
+
+    from creditos import juntar
+
+    uma = saida.planilha(rel, [_coleta_de("YOUTUBE", ("COISA FEITA", "Banda do Baile", "https://yt/2", c.OK))])
+    outro = relatorio_de_teste()
+    outro.nome_titular, outro.pseudonimo_titular = "OUTRA PESSOA", ""
+    outra = saida.planilha(outro, [_coleta_de("SPOTIFY", ("COISA FEITA", "Banda do Baile", "https://sp/2", c.OK))])
+    with pytest.raises(juntar.PlanilhaInvalida, match="compositores diferentes"):
+        juntar.juntar([juntar.ler(uma, "a.xlsx"), juntar.ler(outra, "b.xlsx")])
+    qualquer = io.BytesIO()
+    Workbook().save(qualquer)
+    for conteudo in (qualquer.getvalue(), b"nao e planilha"):
+        with pytest.raises(juntar.PlanilhaInvalida):
+            juntar.ler(conteudo, "x.xlsx")
+    with pytest.raises(juntar.PlanilhaInvalida, match="pelo menos duas"):
+        juntar.juntar([juntar.ler(uma, "a.xlsx")])

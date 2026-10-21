@@ -977,5 +977,41 @@ with area_da_coleta:
                 "pasta por plataforma. São prova documental unilateral: não substituem ata notarial."
             )
 
+    # Coletas feitas em separado (ex.: YouTube e Spotify num dia, Palco MP3 em outro): juntar sem copiar e colar colunas
+    with st.expander("Juntar planilhas de coletas feitas em separado"):
+        from creditos import juntar as _juntar
+
+        st.markdown(
+            "Rodou as plataformas em dias ou vezes diferentes? Envie aqui as **planilhas de obras** dessas coletas e o app "
+            "monta uma planilha só. **Não copie e cole colunas de uma planilha na outra**: cada coleta tem linhas "
+            "diferentes (uma obra pode ter 5 intérpretes numa e 1 na outra), e a coluna colada põe os links nas obras "
+            "erradas. Aqui cada gravação é colocada pela obra e pelo intérprete."
+        )
+        st.caption(
+            "Vale o que o app coletou (aba Gravações de cada planilha): o que foi colado ou digitado à mão na aba Obras não "
+            "entra. Se a mesma plataforma vier em duas planilhas, fica a coleta mais recente."
+        )
+        enviadas = st.file_uploader("Planilhas de obras geradas pelo app (.xlsx)", type=["xlsx"], accept_multiple_files=True,
+                                    key="planilhas_para_juntar")
+        if enviadas and len(enviadas) >= 2:
+            try:
+                lidas = [_juntar.ler(arquivo.getvalue(), arquivo.name) for arquivo in enviadas]
+                junta = _juntar.juntar(lidas, relatorio)
+            except _juntar.PlanilhaInvalida as e:
+                st.error(str(e))
+            else:
+                st.success("Planilha montada com: " + "; ".join(f"**{p}** (de {nome})" for p, nome in junta.de_onde.items()) + ".")
+                for aviso in junta.avisos:
+                    st.warning(aviso)
+                st.download_button(
+                    "Baixar a planilha juntada (.xlsx)", junta.planilha,
+                    f"Planilha de Obras - {relatorio.pseudonimo_titular or relatorio.nome_titular} (juntada).xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", key="baixar_juntada",
+                )
+                st.caption("Os prints de cada coleta continuam na pasta do caso: as listas e os PDFs das provas de cada "
+                           "plataforma saem da coleta em que ela foi feita.")
+        elif enviadas:
+            st.info("Envie pelo menos duas planilhas.")
+
 
 st.caption(f"Versão {VERSAO} · casos e prints em `{PASTA_DE_DADOS}`")
