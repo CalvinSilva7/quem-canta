@@ -11,6 +11,7 @@ import argparse
 import re
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -342,8 +343,12 @@ def _parar(coleta: Coleta, erro: Exception):
 
 
 def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(), pares=None, limite_de_obras=None,
-                    por_obra=8, ao_avancar=None) -> Coleta:
-    """Spotify: busca "título + intérprete" e abre a janela de créditos de cada faixa de quem tem ligação com o titular."""
+                    por_interprete=4, por_obra=40, ao_avancar=None) -> Coleta:
+    """Spotify: busca "título + intérprete" e abre a janela de créditos de cada faixa de quem tem ligação com o titular.
+
+    De cada obra, até `por_interprete` faixas de cada artista (os mesmos artistas escritos de jeitos diferentes contam
+    juntos) e, no total, `por_obra`. O limite era por obra (8): numa obra com muitos intérpretes, as versões ao vivo
+    de uns gastavam as vagas e os outros nem eram abertos (e saíam "N/A" na planilha). O que o limite cortar vira aviso."""
     from types import SimpleNamespace
     from cantor.matching import nomes_parecidos
     from .captura import PaginaTraduzida
@@ -357,7 +362,7 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
         titulos = _titulos(relatorio, limite_de_obras, coleta, "Spotify")
         for i, (base, titulo) in enumerate(titulos, start=1):
             avisar(f"Spotify: buscando {i}/{len(titulos)}")
-            ligados, abertos = _ligados(relatorio, config, recorrentes, pares, titulo), 0
+            ligados, abertos, por_artista, cortadas = _ligados(relatorio, config, recorrentes, pares, titulo), 0, Counter(), Counter()
             consultas = _consultas(titulo, principais, pares)[:-1]  # sem a busca só pelo título: traria só homônimos
             # mais a forma enxuta de cada uma, quando muda alguma coisa (ver `_consulta_enxuta`)
             consultas = list(dict.fromkeys(q for consulta in consultas for q in (consulta, _consulta_enxuta(consulta))))
@@ -373,9 +378,17 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
                                or (n in pares.get(titulo, []) and (_palavra_do_nome(n, cand.interprete) or _e_o_conferido(n, cand.interprete)))
                                for n in ligados):
                         coleta.sem_vinculo_nao_abertos += 1
-                    elif abertos < por_obra:
+                    elif abertos < por_obra and por_artista[c.chave_do_interprete(cand.interprete)] < por_interprete:
                         abertos += 1
+                        por_artista[c.chave_do_interprete(cand.interprete)] += 1
                         fila.append((cand, titulo, consulta))
+                    else:
+                        cortadas[cand.interprete] += 1
+            if cortadas:
+                coleta.avisos.append(
+                    f'"{titulo}": {_faixas_nao_abertas(sum(cortadas.values()))} do Spotify pelo limite de {por_interprete} por '
+                    f"intérprete ({', '.join(f'{n} ({q})' for n, q in cortadas.most_common())}). Confira à mão se faltar alguma."
+                )
         for i, (cand, titulo, consulta) in enumerate(fila, start=1):
             avisar(f"Spotify: lendo faixa {i}/{len(fila)}")
             leitura = spotify.ler(cand, titulo)
@@ -388,6 +401,10 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
     _classificar_faixas(coleta, relatorio, config, pares, lidas, recorrentes)
     coleta.albuns_lidos, coleta.requisicoes, coleta.segundos = len(lidas), spotify.nav.navegacoes, time.monotonic() - inicio
     return coleta
+
+
+def _faixas_nao_abertas(n: int) -> str:
+    return "1 faixa não foi aberta" if n == 1 else f"{n} faixas não foram abertas"
 
 
 def _fila_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, coleta, avisar, nome,
@@ -408,7 +425,7 @@ def _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_ob
     titulos = _titulos(relatorio, limite_de_obras, coleta, nome)
     for i, (base, titulo) in enumerate(titulos, start=1):
         avisar(f"{nome}: buscando {i}/{len(titulos)}")
-        ligados, por_nome = _ligados(relatorio, config, recorrentes, pares, titulo), {}
+        ligados, por_nome, cortadas = _ligados(relatorio, config, recorrentes, pares, titulo), {}, Counter()
         # `so_o_titulo`: a busca já devolve a lista inteira de músicas com aquele título (Claro Música). Só quando um
         # intérprete da obra não aparece nela (título comum demais) é que vai a busca do título com o nome dele.
         consultas = [titulo, *([f"{titulo} {n}" for n in pares.get(titulo, [])] if so_o_titulo else _consultas(titulo, principais, pares)[:-1])]
@@ -427,6 +444,8 @@ def _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_ob
                     coleta.sem_vinculo_nao_abertos += 1
                 elif len(por_nome.setdefault(tuple(_palavras(elo)), [])) < por_interprete:
                     por_nome[tuple(_palavras(elo))].append((cand, titulo, consulta))
+                else:
+                    cortadas[elo] += 1
         if so_o_titulo and hasattr(amazon, "buscar_pelo_artista"):
             # Último recurso, para o intérprete da obra que a busca não trouxe: a página do artista e os álbuns dele.
             for n in pares.get(titulo, []):
@@ -439,11 +458,16 @@ def _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_ob
                     if cand.faixa not in vistos:
                         vistos.add(cand.faixa)
                         por_nome.setdefault(tuple(_palavras(n)), []).append((cand, titulo, f"página do artista {n}"))
+        if cortadas:
+            coleta.avisos.append(
+                f'"{titulo}": {_faixas_nao_abertas(sum(cortadas.values()))} de {nome} pelo limite de {por_interprete} por '
+                f"intérprete ({', '.join(f'{n} ({q})' for n, q in cortadas.most_common())}). Confira à mão se faltar alguma versão."
+            )
         yield i, len(titulos), [item for grupo in por_nome.values() for item in grupo]
 
 
 def coletar_amazon(relatorio: Relatorio, config: Config, amazon, recorrentes=(), pares=None, limite_de_obras=None,
-                   por_interprete=2, ao_avancar=None, fila=None) -> Coleta:
+                   por_interprete=3, ao_avancar=None, fila=None) -> Coleta:
     """Amazon Music na web: acha a faixa de cada intérprete ligado ao titular e fotografa o menu dela, que não tem
     item de créditos. É um print por música. Com `fila` ([(candidato, título da obra, consulta)]), não busca nada:
     abre só essas faixas (as que o aplicativo de desktop mostrou sem o titular, em `coletar_amazon_completa`)."""
@@ -473,7 +497,7 @@ def coletar_amazon(relatorio: Relatorio, config: Config, amazon, recorrentes=(),
 
 
 def coletar_claro(relatorio: Relatorio, config: Config, claro, recorrentes=(), pares=None, limite_de_obras=None,
-                  por_interprete=2, ao_avancar=None) -> Coleta:
+                  por_interprete=3, ao_avancar=None) -> Coleta:
     """Claro Música: acha a faixa de cada intérprete ligado ao titular pela lista de músicas da busca, abre o
     álbum e lê os autores no cartão de informações da faixa. É um print por música. Exige a sessão logada."""
     from types import SimpleNamespace
@@ -513,7 +537,7 @@ def coletar_claro(relatorio: Relatorio, config: Config, claro, recorrentes=(), p
 
 
 def coletar_palco(relatorio: Relatorio, config: Config, palco, recorrentes=(), pares=None, limite_de_obras=None,
-                  por_interprete=2, ao_avancar=None) -> Coleta:
+                  por_interprete=3, ao_avancar=None) -> Coleta:
     """Palco MP3: acha a música de cada intérprete ligado ao titular pela busca do site e lê a linha "Composição:"
     da página dela. Um print por música; dois quando o site corta a linha (a página de créditos mostra o resto)."""
     from types import SimpleNamespace
@@ -580,7 +604,7 @@ def perfil_da_deezer(pasta_do_caso) -> Path:
 
 
 def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo, recorrentes=(), pares=None, limite_de_obras=None,
-                       por_interprete=2, ao_avancar=None, abertas=None) -> Coleta:
+                       por_interprete=3, ao_avancar=None, abertas=None) -> Coleta:
     """Amazon Music no aplicativo de desktop: as faixas são achadas pela busca do site (`amazon`) e abertas no
     aplicativo (`aplicativo`), que é onde aparece o item "Créditos" com os compositores. Dois prints por música.
     Em `abertas` (uma lista), ficam as faixas que o aplicativo abriu: [(candidato, título da obra, consulta)]."""
@@ -617,7 +641,7 @@ def coletar_amazon_app(relatorio: Relatorio, config: Config, amazon, aplicativo,
 
 
 def coletar_amazon_completa(relatorio: Relatorio, config: Config, amazon, aplicativo, recorrentes=(), pares=None,
-                            limite_de_obras=None, por_interprete=2, ao_avancar=None) -> list[Coleta]:
+                            limite_de_obras=None, por_interprete=3, ao_avancar=None) -> list[Coleta]:
     """Amazon Music como o escritório faz à mão (decisão do dono, 15/10/2026): primeiro o aplicativo de desktop, em
     todas as músicas, com os dois prints (menu e janela de créditos). Depois, só para as músicas em que o titular
     não aparece no aplicativo (sem créditos ou crédito de outros), o print do menu da mesma faixa no site, que não
