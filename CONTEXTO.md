@@ -35,6 +35,7 @@ O app roda no computador de quem usa (Windows, no escritório). Não há servido
 | `creditos/classificador.py` | Decide o status de cada gravação a partir do crédito exibido |
 | `creditos/interpretes.py` | A busca de intérpretes, a planilha em preto e vermelho, a leitura da planilha conferida |
 | `creditos/saida.py`, `provas.py` | Planilha de obras, lista da petição e provas (PDF e Word) |
+| `creditos/juntar.py` | Junta planilhas de obras de coletas feitas em separado, pela obra e pelo intérprete (nunca pela posição) |
 | `creditos/captura.py`, `tela.py` | O print: faixa de carimbo, SHA-256, ficha `.json`; a foto do monitor inteiro |
 | `creditos/navegador.py` | O Chromium do app (Playwright): ritmo, sinais de bloqueio, perfil com sessão guardada |
 | `creditos/deezer.py`, `apple.py`, `ytmusic.py`, `spotify.py`, `tidal.py` (com `tidal_api.py`), `amazon.py`, `amazon_app.py`, `claro.py`, `palco.py`, `vagalume.py` | Um coletor por plataforma |
@@ -306,6 +307,13 @@ Vale ler antes de mexer na plataforma correspondente.
 - *Coleta "que não rodou".* Várias vezes o zip recebido era o da rodada anterior: o app não tinha sido fechado e
   aberto depois da atualização, ou reaproveitou leituras. Conferir a hora dos arquivos dentro do zip.
 - *Aviso de atualização.* O `versao-publicada.json` passa por um cache de cerca de 5 minutos no GitHub.
+- *Coluna colada de outra planilha (21/10/2026).* Uma planilha veio com os links do Palco MP3 (e do Deezer) nas obras
+  erradas e com o fim da coluna vazio. Não era o app: a planilha tinha só YouTube e Spotify coletados (abas Gravações
+  e Resumo) e foi salva de novo à mão depois; as colunas Deezer e Palco foram coladas de outra coleta. Cada coleta
+  monta as linhas com o que achou (uma obra com 5 intérpretes numa e 1 na outra), então colar pela posição desloca
+  tudo. Solução: "Juntar planilhas de coletas feitas em separado" (`creditos/juntar.py`), que remonta a aba Obras a
+  partir da aba Gravações de cada planilha, pela obra e pelo intérprete. Para conferir uma planilha suspeita: as
+  plataformas da aba Gravações e o rodapé da aba Obras dizem o que o app de fato coletou.
 
 ## 6. O que foi tentado e não funciona
 
