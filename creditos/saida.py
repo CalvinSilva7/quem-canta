@@ -48,20 +48,25 @@ def _fundo(cor):
     return PatternFill("solid", fgColor=cor)
 
 
+chave_do_interprete = c.chave_do_interprete  # usada também pelo juntar.py e pelos testes
+
+
 def linhas_por_obra(relatorio, coletas) -> list[dict]:
     """[{"obra", "interprete", "celulas": {plataforma: (texto, status que dá a cor)}}], em ordem de título."""
-    pares = {}  # (título da obra, intérprete normalizado) -> {"interprete", plataforma: [gravações]}
+    pares = {}  # (título da obra, chave do intérprete) -> {"grafias", plataforma: [gravações]}
     for coleta in coletas:
         for g in coleta.gravacoes:
             if g.classificacao.status == c.HOMONIMA:
                 continue  # homônimo provável nunca entra direto: fica na aba de pendências até alguém confirmar
-            par = pares.setdefault((g.obra, normalizar(g.interprete)), {"interprete": g.interprete})
+            par = pares.setdefault((g.obra, c.chave_do_interprete(g.interprete)), {"grafias": Counter()})
+            par["grafias"][" ".join(g.interprete.split())] += 1
             par.setdefault(coleta.plataforma, []).append(g)
     coletadas = {coleta.plataforma for coleta in coletas}
     linhas = []
     for (obra, _), par in pares.items():
         celulas = {p: _celula(par.get(p, [])) if p in coletadas else _nao_coletada(p) for p in PLATAFORMAS}
-        linhas.append({"obra": obra, "interprete": par["interprete"], "celulas": celulas})
+        # O nome que aparece: a grafia mais usada pelas plataformas (empate: a primeira lida)
+        linhas.append({"obra": obra, "interprete": par["grafias"].most_common(1)[0][0], "celulas": celulas})
     com_gravacao = {normalizar(t) for linha in linhas for t in linha["obra"].split("; ")}
     for titulo in dict.fromkeys(o.titulo for o in relatorio.obras):
         if normalizar(titulo) not in com_gravacao:

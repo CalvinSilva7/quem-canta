@@ -95,6 +95,23 @@ def partes_do_interprete(texto) -> list[str]:
     return [p.strip() for p in partes if p.strip()] or [str(texto or "").strip()]
 
 
+# Palavras que algumas plataformas põem junto do nome artístico e que não mudam quem é o artista
+_SOBRA_DO_NOME = {"cantor", "cantora", "oficial", "official"}
+
+
+def chave_do_interprete(interprete: str) -> frozenset:
+    """Os mesmos artistas, escritos de jeitos diferentes, dão a mesma chave: cada plataforma escreve o intérprete
+    à sua maneira ("Gustavo Toledo e Gabriel" × "Gustavo Toledo & Gabriel", "Cantor Fulano" × "Fulano Cantor",
+    "A, B e C" × "B e C & A"). Sem isso, a mesma gravação vira duas linhas e a plataforma que achou a música
+    aparece como "N/A" na linha vizinha."""
+    partes = set()
+    for parte in partes_do_interprete(interprete):
+        palavras = [p for p in normalizar(parte).split() if p not in _SOBRA_DO_NOME]
+        if palavras:
+            partes.add(" ".join(palavras))
+    return frozenset(partes) or frozenset({normalizar(interprete)})
+
+
 def mesmo_artista(a, b) -> bool:
     """O mesmo artista, com tolerância só para nome composto: "Banda Tal" ~ "Grupo Banda Tal".
 
