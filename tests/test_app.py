@@ -392,7 +392,7 @@ def test_etapa_de_interpretes_devolve_so_a_planilha_de_obra_e_interprete(tmp_pat
     # Em preto, o que o app tem certeza; em vermelho, o que ele só supõe. Sem legenda na planilha (pedido do escritório).
     cor = lambda linha: (ws.cell(linha, 2).font.color.rgb if ws.cell(linha, 2).font.color else "preto")
     assert interpretes.VERMELHO not in str(cor(3)) and interpretes.VERMELHO in cor(4) and interpretes.VERMELHO in cor(5)
-    assert all(ws.cell(l, c).value is None for l in (1, 2) for c in (3, 4)) and ws.max_column == 2
+    assert ws.max_column == 2  # só obra e intérprete: nenhuma legenda ao lado
     # A etapa 2 continua lá, com a coleta de sempre.
     at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
     assert "Buscar intérpretes" not in [b.label for b in at.button] and "Coletar e classificar" not in [b.label for b in at.button]
