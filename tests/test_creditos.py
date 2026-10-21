@@ -2084,11 +2084,14 @@ def test_deezer_so_reaproveita_quando_tem_o_print_do_menu_e_o_dos_creditos(tmp_p
     sem = lambda n: pipeline.Gravacao(plataforma="DEEZER", link=f"https://www.deezer.com/track/{n}", titulo="Coisa Feita",
                                       interprete="Banda do Baile", obra="COISA FEITA", vinculo="x",
                                       classificacao=c.Classificacao(c.SEM_CREDITOS, "sem compositor"))
-    coleta = pipeline.Coleta("DEEZER", gravacoes=[sem(1), sem(2)])
+    fichas.append({"captura": "menu-sem-item", "url": "https://www.deezer.com/track/3", "capturado_em": "2026-10-21T10:00:00",
+                   "exibido": {"creditos_lidos": [], "etapa": pipeline.ETAPA_SEM_CREDITOS}})
+    coleta = pipeline.Coleta("DEEZER", gravacoes=[sem(1), sem(2), sem(3)])
     pipeline.reaproveitar_prints(coleta, tmp_path, etapas=("menu", "creditos"))
-    antigo, completo = coleta.gravacoes
+    antigo, completo, sem_tela = coleta.gravacoes
     assert antigo.provas == []  # print de antes, só da tela de créditos: é refeito com o menu
     assert completo.provas == ["menu", "creditos"]
+    assert sem_tela.provas == ["menu-sem-item"]  # música sem tela de créditos: o menu sem o item basta
 
 
 def test_palco_mp3_le_a_busca_e_a_linha_de_composicao(rel):
@@ -2847,3 +2850,31 @@ def test_spotify_limite_por_interprete_nao_deixa_ninguem_de_fora(rel):
     assert "trio1" in falso.abertas  # o intérprete com uma faixa só não fica de fora
     assert sum(f.startswith("baile") for f in falso.abertas) == 4  # 4 por intérprete
     assert any('"COISA FEITA": 3 faixas não foram abertas do Spotify' in a and "Banda do Baile (3)" in a for a in coleta.avisos)
+
+
+def test_deezer_musica_sem_tela_de_creditos_tem_o_print_do_menu_como_prova(tmp_path, monkeypatch):
+    """Caso real: a música está sem crédito, foi para a lista da petição, mas a Deezer não oferece "Consulte créditos
+    musicais" no menu dela. O print não podia ser tirado e a música ficava sem prova. Agora a prova é o menu aberto."""
+    class NavegadorFalso:
+        class pagina:
+            url = "https://www.deezer.com/track/1"
+            wait_for_timeout = staticmethod(lambda ms: None)
+            evaluate = staticmethod(lambda *a: "")
+        def ir(self, url, pausa=None): pass
+        def conferir(self, texto=""): pass
+
+    tirados = []
+    monkeypatch.setattr(captura, "capturar", lambda pagina, pasta, obra, interprete, plataforma, exibido, etapa="":
+                        tirados.append(exibido) or {"captura": f"{etapa}-{len(tirados)}"})
+    monkeypatch.setattr(captura, "descartar", lambda pasta, base: None)
+
+    def menu_sem_o_item(navegador, antes_do_clique=None):
+        raise pipeline.MenuSemCreditos("o menu da faixa não tem o item de créditos")
+
+    g = pipeline.Gravacao(plataforma="DEEZER", link="https://www.deezer.com/track/1", titulo="Coisa Feita", interprete="Banda do Baile",
+                          obra="COISA FEITA", vinculo="x", classificacao=c.Classificacao(c.SEM_CREDITOS, "sem compositor"))
+    coleta = pipeline.Coleta("DEEZER", gravacoes=[g])
+    pipeline.capturar_paginas(coleta, NavegadorFalso(), tmp_path, menu_sem_o_item, com_o_menu=True)
+    assert g.provas == ["menu-1"] and coleta.avisos == []  # um print só: não existe a tela de créditos
+    assert tirados[0]["etapa"] == pipeline.ETAPA_SEM_CREDITOS and "não oferece" in tirados[0]["constatacao"]
+    assert "não oferece a tela de créditos" in g.classificacao.fundamento and g.classificacao.status == c.SEM_CREDITOS

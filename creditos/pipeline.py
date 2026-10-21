@@ -927,6 +927,11 @@ def reaproveitar_prints(coleta: Coleta, pasta, endereco=None, etapas=None) -> No
                 ultimas[(f.get("exibido") or {}).get("etapa")] = f["captura"]
             if all(e in ultimas for e in etapas):
                 g.provas += [ultimas[e] for e in etapas]
+            elif ETAPA_SEM_CREDITOS in ultimas:  # a música não tem tela de créditos: a prova é o menu sem o item
+                g.provas += [ultimas[ETAPA_SEM_CREDITOS]]
+
+
+ETAPA_SEM_CREDITOS = "menu_sem_creditos"
 
 
 def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar=None, endereco=None, reclassificar=None,
@@ -988,6 +993,14 @@ def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar
                     exibido["etapa"] = "creditos"
                 creditos = captura.capturar(navegador.pagina, pasta, g.obra, g.interprete, coleta.plataforma.lower(), exibido, "creditos")["captura"]
                 g.provas += menu + [creditos]
+            except MenuSemCreditos:
+                for base in menu:
+                    captura.descartar(pasta, base)
+                exibido = {"titulo": g.titulo, "interprete": g.interprete, "creditos_lidos": g.creditos, "etapa": ETAPA_SEM_CREDITOS,
+                           "constatacao": 'menu da faixa aberto: a Deezer não oferece o item "Consulte créditos musicais" para esta '
+                                          "música (não há tela de créditos)"}
+                g.provas += [captura.capturar(navegador.pagina, pasta, g.obra, g.interprete, coleta.plataforma.lower(), exibido, "menu")["captura"]]
+                g.classificacao.fundamento += '; a Deezer não oferece a tela de créditos desta música: o print mostra o menu da faixa sem o item'
             except param:
                 for base in menu:  # print do menu sem o da tela de créditos não serve de prova
                     captura.descartar(pasta, base)
@@ -1005,6 +1018,14 @@ _POR_CIMA = """(e) => { const r = e.getBoundingClientRect(); if (!r.width || !r.
   const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !!t && (t === e || e.contains(t) || t.contains(e)); }"""
 
 
+class MenuSemCreditos(Exception):
+    """O menu da faixa abriu, mas a Deezer não oferece "Consulte créditos musicais" para esta música. O menu fica
+    aberto: o print dele, assim, é a prova de que não há tela de créditos (como o escritório faz à mão)."""
+
+
+_OUTROS_ITENS_DO_MENU = re.compile(r"^\s*(reportar um problema|compartilhar|adicionar [àa] playlist|ouvir em seguida|report a problem|share)", re.I)
+
+
 def abrir_creditos_da_deezer(navegador, antes_do_clique=None):
     """Na página da faixa: recusa os cookies, abre o menu e o painel "Consulte créditos musicais".
 
@@ -1019,11 +1040,19 @@ def abrir_creditos_da_deezer(navegador, antes_do_clique=None):
     navegador.clicar_se_houver('[data-testid="gdpr-btn-refuse-all"]')
     item = pagina.get_by_text(re.compile(r"cr[eé]ditos musicais", re.I)).first
     voltar = pagina.get_by_text(re.compile(r"^\s*voltar\s*$", re.I))
+    # Outros itens que o menu da faixa sempre tem: com eles à vista e sem o de créditos, a música não tem a tela
+    do_menu = pagina.get_by_text(_OUTROS_ITENS_DO_MENU).first
     for _ in range(3):
         pagina.evaluate("() => window.scrollTo(0, 0)")
         pagina.wait_for_timeout(500)
         pagina.get_by_role("button", name="Exibir menu").first.click()
-        item.wait_for(state="visible", timeout=8000)
+        try:
+            item.wait_for(state="visible", timeout=8000)
+        except Exception:
+            if do_menu.is_visible() and not item.count():
+                pagina.wait_for_timeout(900)  # a animação do menu, para o print sair com ele inteiro
+                raise MenuSemCreditos("o menu da faixa não tem o item de créditos") from None
+            raise
         pagina.wait_for_timeout(900)  # a animação do menu
         if antes_do_clique:
             item.hover()  # o item fica destacado, como no print feito à mão
