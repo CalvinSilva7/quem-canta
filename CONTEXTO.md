@@ -18,7 +18,10 @@ Quatro abas, independentes:
    sem ela o botão de coletar não aparece). Para cada par obra + intérprete, o app acha a gravação em cada
    plataforma marcada, lê o crédito de compositor, classifica e tira o print. Saem a planilha de obras (formato do
    escritório), a lista da petição (.docx) e as provas por plataforma, num zip. As provas vêm em PDF e também em
-   Word (decisão do dono, 14/10/2026), com as mesmas páginas, para quem precisa editar.
+   Word (decisão do dono, 14/10/2026), com as mesmas páginas, para quem precisa editar. Desde 21/10/2026 (pedido do
+   dono, para todas as plataformas) cada página tem **só o print**: sem número, música ou intérprete em cima. A
+   ordem é a da lista da petição, que traz o número, a música, o intérprete e o link; a parte "A confirmar antes de
+   usar" continua separada por uma página própria, e o motivo de cada uma fica na lista (C1, C2...) e na planilha.
 3. **Réplica (ECAD)** e 4. **Réplica (ISWC)** (0.5.50). Depois que a outra parte responde à petição, o escritório
    manda a réplica com prints do Ecadnet e do ISWC Network das obras da petição. Entram o relatório analítico e as
    listas da petição (.docx); saem os prints e um PDF único por site. Ver a seção 4.1.
