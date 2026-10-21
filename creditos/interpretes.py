@@ -87,16 +87,12 @@ def planilha(relatorio, lista) -> bytes:
         for celula in linha:
             celula.font, celula.fill = titulo, PatternFill("solid", fgColor="1B3A6B")
             celula.alignment = Alignment(horizontal="center")
-    ha_duvida = False
     for obra, nomes, *resto in lista:
         duvidosos = resto[0] if resto else set()
         for nome in nomes or [""]:
             ws.append([obra, nome.upper() if nome else None])
             ws.cell(ws.max_row, 1).font = corpo
             ws.cell(ws.max_row, 2).font = em_duvida if nome in duvidosos else corpo
-            ha_duvida = ha_duvida or nome in duvidosos
-    if ha_duvida:
-        ws.cell(1, 4, "Em vermelho: o app não tem certeza de que este intérprete gravou a obra. Confirme ou apague.").font = em_duvida
     ws.freeze_panes = "A3"
     ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 46, 40
     saida = io.BytesIO()
