@@ -310,6 +310,19 @@ Vale ler antes de mexer na plataforma correspondente.
 - *Coleta "que não rodou".* Várias vezes o zip recebido era o da rodada anterior: o app não tinha sido fechado e
   aberto depois da atualização, ou reaproveitou leituras. Conferir a hora dos arquivos dentro do zip.
 - *Aviso de atualização.* O `versao-publicada.json` passa por um cache de cerca de 5 minutos no GitHub.
+- *N/A em música que a plataforma achou (21/10/2026).* Na planilha de um compositor, músicas apareciam com "N/A" no
+  Spotify mesmo tendo sido achadas lá. Cada plataforma escreve o intérprete de um jeito ("Fulano e Beltrano" ×
+  "Fulano & Beltrano", "Cantor Fulano" × "Fulano Cantor", três artistas em ordens diferentes), e a aba Obras fazia
+  uma linha por grafia: a plataforma que achou ficava na linha vizinha e a outra linha mostrava N/A. Agora a linha
+  é por artistas (`saida.chave_do_interprete`: separa por e/&/vírgula/feat, ignora a ordem e "cantor"/"oficial");
+  aparece a grafia mais usada. Na planilha real: 143 linhas viraram 119.
+- *Intérprete que nem foi aberto no Spotify (21/10/2026).* Numa obra com 12 intérpretes conferidos, o último saía
+  "N/A" no Spotify, embora a música estivesse lá (e no Deezer, na Claro e na Amazon). O Spotify abria no máximo 8
+  faixas por OBRA: as versões ao vivo de dois intérpretes gastaram as 8 vagas e os outros nem foram abertos, sem
+  aviso. Agora são 4 por intérprete (os mesmos artistas escritos de jeitos diferentes contam juntos) e 40 por obra,
+  e o que o limite cortar vira aviso no Resumo. YouTube, Amazon, Claro e Palco já limitavam por intérprete; nas três
+  últimas o limite subiu de 2 para 3 faixas por intérprete (a 3ª versão, ao vivo ou acústica, ficava de fora sem
+  aviso) e o corte também vira aviso.
 - *Coluna colada de outra planilha (21/10/2026).* Uma planilha veio com os links do Palco MP3 (e do Deezer) nas obras
   erradas e com o fim da coluna vazio. Não era o app: a planilha tinha só YouTube e Spotify coletados (abas Gravações
   e Resumo) e foi salva de novo à mão depois; as colunas Deezer e Palco foram coladas de outra coleta. Cada coleta
