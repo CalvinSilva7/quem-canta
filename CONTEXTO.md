@@ -316,6 +316,12 @@ Vale ler antes de mexer na plataforma correspondente.
   uma linha por grafia: a plataforma que achou ficava na linha vizinha e a outra linha mostrava N/A. Agora a linha
   é por artistas (`saida.chave_do_interprete`: separa por e/&/vírgula/feat, ignora a ordem e "cantor"/"oficial");
   aparece a grafia mais usada. Na planilha real: 143 linhas viraram 119.
+- *Música da Deezer na lista da petição sem print (21/10/2026).* Algumas faixas não têm "Consulte créditos musicais"
+  no menu "…" (o menu vai de "Ouvir em seguida" a "Reportar um problema"). O app esperava o item, dava erro, descartava
+  o print do menu e a música (corretamente sem crédito) ia para a lista sem prova; o escritório tirou o print à mão.
+  Agora `abrir_creditos_da_deezer` reconhece o menu aberto sem o item (`MenuSemCreditos`, com o menu ainda aberto) e a
+  prova é esse print, um só (etapa `menu_sem_creditos`, também reaproveitado nas coletas seguintes). Testado com
+  navegador falso; falta conferir no site numa coleta real.
 - *Intérprete que nem foi aberto no Spotify (21/10/2026).* Numa obra com 12 intérpretes conferidos, o último saía
   "N/A" no Spotify, embora a música estivesse lá (e no Deezer, na Claro e na Amazon). O Spotify abria no máximo 8
   faixas por OBRA: as versões ao vivo de dois intérpretes gastaram as 8 vagas e os outros nem foram abertos, sem
