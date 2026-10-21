@@ -1558,21 +1558,24 @@ class AmazonFalsa:
 def test_amazon_site_um_print_por_musica_de_cada_interprete_conhecido(rel):
     web = AmazonFalsa(buscas={"COISA FEITA": [
         ("A1", "T1", "Coisa Feita", "Cantora Original"), ("A2", "T2", "Coisa Feita (Ao Vivo)", "Cantora Original"),
-        ("A3", "T3", "Coisa Feita", "Cantora Original"),      # a terceira da mesma intérprete não entra
+        ("A3", "T3", "Coisa Feita", "Cantora Original"),      # a terceira da mesma intérprete entra (limite: 3)
+        ("A7", "T7", "Coisa Feita (Acústico)", "Cantora Original"),  # a quarta não entra, e vira aviso
         ("A4", "T4", "Coisa Feita", "Fulana & Beltrano"),     # outra intérprete conhecida: entra
         ("A5", "T5", "Coisa Feita", "Cantor Famoso"),         # homônimo de quem não tem ligação: conta, não abre
         ("A6", "T6", "Outra Música", "Cantora Original"),
     ]})
     coleta = pipeline.coletar_amazon(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, [],
                                      {"COISA FEITA": ["Cantora Original", "Fulana e Beltrano"]}, limite_de_obras=2)
-    assert web.lidos == ["T1", "T2", "T4"] and coleta.sem_vinculo_nao_abertos == 1 and coleta.plataforma == "AMAZON - SITE"
+    assert web.lidos == ["T1", "T2", "T3", "T4"] and coleta.sem_vinculo_nao_abertos == 1 and coleta.plataforma == "AMAZON - SITE"
+    assert any('"COISA FEITA": 1 faixa não foi aberta de Amazon Music pelo limite de 3' in a and "Cantora Original (1)" in a
+               for a in coleta.avisos)
     primeira = coleta.gravacoes[0]
     # O site não mostra compositor: com o intérprete ligado ao titular, é "sem créditos" firme, com o print do menu.
     assert (primeira.classificacao.status, primeira.classificacao.revisar, primeira.provas) == (c.SEM_CREDITOS, False, ["prova-T1"])
     assert "não existe tela de créditos" in primeira.classificacao.fundamento
     assert primeira.link == "https://music.amazon.com.br/albums/A1?trackAsin=T1" and primeira.album == "Álbum Tal"
     firmes, _ = provas.itens_da_peticao([coleta], "AMAZON - SITE")
-    assert len(firmes) == 3 and provas.NOMES["AMAZON - SITE"] == "Amazon Music (site)"
+    assert len(firmes) == 4 and provas.NOMES["AMAZON - SITE"] == "Amazon Music (site)"
 
 
 def test_amazon_site_leitura_que_falha_nunca_vira_sem_creditos(rel):
@@ -2793,3 +2796,54 @@ def test_juntar_recusa_compositores_diferentes_e_arquivo_que_nao_e_do_app(rel):
             juntar.ler(conteudo, "x.xlsx")
     with pytest.raises(juntar.PlanilhaInvalida, match="pelo menos duas"):
         juntar.juntar([juntar.ler(uma, "a.xlsx")])
+
+
+def test_o_mesmo_interprete_escrito_de_jeitos_diferentes_fica_numa_linha_so(rel):
+    """Cada plataforma escreve o intérprete à sua maneira: sem juntar, a plataforma que achou a música aparece como
+    N/A na linha vizinha (caso real: "Fulano e Beltrano" no YouTube e "Fulano & Beltrano" no Spotify)."""
+    youtube = _coleta_de("YOUTUBE", ("COISA FEITA", "Zeca Lima e Banda do Baile", "https://yt/1", c.SEM_CREDITOS),
+                         ("LIGUE O RADIO", "Cantor Arlindo Som", "https://yt/2", c.SEM_CREDITOS),
+                         ("LIGUE O RADIO", "Arlindo Som e Trio Novo", "https://yt/3", c.SEM_CREDITOS))
+    spotify = _coleta_de("SPOTIFY", ("COISA FEITA", "Banda do Baile & Zeca Lima", "https://sp/1", c.OK),
+                         ("LIGUE O RADIO", "Arlindo Som Cantor", "https://sp/2", c.SEM_CREDITOS))
+    linhas = {(l["obra"], l["interprete"]): l["celulas"] for l in saida.linhas_por_obra(rel, [youtube, spotify])}
+    coisa = [k for k in linhas if k[0] == "COISA FEITA"]
+    assert len(coisa) == 1 and linhas[coisa[0]]["SPOTIFY"][0] == saida.TEM_CREDITOS and linhas[coisa[0]]["YOUTUBE"][0] == "https://yt/1"
+    radio = {k[1]: v for k, v in linhas.items() if k[0] == "LIGUE O RADIO"}
+    assert len(radio) == 2  # "Arlindo Som e Trio Novo" é outra gravação: continua separada
+    sozinho = next(v for k, v in radio.items() if "Trio" not in k)
+    assert (sozinho["YOUTUBE"][0], sozinho["SPOTIFY"][0]) == ("https://yt/2", "https://sp/2")
+    assert radio[next(k for k in radio if "Trio" in k)]["SPOTIFY"][0] == saida.NAO_ESTA
+    assert saida.chave_do_interprete("A, B e C") == saida.chave_do_interprete("B e C & A")
+
+
+def test_spotify_limite_por_interprete_nao_deixa_ninguem_de_fora(rel):
+    """Caso real: numa obra com muitos intérpretes, as versões ao vivo de um gastavam as 8 vagas da obra e o último
+    intérprete nem era aberto (saía N/A). Agora o limite é por intérprete, e o que ele cortar vira aviso."""
+    from types import SimpleNamespace
+
+    from creditos import spotify as _spotify
+
+    class SpotifyFalso:
+        nav = SimpleNamespace(navegacoes=0)
+
+        def __init__(self):
+            self.abertas = []
+
+        def buscar(self, consulta):
+            if "Banda do Baile" in consulta or "Banda Baile" in consulta:
+                return [_spotify.Candidato(f"baile{i}", "Coisa Feita - Ao Vivo", "Banda do Baile") for i in range(7)]
+            if "Trio Novo" in consulta:
+                return [_spotify.Candidato("trio1", "Coisa Feita", "Trio Novo")]
+            return []
+
+        def ler(self, cand, obra):
+            self.abertas.append(cand.faixa)
+            return _spotify.Leitura(faixa=cand.faixa, titulo=cand.titulo, interprete=cand.interprete, creditos=["Zeca Lima"])
+
+    falso = SpotifyFalso()
+    coleta = pipeline.coletar_spotify(rel, Config(nomes_confirmados=["ZECA LIMA"]), falso,
+                                      pares={"COISA FEITA": ["Banda do Baile", "Trio Novo"]})  # fmt: skip
+    assert "trio1" in falso.abertas  # o intérprete com uma faixa só não fica de fora
+    assert sum(f.startswith("baile") for f in falso.abertas) == 4  # 4 por intérprete
+    assert any('"COISA FEITA": 3 faixas não foram abertas do Spotify' in a and "Banda do Baile (3)" in a for a in coleta.avisos)
