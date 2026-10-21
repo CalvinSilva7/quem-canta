@@ -12,7 +12,8 @@ Quatro abas, independentes:
 
 1. **Buscar intérpretes.** Entra o relatório do ECAD (PDF, ou planilha com título e compositor). Sai uma planilha
    de duas colunas, obra e intérprete. Em preto, o intérprete de que o app tem certeza; em vermelho, o que ele só
-   supõe. Obra sem intérprete achado sai com a segunda coluna em branco. Usa Deezer e depois Apple Music, sem
+   supõe (sem legenda na planilha: a frase "Em vermelho: o app não tem certeza…" saiu a pedido do dono em
+   21/10/2026; a explicação fica na tela). Obra sem intérprete achado sai com a segunda coluna em branco. Usa Deezer e depois Apple Music, sem
    navegador e sem print. A planilha vai para o compositor conferir.
 2. **Coleta de prints.** Entram o relatório e a planilha de intérpretes **conferida pelo compositor** (obrigatória:
    sem ela o botão de coletar não aparece). Para cada par obra + intérprete, o app acha a gravação em cada
