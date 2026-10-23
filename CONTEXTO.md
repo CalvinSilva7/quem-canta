@@ -362,6 +362,13 @@ Vale ler antes de mexer na plataforma correspondente.
   Amazon, no Palco MP3 e no Tidal, a busca barrada derrubava a coleta inteira, em vez de só pular aquela busca. Busca barrada agora
   vira aviso, como já era no YouTube. E a regra do "%" foi tirada do filtro por completo (decisão do dono,
   23/10/2026): o relatório não traz percentual com "%", e os do cadastro ("50,00") seguem barrados pelos códigos.
+- *"PermissionError: [WinError 5] Acesso negado: '..._isrc.json.NNNN.tmp' -> '..._isrc.json'" (23/10/2026, na
+  0.5.67).* A gravação atômica troca o arquivo temporário pelo original, e o Windows recusa a troca quando outro
+  programa está com o arquivo aberto naquele instante: o antivírus, ou o Google Drive / OneDrive sincronizando a
+  pasta Documentos (as pastas do escritório aparecem com o ícone verde de sincronizado). O `_isrc.json` do Tidal é
+  regravado a cada faixa, então caía nisso. Agora a troca é tentada de novo por até ~5 s; cache que mesmo assim não
+  puder ser guardado não para a coleta; e cache preso na leitura não é apagado. Vale tirar a pasta
+  `Documentos\Quem Canta` da sincronização.
 
 ## 6. O que foi tentado e não funciona
 

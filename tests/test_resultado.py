@@ -241,3 +241,45 @@ def test_erro_na_coleta_vai_para_o_registro_com_a_linha(tmp_path, monkeypatch):
     assert any("A busca não terminou" in e.value for e in at.error)
     registro = (tmp_path / "dados" / "erros.log").read_text(encoding="utf-8")
     assert "Traceback" in registro and "def quebra" not in registro and "raise ValueError" in registro
+
+
+def test_troca_recusada_pelo_windows_e_tentada_de_novo(tmp_path, monkeypatch):
+    import os as _os
+
+    real, recusas = _os.replace, []
+
+    def replace_que_recusa(origem, destino):
+        if len(recusas) < 2:  # o antivírus ou a sincronização está com o arquivo por um instante
+            recusas.append(destino)
+            raise PermissionError(5, "Acesso negado")
+        real(origem, destino)
+
+    monkeypatch.setattr(disco.os, "replace", replace_que_recusa)
+    arquivo = tmp_path / "_isrcs.json"
+    assert disco.gravar_json(arquivo, {"a": "b"}, esperas=(0, 0, 0)) == arquivo
+    assert disco.ler_json(arquivo) == {"a": "b"} and len(recusas) == 2
+    assert [p.name for p in tmp_path.iterdir()] == ["_isrcs.json"]  # nenhum .tmp sobrando
+
+
+def test_cache_que_o_windows_nao_deixa_gravar_nao_para_a_coleta(tmp_path, monkeypatch):
+    def sempre_recusa(origem, destino):
+        raise PermissionError(5, "Acesso negado")
+
+    monkeypatch.setattr(disco.os, "replace", sempre_recusa)
+    assert disco.gravar_json(tmp_path / "_isrcs.json", {"a": "b"}, esperas=(0,)) is None
+    with pytest.raises(PermissionError):  # o resultado (planilha, zip) não é cache: a falha vai para a tela
+        disco.gravar_bytes(tmp_path / "Provas.zip", b"zip", esperas=(0,))
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cache_preso_na_leitura_nao_e_apagado(tmp_path, monkeypatch):
+    arquivo = tmp_path / "123.json"
+    arquivo.write_text('{"ok": 1}')
+
+    def leitura_presa(self, *a, **k):
+        raise PermissionError(5, "Acesso negado")
+
+    with monkeypatch.context() as m:
+        m.setattr(Path, "read_text", leitura_presa)
+        assert disco.ler_json(arquivo, {}) == {}
+    assert arquivo.exists() and disco.ler_json(arquivo) == {"ok": 1}
