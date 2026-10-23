@@ -21,7 +21,7 @@ from cantor.matching import normalizar
 from . import classificador as c
 from .classificador import Classificacao, Config, Item, classificar
 from .deezer import Deezer
-from .filtro import FiltroDeSaida
+from .filtro import DadoSensivel, FiltroDeSaida
 from .modelo import Relatorio
 
 ALBUNS_POR_BUSCA = 40  # álbuns abertos por obra na busca por título (o complemento da discografia)
@@ -66,8 +66,9 @@ class Coleta:
     clipes: list[dict] = field(default_factory=list)  # clipes (Tidal) para o print à mão: [{"obra", "titulo", "artistas", "link", "medley"}]
 
 
-def filtro_do_relatorio(relatorio: Relatorio, config: Config) -> FiltroDeSaida:
-    liberados = [o.titulo for o in relatorio.obras] + [relatorio.nome_titular, relatorio.pseudonimo_titular]
+def filtro_do_relatorio(relatorio: Relatorio, config: Config, outros_nomes=()) -> FiltroDeSaida:
+    """`outros_nomes`: os intérpretes da planilha conferida, que também são públicos e podem ser pesquisados."""
+    liberados = [o.titulo for o in relatorio.obras] + [relatorio.nome_titular, relatorio.pseudonimo_titular, *outros_nomes]
     liberados += [x for o in relatorio.obras for a in o.autores for x in (a.nome, a.pseudonimo)]
     liberados += [*config.nomes_confirmados, *config.nomes_a_confirmar, *config.interpretes]
     return FiltroDeSaida(relatorio.termos_sensiveis(), liberados)
@@ -367,7 +368,12 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
             # mais a forma enxuta de cada uma, quando muda alguma coisa (ver `_consulta_enxuta`)
             consultas = list(dict.fromkeys(q for consulta in consultas for q in (consulta, _consulta_enxuta(consulta))))
             for consulta in consultas:
-                for cand in spotify.buscar(consulta):
+                try:
+                    achados = spotify.buscar(consulta)
+                except DadoSensivel as e:  # a consulta levaria dado sensível: não sai, fica registrado, e a coleta segue
+                    coleta.avisos.append(f'busca "{consulta}" não foi feita: o filtro de saída barrou ({e})')
+                    continue
+                for cand in achados:
                     if cand.faixa in vistos or c._titulo_base(cand.titulo) != base:
                         continue
                     vistos.add(cand.faixa)
@@ -432,7 +438,12 @@ def _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_ob
         for consulta in consultas:
             if so_o_titulo and consulta != titulo and all(tuple(_palavras(n)) in por_nome for n in pares.get(titulo, [])):
                 continue
-            for cand in amazon.buscar(consulta):
+            try:
+                achados = amazon.buscar(consulta)
+            except DadoSensivel as e:  # a consulta levaria dado sensível: não sai, fica registrado, e a coleta segue
+                coleta.avisos.append(f'busca "{consulta}" não foi feita: o filtro de saída barrou ({e})')
+                continue
+            for cand in achados:
                 # o título é limpo também do nome do artista daquele resultado ("Banda Tal - Música")
                 if cand.faixa in vistos or not _e_da_obra(_titulo_do_video(cand.titulo, relatorio, [*ligados, cand.interprete]), titulo, relatorio) == "exato":
                     continue
@@ -686,7 +697,7 @@ def _isrcs_para_o_tidal(titulos: dict, pares: dict, conhecidas, deezer, interpre
                         isrc = deezer.isrc(x["id"])
                         if isrc:
                             pedidos.setdefault(isrc.upper(), (titulo, f"{x['interprete']}, achada na busca da Deezer"))
-                except ErroDeColeta as e:
+                except (ErroDeColeta, DadoSensivel) as e:
                     coleta.avisos.append(f'Tidal: a busca da Deezer por "{titulo}" falhou ({e}); a obra fica sem procurar')
     achadas = {c._titulo_base(t) for t, _ in pedidos.values()}
     sem_isrc = [t for base, t in titulos.items() if base not in achadas]
@@ -797,14 +808,19 @@ def coletar_tidal(relatorio: Relatorio, config: Config, tidal, recorrentes=(), p
                     avisar(f"Tidal: procurando o artista {i}/{len(nomes)} para os clipes")
                     try:
                         artistas.update(_artista_no_tidal(nome, deezer, api))
-                    except (ErroNaAPI, ErroDeColeta):
+                    except (ErroNaAPI, ErroDeColeta, DadoSensivel):
                         continue
         else:
             coleta.avisos.append("Tidal sem as chaves da API: as faixas foram procuradas pela busca do site, que sem login acha "
                                  "pouco. Com o arquivo chaves-tidal.txt na pasta de dados, o app procura pelo ISRC")
             for nome in coleta.sementes:
                 avisar(f"Tidal: procurando {nome}")
-                for album_id in tidal.albuns_de(nome):
+                try:
+                    achados = tidal.albuns_de(nome)
+                except DadoSensivel as e:
+                    coleta.avisos.append(f'busca "{nome}" não foi feita: o filtro de saída barrou ({e})')
+                    continue
+                for album_id in achados:
                     albuns.setdefault(album_id, f"discografia de {nome}")
         for i, (album_id, origem) in enumerate(albuns.items(), start=1):
             avisar(f"Tidal: lendo álbum {i}/{len(albuns)}")
@@ -1583,7 +1599,7 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
         relatorio.obras = [o for o in relatorio.obras if conferidos.get(o.titulo)]
         nomes_dos_coautores = []  # sem descoberta: os intérpretes já vieram conferidos
     ajustar = (lambda coleta: _so_os_conferidos(coleta, relatorio, config, conferidos)) if conferidos is not None else (lambda coleta: coleta)
-    filtro = filtro_do_relatorio(relatorio, config)
+    filtro = filtro_do_relatorio(relatorio, config, [n for nomes in (conferidos or {}).values() for n in nomes])
     # Sem a planilha conferida, é a Deezer que descobre os intérpretes para as outras plataformas: roda sempre. Com a
     # planilha, os intérpretes já vêm dela, e a Deezer só roda se tiver sido pedida, como qualquer outra.
     coletas = [] if coletas is None else coletas  # a lista de quem chama: o que já terminou fica nela se a coleta parar

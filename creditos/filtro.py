@@ -11,7 +11,12 @@ from cantor.matching import normalizar
 
 _CPF = re.compile(r"(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)")
 _CAE = re.compile(r"(?<!\d)\d{5}\.\d{2}\.\d{2}\.\d{2}(?!\d)")
-_PERCENTUAL = re.compile(r"\d\s?%")
+_PERCENTUAL = re.compile(r"\d+(?:[.,]\d+)?\s?%")
+
+
+def _percentuais(texto) -> list[str]:
+    """Os "N%" do texto, sem espaço ("100 %" e "100%" são o mesmo)."""
+    return [re.sub(r"\s", "", m.group()) for m in _PERCENTUAL.finditer(str(texto or ""))]
 
 
 class DadoSensivel(Exception):
@@ -26,6 +31,9 @@ class FiltroDeSaida:
         self.codigos = {t for t in termos if re.fullmatch(r"[\d./,-]+", t) and len(re.sub(r"\D", "", t)) >= 4}
         self.nomes = {normalizar(t) for t in termos if t not in self.codigos and len(normalizar(t)) >= 4} - livres
         self.livres = livres
+        # "%" que faz parte de um título ou de um nome ("100% Você", "Grupo 100%") é público e pode sair, em qualquer
+        # forma da busca ou do endereço. Os percentuais do cadastro ("50,00") seguem barrados pelos códigos.
+        self.percentuais_livres = {p for l in liberados for p in _percentuais(l)}
         self.bloqueadas = 0
 
     def motivo(self, texto: str) -> str:
@@ -33,7 +41,7 @@ class FiltroDeSaida:
         texto = str(texto)
         if _CPF.search(texto) or _CAE.search(texto):
             return "documento ou CAE/IPI"
-        if _PERCENTUAL.search(texto):
+        if any(p not in self.percentuais_livres for p in _percentuais(texto)):
             return "percentual"
         if any(re.search(rf"(?<![\w.,/-]){re.escape(c)}(?![\w.,/-])", texto) for c in self.codigos):
             return "código, data ou percentual do cadastro"
