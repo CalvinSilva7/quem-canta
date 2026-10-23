@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 from cantor.matching import normalizar
+from . import disco
 
 BUSCA = "https://iswcnet.cisac.org/search"
 PLATAFORMA, ETAPA = "ISWC Network", "iswc"
@@ -347,7 +348,7 @@ def guardar_pdf(pasta, obra: str, iswc: str, origem, nomes=(), como="") -> dict:
         "exibido": {"iswc": iswc, "titulo": obra, "nomes_do_titular_na_pagina": nomes_achados, "texto_lido": texto[:4000]},
         "arquivos": {"pdf": f"{base}.pdf"}, "sha256": {"pdf": captura.sha256(conteudo)},
     }
-    (pasta / f"{base}.json").write_text(json.dumps(ficha, ensure_ascii=False, indent=1), encoding="utf-8")
+    disco.gravar_json((pasta / f"{base}.json"), ficha, indent=1)
     return {"ok": True, "ficha": ficha, "titular_na_pagina": bool(nomes_achados)}
 
 

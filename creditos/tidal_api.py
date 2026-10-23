@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 import requests
+from . import disco
 
 TOKEN = "https://auth.tidal.com/v1/oauth2/token"
 API = "https://openapi.tidal.com/v2/"
@@ -63,12 +64,12 @@ class TidalAPI:
 
     def _ler(self, nome) -> dict:
         arquivo = self.pasta / nome if self.pasta else None
-        return json.loads(arquivo.read_text(encoding="utf-8")) if arquivo and arquivo.exists() else {}
+        return disco.ler_json(arquivo, {})
 
     def _gravar(self, nome, dados):
         if self.pasta:
             self.pasta.mkdir(parents=True, exist_ok=True)
-            (self.pasta / nome).write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+            disco.gravar_json((self.pasta / nome), dados)
 
     def _autorizacao(self) -> str:
         if not self._token or time.monotonic() > self._expira - 60:

@@ -166,6 +166,7 @@ def test_tela_coleta_e_oferece_planilha_e_pacote_de_provas(tmp_path, monkeypatch
     assert at.multiselect[0].options[-2:] == ["Amazon Music (aplicativo de desktop e site)", "Claro Música (com login)"]
     at.multiselect[0].set_value(["deezer", "spotify"]).run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
+    _esperar(at)
     assert not at.exception
     assert chamadas == [(["ZECA LIMA", "ZECA DO BAILE"], ["CIDA DIAS"], ("deezer", "spotify"), None)]  # sempre todas as obras
     assert not at.number_input  # não existe mais o campo de quantas obras verificar
@@ -203,6 +204,7 @@ def test_tela_pede_confirmacao_dos_interpretes_presumidos(tmp_path, monkeypatch)
     at.session_state["conferidos"] = CONFERIDOS
     at.run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
+    _esperar(at)
     assert at.session_state["saidas"]["resumo"][0] == {"plataforma": "Spotify", "firmes": 0, "a_confirmar": 1}
     marcar = next(m for m in at.multiselect if m.label == "Intérpretes a confirmar")
     assert marcar.options == ["Cantor Popular (3 títulos do relatório)"]
@@ -210,6 +212,7 @@ def test_tela_pede_confirmacao_dos_interpretes_presumidos(tmp_path, monkeypatch)
     next(b for b in at.button if b.label == "Confirmar os marcados").click().run()
     assert not at.exception and "coletas" not in at.session_state and at.session_state["interpretes_informados"] == "Cantor Popular"
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
+    _esperar(at)
     assert recebidos == [[], ["Cantor Popular"]]
     assert at.session_state["saidas"]["resumo"][0] == {"plataforma": "Spotify", "firmes": 1, "a_confirmar": 0}
     assert not [m for m in at.multiselect if m.label == "Intérpretes a confirmar"]  # confirmado: não pergunta de novo
@@ -235,8 +238,10 @@ def test_campo_de_quantas_obras_so_existe_para_quem_desenvolve(tmp_path, monkeyp
     at = abrir()
     at.number_input[0].set_value(1).run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
+    _esperar(at)
     next(r for r in at.radio if r.label == "Quais").set_value("as últimas").run()
     next(b for b in at.button if b.label == "Coletar e classificar").click().run()
+    _esperar(at)
     assert limites == [1, -1]
 
 
@@ -246,6 +251,16 @@ def _tela_de_creditos():
 
 def _botao(at, rotulo):
     return next(b for b in at.button if b.label == rotulo)
+
+
+def _esperar(at):
+    """A tarefa roda em segundo plano e, no fim, grava o resultado no disco: espera ela acabar e refaz a tela."""
+    from creditos import andamento
+
+    tarefa = andamento.atual()
+    if tarefa is not None:
+        tarefa.linha.join(30)
+        at.run()
 
 
 def test_botao_procurar_atualizacao_diz_em_dia_ou_sem_resposta(monkeypatch):
@@ -342,6 +357,7 @@ def test_coleta_que_falha_mostra_o_erro_e_deixa_tentar_de_novo(tmp_path, monkeyp
     at.session_state["conferidos"] = CONFERIDOS
     at.run()
     _botao(at, "Coletar e classificar").click().run()
+    _esperar(at)
     assert any("A coleta não terminou: RuntimeError: navegador não abriu" in e.value for e in at.error)
     assert "coletas" not in at.session_state
 
@@ -375,6 +391,7 @@ def test_etapa_de_interpretes_devolve_so_a_planilha_de_obra_e_interprete(tmp_pat
     assert at.button_group[0].value == ETAPA_DOS_INTERPRETES and not at.exception
     assert "Coletar e classificar" not in [b.label for b in at.button] and not at.multiselect and not at.checkbox
     _botao(at, "Buscar intérpretes").click().run()
+    _esperar(at)
     assert not at.exception
     assert chamadas == [(interpretes.PLATAFORMAS, False, ["ZECA LIMA", "ZECA DO BAILE"], ["CIDA DIAS"])]  # sem navegador, sem print
     lista = at.session_state["lista_de_interpretes"]
@@ -471,6 +488,7 @@ def test_etapa_dos_prints_exige_a_planilha_conferida(tmp_path, monkeypatch):
     assert any("2 intérpretes em 2 obras" in m.value and "outras 3 obras" in m.value for m in at.success)
     assert any("para as 2 obras" in i.value for i in at.info)  # a estimativa de tempo conta só as obras com intérprete
     _botao(at, "Coletar e classificar").click().run()
+    _esperar(at)
     assert recebidos == [CONFERIDOS]
 
 

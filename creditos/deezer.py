@@ -27,6 +27,8 @@ import requests
 
 from cantor.matching import nomes_parecidos
 
+from . import disco
+
 API = "https://api.deezer.com/"
 SITE = "https://www.deezer.com/br/"
 # O cookie que a Deezer grava quando a conta entra; quem não está logado não o tem.
@@ -159,7 +161,7 @@ class Deezer:
         Vai além da primeira página: em título comum, a gravação procurada costuma estar longe do topo.
         """
         guardadas = self.cache / "_buscas.json" if self.cache else None
-        buscas = json.loads(guardadas.read_text(encoding="utf-8")) if guardadas and guardadas.exists() else {}
+        buscas = disco.ler_json(guardadas, {})
         if consulta in buscas:
             return buscas[consulta]
         itens = self._paginas("search", maximo=maximo, q=consulta)
@@ -167,8 +169,7 @@ class Deezer:
                    "album_id": str((i.get("album") or {}).get("id", ""))} for i in itens]
         if guardadas:
             buscas[consulta] = faixas
-            self.cache.mkdir(parents=True, exist_ok=True)
-            guardadas.write_text(json.dumps(buscas, ensure_ascii=False), encoding="utf-8")
+            disco.gravar_json(guardadas, buscas)
         return faixas
 
     def faixas_do_artista(self, artista_id: str, maximo=3) -> list[str]:
@@ -178,13 +179,12 @@ class Deezer:
     def isrc(self, faixa_id: str) -> str:
         """O ISRC de uma faixa (API pública), "" se a Deezer não o tiver. Guardado entre rodadas."""
         guardados = self.cache / "_isrcs.json" if self.cache else None
-        lidos = json.loads(guardados.read_text(encoding="utf-8")) if guardados and guardados.exists() else {}
+        lidos = disco.ler_json(guardados, {})
         faixa_id = str(faixa_id)
         if faixa_id not in lidos:
             lidos[faixa_id] = str(self._get(API + f"track/{faixa_id}").get("isrc") or "")
             if guardados:
-                self.cache.mkdir(parents=True, exist_ok=True)
-                guardados.write_text(json.dumps(lidos, ensure_ascii=False), encoding="utf-8")
+                disco.gravar_json(guardados, lidos)
         return lidos[faixa_id]
 
     # --- créditos (estado da página do álbum) ------------------------------
@@ -204,10 +204,8 @@ class Deezer:
 
     def _do_cache(self, album_id):
         arquivo = self.cache / f"{album_id}.json" if self.cache else None
-        if not arquivo or not arquivo.exists():
-            return None
-        dados = json.loads(arquivo.read_text(encoding="utf-8"))
-        if dados.pop("v", None) != VERSAO_DA_LEITURA:
+        dados = disco.ler_json(arquivo)
+        if not isinstance(dados, dict) or dados.pop("v", None) != VERSAO_DA_LEITURA:
             return None
         return Album(**{**dados, "faixas": [Faixa(**f) for f in dados["faixas"]]})
 
@@ -215,10 +213,7 @@ class Deezer:
         if not self.cache:
             return
         from dataclasses import asdict
-        self.cache.mkdir(parents=True, exist_ok=True)
-        (self.cache / f"{album.id}.json").write_text(
-            json.dumps({**asdict(album), "v": VERSAO_DA_LEITURA}, ensure_ascii=False), encoding="utf-8"
-        )
+        disco.gravar_json(self.cache / f"{album.id}.json", {**asdict(album), "v": VERSAO_DA_LEITURA})
 
 
 def interpretar_pagina(html: str, album_id: str) -> Album:

@@ -14,7 +14,7 @@ import streamlit as st
 
 from cantor import planilha
 from cantor.matching import normalizar
-from creditos import andamento, atualizacao, ecad, ubc
+from creditos import andamento, atualizacao, ecad, resultado, ubc
 from creditos.versao import VERSAO
 from creditos.captura import slug
 from creditos.modelo import SITUACOES, Relatorio
@@ -41,6 +41,59 @@ def painel_do_andamento(rotulo="Coleta", parar="Parar coleta"):
         parando = True
     if parando:
         st.warning("Parando… o app termina a página que está aberta e para. O que já foi lido fica guardado.")
+
+
+def abrir_pasta(pasta):
+    """Abre a pasta no Explorador de Arquivos (o app roda no próprio computador de quem usa)."""
+    import subprocess
+    import sys
+
+    pasta = str(Path(pasta).resolve())
+    if hasattr(os, "startfile"):
+        os.startfile(pasta)  # Windows
+    else:
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", pasta])
+
+
+def guardar_o_salvo(tarefa, chave):
+    """Leva para a tela o que a tarefa gravou no disco (ou por que não gravou), e registra o erro, se houve."""
+    st.session_state[chave] = {"salvo": tarefa.andamento.salvo, "erro": tarefa.andamento.erro_ao_salvar}
+    if tarefa.erro is not None:
+        registrar_erro(tarefa)
+
+
+def registrar_erro(tarefa):
+    """Acrescenta o erro, com o traceback, ao erros.log da pasta de dados: é o que mostra em que linha quebrou."""
+    from datetime import datetime
+
+    try:
+        PASTA_DE_DADOS.mkdir(parents=True, exist_ok=True)
+        with open(PASTA_DE_DADOS / "erros.log", "a", encoding="utf-8") as registro:
+            registro.write(f"=== {datetime.now():%Y-%m-%d %H:%M:%S} · versão {VERSAO} · {tarefa.dados.get('tipo', '')}\n"
+                           f"{tarefa.detalhe_do_erro or repr(tarefa.erro)}\n")
+    except OSError:
+        pass
+
+
+def mostrar_o_salvo(chave):
+    """Onde ficou o resultado gravado pela própria tarefa, com o botão de abrir a pasta."""
+    estado = st.session_state.get(chave)
+    if not estado:
+        return
+    salvo = estado["salvo"]
+    if salvo:
+        pasta = Path(salvo["arquivos"][0]).parent
+        nomes = " e ".join(f"**{Path(a).name}**" for a in salvo["arquivos"])
+        texto = (f"Resultado **parcial** (só as plataformas que terminaram) salvo em `{pasta}`: {nomes}." if salvo["parcial"]
+                 else f"Resultado salvo em `{pasta}`: {nomes}. Não precisa clicar em baixar.")
+        (st.info if salvo["parcial"] else st.success)(texto)
+        if st.button("Abrir pasta", key=f"{chave}_abrir"):
+            try:
+                abrir_pasta(pasta)
+            except Exception as e:
+                st.warning(f"Não consegui abrir a pasta ({e}). Ela fica em `{pasta}`.")
+    if estado["erro"]:
+        st.warning(f"O resultado não foi salvo sozinho no disco ({estado['erro']}). Use os botões de baixar.")
 
 
 st.set_page_config(page_title="Créditos nas plataformas", layout="wide")
@@ -118,12 +171,14 @@ if arquivo is not None and st.session_state.get("arquivo_id") != arquivo.file_id
         st.stop()
     st.session_state.arquivo_id = arquivo.file_id
     st.session_state.relatorio = relatorio
-    for chave in ("conferidos", "conferidos_fora", "conferida_id", "lista_de_interpretes", "coletas", "saidas"):
+    for chave in ("conferidos", "conferidos_fora", "conferida_id", "lista_de_interpretes", "coletas", "saidas",
+                  "salvo_interpretes", "salvo_coleta"):
         st.session_state.pop(chave, None)  # relatório novo: o que era do anterior não vale mais
 
 em_curso = andamento.atual()
-if em_curso is not None and em_curso.viva and st.session_state.get("relatorio") is None:
-    # A página foi recarregada no meio de uma coleta: a coleta continua, e a tela volta a acompanhá-la.
+if em_curso is not None and st.session_state.get("relatorio") is None:
+    # A página foi recarregada no meio de uma coleta, ou depois que ela terminou sem ninguém olhando: a tela volta a
+    # acompanhá-la, ou pega o resultado que ficou esperando.
     st.session_state.relatorio = em_curso.dados["relatorio"]
     if em_curso.dados.get("conferidos"):
         st.session_state.conferidos = em_curso.dados["conferidos"]
@@ -175,17 +230,27 @@ if etapa == ETAPAS[0]:
     )
     tarefa = andamento.atual()
     de_outra_etapa = tarefa is not None and tarefa.dados.get("tipo") != "interpretes"
-    if tarefa is not None and not de_outra_etapa and not tarefa.viva:
+    def recolher_busca(tarefa):
+        """Pega a lista da busca que terminou (ou diz por que não terminou) e libera o botão de buscar."""
         andamento.encerrar()
+        guardar_o_salvo(tarefa, "salvo_interpretes")
         if tarefa.erro is not None:
             st.error(f"A busca não terminou: {type(tarefa.erro).__name__}: {tarefa.erro}")
         elif tarefa.interrompida:
             st.warning("Busca interrompida. O que já foi lido ficou guardado: clique em **Buscar intérpretes** para continuar.")
         else:
-            st.session_state.relatorio = relatorio = tarefa.dados["relatorio"]
+            st.session_state.relatorio = tarefa.dados["relatorio"]
             st.session_state.lista_de_interpretes = tarefa.resultado
+
+    tarefa = andamento.atual()
+    de_outra_etapa = tarefa is not None and tarefa.dados.get("tipo") != "interpretes"
+    if tarefa is not None and not de_outra_etapa and not tarefa.viva:
+        recolher_busca(tarefa)
+        relatorio = st.session_state.relatorio
         tarefa = None
-    if de_outra_etapa:
+    if de_outra_etapa and not tarefa.viva:
+        st.info("A coleta de prints terminou: abra a aba **Coleta de prints** para ver o resultado.")
+    elif de_outra_etapa:
         st.info("Há uma coleta de prints em andamento na outra aba. Espere terminar, ou pare por lá, antes de buscar intérpretes.")
     elif tarefa is None and st.button("Buscar intérpretes", type="primary"):
         from creditos.classificador import Config
@@ -193,22 +258,30 @@ if etapa == ETAPAS[0]:
         nomes_do_relatorio = relatorio.nomes_artisticos()
         config = Config(nomes_confirmados=[n["nome"] for n in nomes_do_relatorio if n["titular"]])
         coautores = [n["nome"] for n in nomes_do_relatorio if not n["titular"]]
+        st.session_state.pop("salvo_interpretes", None)
+
+        def buscar(avisar, relatorio=relatorio, pasta=pasta_do_caso):
+            # A própria busca grava a planilha no disco ao terminar, ou a parcial se parar: não depende da tela.
+            return resultado.rodar_e_salvar(
+                avisar,
+                lambda: _interpretes.buscar(relatorio, config, pasta, coautores if len(coautores) <= 10 else [],
+                                            ao_avancar=avisar, limite=limite_de_obras),
+                lambda lista, parcial: resultado.salvar_interpretes(relatorio, lista, pasta, parcial),
+                lambda coletas: _interpretes.por_obra(relatorio, coletas),
+            )
+
         tarefa = andamento.iniciar(
-            lambda avisar: _interpretes.buscar(relatorio, config, pasta_do_caso, coautores if len(coautores) <= 10 else [],
-                                              ao_avancar=avisar, limite=limite_de_obras),
-            andamento.Andamento(obras_distintas, _interpretes.PLATAFORMAS, prints=False), tipo="interpretes", relatorio=relatorio,
+            buscar, andamento.Andamento(obras_distintas, _interpretes.PLATAFORMAS, prints=False), tipo="interpretes",
+            relatorio=relatorio,
         )
         tarefa.linha.join(0.3)
         if tarefa.viva:
             st.rerun()
-        andamento.encerrar()
-        if tarefa.erro is not None:
-            st.error(f"A busca não terminou: {type(tarefa.erro).__name__}: {tarefa.erro}")
-        elif not tarefa.interrompida:
-            st.session_state.lista_de_interpretes = tarefa.resultado
+        recolher_busca(tarefa)
         tarefa = None
     if tarefa is not None and not de_outra_etapa:
         painel_do_andamento("Busca", "Parar busca")
+    mostrar_o_salvo("salvo_interpretes")
     lista = st.session_state.get("lista_de_interpretes")
     if lista:
         if limite_de_obras:
@@ -860,6 +933,7 @@ with area_da_coleta:
     def recolher(tarefa):
         """Pega o resultado da coleta que terminou (ou diz por que não terminou) e libera o botão de coletar."""
         andamento.encerrar()
+        guardar_o_salvo(tarefa, "salvo_coleta")
         if tarefa.erro is not None:  # navegador que não abriu, rede fora do ar: mostra e deixa tentar de novo
             st.error(f"A coleta não terminou: {type(tarefa.erro).__name__}: {tarefa.erro}")
         elif tarefa.interrompida:
@@ -872,11 +946,15 @@ with area_da_coleta:
             st.session_state.coletas = tarefa.resultado
             st.session_state.pasta_do_caso = tarefa.dados["pasta"]
             st.session_state.pop("saidas", None)
+            salvo = tarefa.andamento.salvo
+            if salvo and not salvo["parcial"]:  # o que foi gravado é o que a tela oferece: não monta de novo
+                st.session_state.saidas = {k: salvo[k] for k in ("planilha", "pacote", "resumo", "avisos")}
 
     tarefa = andamento.atual()
     de_outra_etapa = tarefa is not None and tarefa.dados.get("tipo") == "interpretes"
     if de_outra_etapa:
-        st.info("Há uma busca de intérpretes em andamento na outra aba. Espere terminar, ou pare por lá, antes de coletar.")
+        st.info("A busca de intérpretes terminou: abra a aba **Buscar intérpretes** para ver o resultado." if not tarefa.viva else
+                "Há uma busca de intérpretes em andamento na outra aba. Espere terminar, ou pare por lá, antes de coletar.")
         tarefa = None
     elif tarefa is not None and not tarefa.viva:
         recolher(tarefa)
@@ -891,13 +969,24 @@ with area_da_coleta:
         # Com muitos coautores, percorrer a discografia de cada um multiplicaria a coleta sem ajudar: os
         # intérpretes aparecem pela busca por título e pelos créditos que as plataformas mostram.
         coautores = st.session_state.config["nomes_dos_coautores"]
+        st.session_state.pop("salvo_coleta", None)
+
+        def coletar(avisar, relatorio=relatorio, pasta=pasta_do_caso):
+            # A própria coleta grava a planilha e o .zip no disco ao terminar, ou os parciais se parar: o resultado
+            # existe mesmo que a aba do navegador feche ou ninguém esteja olhando a tela.
+            return resultado.rodar_e_salvar(
+                avisar,
+                lambda: pipeline.executar(
+                    relatorio, config, pasta, coautores if len(coautores) <= 10 else [], ao_avancar=avisar,
+                    limite_youtube=limite, plataformas=tuple(escolhidas), mostrar_navegador=mostrar_navegador,
+                    tela_inteira=tela_inteira, conferidos=conferidos or None,
+                ),
+                lambda coletas, parcial: resultado.salvar_coleta(relatorio, coletas, pasta, parcial),
+            )
+
         # A coleta roda em outra linha de execução: o navegador automatizado não pode rodar na da tela.
         tarefa = andamento.iniciar(
-            lambda avisar: pipeline.executar(
-                relatorio, config, pasta_do_caso, coautores if len(coautores) <= 10 else [], ao_avancar=avisar,
-                limite_youtube=limite, plataformas=tuple(escolhidas), mostrar_navegador=mostrar_navegador,
-                tela_inteira=tela_inteira, conferidos=conferidos or None,
-            ),
+            coletar,
             andamento.Andamento(titulos_do_relatorio, escolhidas), tipo="coleta", relatorio=relatorio, pasta=str(pasta_do_caso),
             conferidos=conferidos,
         )
@@ -908,6 +997,7 @@ with area_da_coleta:
         tarefa = None
     if tarefa is not None:
         painel_do_andamento()
+    mostrar_o_salvo("salvo_coleta")
 
     coletas = st.session_state.get("coletas")
     if coletas:

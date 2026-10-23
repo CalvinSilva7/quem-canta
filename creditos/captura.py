@@ -28,6 +28,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .versao import VERSAO
+from . import disco
 
 VERSAO_DO_APP = f"quem-canta/creditos {VERSAO}"
 TELA_INTEIRA = False  # ligado pela coleta quando a pessoa pede o print de tela inteira
@@ -189,7 +190,7 @@ def capturar(pagina, pasta, obra, interprete, plataforma, exibido: dict, etapa="
     if tela is not None:
         (pasta / f"{base}_tela.png").write_bytes(tela)
         registro["arquivos"]["tela"], registro["sha256"]["tela"] = f"{base}_tela.png", sha256(tela)
-    (pasta / f"{base}.json").write_text(json.dumps(registro, ensure_ascii=False, indent=1), encoding="utf-8")
+    disco.gravar_json((pasta / f"{base}.json"), registro, indent=1)
     return registro
 
 
@@ -200,7 +201,7 @@ def _guardar_diagnostico(pasta, base, imagem: bytes, da_tela: dict, maximo=10) -
         pasta = Path(pasta) / "diagnostico"
         pasta.mkdir(exist_ok=True)
         (pasta / f"{base}_pagina.png").write_bytes(imagem)
-        (pasta / f"{base}.json").write_text(json.dumps(da_tela, ensure_ascii=False, indent=1), encoding="utf-8")
+        disco.gravar_json((pasta / f"{base}.json"), da_tela, indent=1)
         for velho in sorted(pasta.glob("*.json"))[:-maximo]:
             velho.unlink(missing_ok=True)
             (pasta / f"{velho.stem}_pagina.png").unlink(missing_ok=True)

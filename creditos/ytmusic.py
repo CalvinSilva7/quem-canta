@@ -21,6 +21,7 @@ from urllib.parse import quote, unquote
 from cantor.matching import normalizar
 
 from . import captura
+from . import disco
 
 SITE = "https://music.youtube.com/"
 LINK = SITE + "watch?v={}"
@@ -272,12 +273,12 @@ class YouTubeMusic:
             candidatos += interpretar_resultados(self.pagina.evaluate(_LER_RESULTADOS), aba[:-1])
         guardadas[chave] = [asdict(c) for c in candidatos]
         self.cache.mkdir(parents=True, exist_ok=True)
-        (self.cache / "_buscas.json").write_text(json.dumps(guardadas, ensure_ascii=False), encoding="utf-8")
+        disco.gravar_json((self.cache / "_buscas.json"), guardadas)
         return candidatos
 
     def _buscas_guardadas(self) -> dict:
         arquivo = self.cache / "_buscas.json"
-        return json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else {}
+        return disco.ler_json(arquivo, {})
 
     # --- leitura de uma faixa -------------------------------------------------
 
@@ -396,7 +397,7 @@ class YouTubeMusic:
         import requests
 
         arquivo = self.cache / "_canais.json"
-        guardados = json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else {}
+        guardados = disco.ler_json(arquivo, {})
         if video in guardados or self.so_o_que_ja_foi_lido:
             return guardados.get(video, "")
         endereco = f"https://www.youtube.com/watch?v={video}"
@@ -410,22 +411,20 @@ class YouTubeMusic:
             return ""  # sem resposta: não guarda, para tentar de novo na próxima coleta
         guardados[video] = canal
         self.cache.mkdir(parents=True, exist_ok=True)
-        arquivo.write_text(json.dumps(guardados, ensure_ascii=False), encoding="utf-8")
+        disco.gravar_json(arquivo, guardados)
         return canal
 
     # --- retomada -------------------------------------------------------------
 
     def _do_cache(self, video):
         arquivo = self.cache / f"{video}.json"
-        if not arquivo.exists():
+        dados = disco.ler_json(arquivo)
+        if not isinstance(dados, dict):
             return None
-        dados = json.loads(arquivo.read_text(encoding="utf-8"))
         if dados.get("v") != VERSAO_DA_LEITURA or not (captura.serve(self.pasta, dados.get("provas")) or self.so_o_que_ja_foi_lido):
             return None  # leitura de outra versão, ou print tirado sem a tela inteira com ela pedida agora
         return Leitura(**{k: v for k, v in dados.items() if k != "v"})
 
     def _para_cache(self, leitura: Leitura):
         self.cache.mkdir(parents=True, exist_ok=True)
-        (self.cache / f"{leitura.video}.json").write_text(
-            json.dumps({**asdict(leitura), "v": VERSAO_DA_LEITURA}, ensure_ascii=False, indent=1), encoding="utf-8"
-        )
+        disco.gravar_json((self.cache / f"{leitura.video}.json"), {**asdict(leitura), "v": VERSAO_DA_LEITURA}, indent=1)

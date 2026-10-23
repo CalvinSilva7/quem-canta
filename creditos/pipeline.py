@@ -1520,6 +1520,9 @@ def executar(relatorio: Relatorio, config: Config, pasta, nomes_dos_coautores=()
     `tela_inteira`: cada print ganha também a foto do monitor inteiro; a janela do navegador fica visível.
     `conferidos`: {título: [intérpretes]} da planilha que o compositor conferiu. Com ela, o app não descobre nem
     presume intérprete nenhum: verifica só esses pares, e as obras sem intérprete na planilha ficam de fora.
+
+    Se a coleta parar no meio (pedido de parada ou erro), a exceção sai com `coletas_parciais`: as plataformas que
+    já terminaram, na ordem da planilha, para quem quiser guardar o resultado parcial.
     """
     from . import captura, navegador
 
@@ -1527,9 +1530,17 @@ def executar(relatorio: Relatorio, config: Config, pasta, nomes_dos_coautores=()
     # Título de obra ou nome de intérprete igual a um aviso de bloqueio (existe música com esse nome) não é aviso.
     navegador.NAO_E_AVISO, avisos_antes = navegador.do_caso(
         [o.titulo for o in relatorio.obras] + [n for nomes in (conferidos or {}).values() for n in nomes]), navegador.NAO_E_AVISO
+    feitas = []
     try:
         return _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_youtube, por_obra, ao_avancar,
-                         so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador or tela_inteira, conferidos=conferidos)
+                         so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador or tela_inteira, conferidos=conferidos,
+                         coletas=feitas)
+    except BaseException as e:
+        try:
+            e.coletas_parciais = _na_ordem(feitas)
+        except (AttributeError, TypeError):  # exceção que não aceita atributo novo: segue sem o parcial
+            pass
+        raise
     finally:
         captura.TELA_INTEIRA, navegador.NAO_E_AVISO = antes, avisos_antes
 
@@ -1554,8 +1565,12 @@ def _so_os_conferidos(coleta: Coleta, relatorio: Relatorio, config: Config, conf
     return coleta
 
 
+def _na_ordem(coletas) -> list[Coleta]:
+    return sorted(coletas, key=lambda k: ORDEM.index(k.plataforma) if k.plataforma in ORDEM else 99)
+
+
 def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_youtube, por_obra, ao_avancar,
-              so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador, conferidos=None) -> list[Coleta]:
+              so_o_que_ja_foi_lido, plataformas, prints, mostrar_navegador, conferidos=None, coletas=None) -> list[Coleta]:
     from .navegador import Navegador
 
     pasta, limite = Path(pasta), limite_youtube
@@ -1571,7 +1586,7 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
     filtro = filtro_do_relatorio(relatorio, config)
     # Sem a planilha conferida, é a Deezer que descobre os intérpretes para as outras plataformas: roda sempre. Com a
     # planilha, os intérpretes já vêm dela, e a Deezer só roda se tiver sido pedida, como qualquer outra.
-    coletas = []
+    coletas = [] if coletas is None else coletas  # a lista de quem chama: o que já terminou fica nela se a coleta parar
     if "deezer" in pedidas or conferidos is None:
         deezer = Deezer(filtro=filtro, cache=pasta / "deezer")
         coletas.append(ajustar(coletar_deezer(relatorio, config, deezer, nomes_dos_coautores, ao_avancar=ao_avancar,
@@ -1675,7 +1690,7 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                 if coleta.plataforma == "DEEZER":
                     capturar_paginas(coleta, nav_da_deezer, pasta / "deezer", abrir_creditos_da_deezer_logada, ao_avancar, None, reclassificar,
                                      com_o_menu=True)
-    coletas = sorted(coletas, key=lambda k: ORDEM.index(k.plataforma) if k.plataforma in ORDEM else 99)
+    coletas = _na_ordem(coletas)
     if sem_interprete and coletas:
         coletas[0].avisos.append(
             f"{len(sem_interprete)} obras estão sem intérprete na planilha conferida e não foram verificadas: "

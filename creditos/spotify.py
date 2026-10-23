@@ -16,6 +16,7 @@ from urllib.parse import quote
 from cantor.matching import normalizar
 
 from . import captura
+from . import disco
 
 SITE = "https://open.spotify.com/"
 LINK = SITE + "intl-pt/track/{}"
@@ -138,7 +139,7 @@ class Spotify:
 
     def buscar(self, consulta: str) -> list[Candidato]:
         arquivo = self.cache / "_buscas.json"
-        guardadas = json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else {}
+        guardadas = disco.ler_json(arquivo, {})
         if consulta in guardadas:
             return [Candidato(**c) for c in guardadas[consulta]]
         if self.so_o_que_ja_foi_lido:
@@ -152,13 +153,13 @@ class Spotify:
         candidatos = interpretar_linhas(self.nav.pagina.evaluate(_LER_LINHAS))
         guardadas[consulta] = [asdict(c) for c in candidatos]
         self.cache.mkdir(parents=True, exist_ok=True)
-        arquivo.write_text(json.dumps(guardadas, ensure_ascii=False), encoding="utf-8")
+        disco.gravar_json(arquivo, guardadas)
         return candidatos
 
     def ler(self, cand: Candidato, obra: str) -> Leitura:
         arquivo = self.cache / f"{cand.faixa}.json"
-        if arquivo.exists():
-            dados = json.loads(arquivo.read_text(encoding="utf-8"))
+        dados = disco.ler_json(arquivo)
+        if isinstance(dados, dict):
             if dados.pop("v", None) == VERSAO_DA_LEITURA and (captura.serve(self.pasta, dados.get("provas")) or self.so_o_que_ja_foi_lido):
                 return Leitura(**dados)  # print tirado sem a tela inteira, com ela pedida agora, é refeito
         leitura = Leitura(faixa=cand.faixa, titulo=cand.titulo, interprete=cand.interprete, album=cand.album,
@@ -174,7 +175,7 @@ class Spotify:
             leitura.coleta, leitura.erro = "erro", f"{type(e).__name__}: {str(e).splitlines()[0][:160]}"
         if leitura.coleta == "ok":
             self.cache.mkdir(parents=True, exist_ok=True)
-            arquivo.write_text(json.dumps({**asdict(leitura), "v": VERSAO_DA_LEITURA}, ensure_ascii=False, indent=1), encoding="utf-8")
+            disco.gravar_json(arquivo, {**asdict(leitura), "v": VERSAO_DA_LEITURA}, indent=1)
         return leitura
 
     def _ler(self, leitura: Leitura, obra: str):

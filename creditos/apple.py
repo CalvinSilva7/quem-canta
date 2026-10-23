@@ -16,6 +16,8 @@ import requests
 
 from cantor.matching import dividir_compositores
 
+from . import disco
+
 BUSCA = "https://itunes.apple.com/search"
 PAGINA_DO_ALBUM = "https://music.apple.com/br/album/{}"
 NAVEGADOR = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -84,7 +86,7 @@ class AppleMusic:
     def buscar_faixas(self, consulta: str, maximo=50) -> list[dict]:
         """[{"titulo", "interprete", "album_id"}] pela API pública de busca do iTunes (loja do Brasil)."""
         guardadas = self.cache / "_buscas.json" if self.cache else None
-        buscas = json.loads(guardadas.read_text(encoding="utf-8")) if guardadas and guardadas.exists() else {}
+        buscas = disco.ler_json(guardadas, {})
         if consulta in buscas:
             return buscas[consulta]
         dados = self._get(BUSCA, {"term": consulta, "country": "BR", "entity": "song", "limit": maximo}).json()
@@ -92,15 +94,14 @@ class AppleMusic:
                   for i in dados.get("results", [])]
         if guardadas:
             buscas[consulta] = faixas
-            self.cache.mkdir(parents=True, exist_ok=True)
-            guardadas.write_text(json.dumps(buscas, ensure_ascii=False), encoding="utf-8")
+            disco.gravar_json(guardadas, buscas)
         return faixas
 
     def album(self, album_id: str) -> Album:
         album_id = str(album_id)
         arquivo = self.cache / f"{album_id}.json" if self.cache else None
-        if arquivo and arquivo.exists():
-            dados = json.loads(arquivo.read_text(encoding="utf-8"))
+        dados = disco.ler_json(arquivo)
+        if isinstance(dados, dict):
             if dados.pop("v", None) == VERSAO_DA_LEITURA:
                 return Album(**{**dados, "faixas": [Faixa(**f) for f in dados["faixas"]]})
         try:
@@ -109,8 +110,7 @@ class AppleMusic:
         except ErroDeColeta as e:
             return Album(id=album_id, erro=str(e))
         if arquivo:
-            self.cache.mkdir(parents=True, exist_ok=True)
-            arquivo.write_text(json.dumps({**asdict(album), "v": VERSAO_DA_LEITURA}, ensure_ascii=False), encoding="utf-8")
+            disco.gravar_json(arquivo, {**asdict(album), "v": VERSAO_DA_LEITURA})
         return album
 
 

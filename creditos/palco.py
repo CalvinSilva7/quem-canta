@@ -20,6 +20,7 @@ from pathlib import Path
 from cantor.matching import normalizar
 
 from . import captura
+from . import disco
 
 SITE = "https://www.palcomp3.com.br/"
 PLATAFORMA = "PALCO MP3"
@@ -165,7 +166,7 @@ class Palco:
 
     def buscar(self, consulta: str) -> list[Candidato]:
         arquivo = self.cache / "_buscas.json"
-        guardadas = json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else {}
+        guardadas = disco.ler_json(arquivo, {})
         if consulta in guardadas:
             return [Candidato(**c) for c in guardadas[consulta]]
         if self.so_o_que_ja_foi_lido:
@@ -189,7 +190,7 @@ class Palco:
                 return []  # não guarda: a próxima coleta tenta de novo
         guardadas[consulta] = [asdict(c) for c in candidatos]
         self.cache.mkdir(parents=True, exist_ok=True)
-        arquivo.write_text(json.dumps(guardadas, ensure_ascii=False), encoding="utf-8")
+        disco.gravar_json(arquivo, guardadas)
         return candidatos
 
     def _buscar(self, consulta: str) -> list[Candidato]:
@@ -214,8 +215,9 @@ class Palco:
     def ler(self, cand: Candidato, obra: str) -> Leitura:
         """Abre a página da música, lê a linha de composição e tira o print. Leitura completa fica guardada."""
         arquivo = self.cache / f"{cand.faixa}.json"
-        if arquivo.exists():
-            guardada = Leitura(**json.loads(arquivo.read_text(encoding="utf-8")))
+        dados = disco.ler_json(arquivo)
+        if isinstance(dados, dict):
+            guardada = Leitura(**dados)
             if captura.serve(self.pasta, guardada.provas) or self.so_o_que_ja_foi_lido:  # print sem tela inteira é refeito
                 return guardada
         leitura = Leitura(faixa=cand.faixa, link=cand.link, titulo=cand.titulo, interprete=cand.interprete,
@@ -233,7 +235,7 @@ class Palco:
             leitura.coleta, leitura.erro = "erro", f"{type(e).__name__}: {str(e).splitlines()[0][:160]}"
         if leitura.coleta == "ok":
             self.cache.mkdir(parents=True, exist_ok=True)
-            arquivo.write_text(json.dumps(asdict(leitura), ensure_ascii=False), encoding="utf-8")
+            disco.gravar_json(arquivo, asdict(leitura))
         return leitura
 
     def _ler(self, leitura: Leitura, cand: Candidato, obra: str):

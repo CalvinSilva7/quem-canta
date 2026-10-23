@@ -16,6 +16,7 @@ from pathlib import Path
 import requests
 
 from .captura import slug
+from . import disco
 
 SITE = "https://www.vagalume.com.br"
 NAVEGADOR = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -99,12 +100,12 @@ class Vagalume:
 
     def _guardado(self, nome):
         arquivo = self.cache / f"{nome}.json" if self.cache else None
-        return json.loads(arquivo.read_text(encoding="utf-8")) if arquivo and arquivo.exists() else None
+        return disco.ler_json(arquivo, None)
 
     def _guardar(self, nome, dados):
         if self.cache:
             self.cache.mkdir(parents=True, exist_ok=True)
-            (self.cache / f"{nome}.json").write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+            disco.gravar_json((self.cache / f"{nome}.json"), dados)
 
     def letras_de(self, interprete: str) -> dict:
         """{endereço: título} das letras do intérprete no site; {} se ele não tem página lá."""

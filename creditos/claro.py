@@ -22,6 +22,7 @@ from urllib.parse import quote, unquote
 from cantor.matching import normalizar
 
 from . import captura
+from . import disco
 
 SITE = "https://www.claromusica.com/"
 PLATAFORMA = "CLARO"
@@ -228,7 +229,7 @@ class Claro:
 
     def buscar(self, consulta: str) -> list[Candidato]:
         arquivo = self.cache / "_buscas.json"
-        guardadas = json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else {}
+        guardadas = disco.ler_json(arquivo, {})
         if consulta in guardadas:
             return [Candidato(**c) for c in guardadas[consulta]]
         if self.so_o_que_ja_foi_lido:
@@ -247,18 +248,18 @@ class Claro:
         candidatos = interpretar_resultados(pagina.evaluate(_LER_RESULTADOS))
         guardadas[consulta] = [asdict(c) for c in candidatos]
         self.cache.mkdir(parents=True, exist_ok=True)
-        arquivo.write_text(json.dumps(guardadas, ensure_ascii=False), encoding="utf-8")
+        disco.gravar_json(arquivo, guardadas)
         return candidatos
 
     # --- último recurso: pela página do artista ------------------------------------
 
     def _guardado(self, nome: str) -> dict:
         arquivo = self.cache / f"{nome}.json"
-        return json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else {}
+        return disco.ler_json(arquivo, {})
 
     def _guardar(self, nome: str, dados: dict):
         self.cache.mkdir(parents=True, exist_ok=True)
-        (self.cache / f"{nome}.json").write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+        disco.gravar_json((self.cache / f"{nome}.json"), dados)
 
     def _lista(self, nome_do_cache: str, chave: str, endereco: str, esperar: str, script: str) -> list:
         """Abre uma página de lista, lê com o script e guarda; lista vazia não é guardada (pode ter sido falha)."""
@@ -321,8 +322,9 @@ class Claro:
     def ler(self, cand: Candidato, obra: str) -> Leitura:
         """Abre o álbum, o menu da faixa e o cartão de informações, e tira o print. Leitura completa fica guardada."""
         arquivo = self.cache / f"{cand.faixa}.json"
-        if arquivo.exists():
-            guardada = Leitura(**json.loads(arquivo.read_text(encoding="utf-8")))
+        dados = disco.ler_json(arquivo)
+        if isinstance(dados, dict):
+            guardada = Leitura(**dados)
             if captura.serve(self.pasta, guardada.provas) or self.so_o_que_ja_foi_lido:  # print sem tela inteira é refeito
                 return guardada
         leitura = Leitura(faixa=cand.faixa, link=cand.link, titulo=cand.titulo, interprete=cand.interprete, album=cand.nome_do_album,
@@ -342,7 +344,7 @@ class Claro:
             self._desfazer_o_ajuste()
         if leitura.coleta == "ok":
             self.cache.mkdir(parents=True, exist_ok=True)
-            arquivo.write_text(json.dumps(asdict(leitura), ensure_ascii=False), encoding="utf-8")
+            disco.gravar_json(arquivo, asdict(leitura))
         return leitura
 
     # --- o ajuste de tamanho para o menu e o cartão caberem ------------------------

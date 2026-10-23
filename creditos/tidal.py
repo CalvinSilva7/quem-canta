@@ -17,6 +17,7 @@ from urllib.parse import quote
 from cantor.matching import nomes_parecidos, normalizar
 
 from . import captura
+from . import disco
 
 SITE = "https://tidal.com/"
 VERSAO_DA_LEITURA = 1
@@ -143,11 +144,11 @@ class Tidal:
 
     def _guardado(self, nome):
         arquivo = self.cache / f"{nome}.json"
-        return json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else None
+        return disco.ler_json(arquivo, None)
 
     def _guardar(self, nome, dados):
         self.cache.mkdir(parents=True, exist_ok=True)
-        (self.cache / f"{nome}.json").write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+        disco.gravar_json((self.cache / f"{nome}.json"), dados)
 
     def albuns_de(self, nome: str) -> list[str]:
         """Álbuns do artista com esse nome (pela busca e pela página do artista); [] se não houver."""

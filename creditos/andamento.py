@@ -9,6 +9,7 @@ meio não perde nada.
 import re
 import threading
 import time
+import traceback
 
 from . import pipeline
 
@@ -53,6 +54,8 @@ class Andamento:
         self.parar = threading.Event()
         self.etapa, self.fase, self.avisos_na_fase = self.etapas[0], "", 0
         self.fracao, self.detalhe = 0.0, "Iniciando…"
+        # O que a própria coleta gravou no disco ao terminar ou parar (ver creditos.resultado), e o erro se não conseguiu.
+        self.salvo, self.erro_ao_salvar = None, ""
 
     def __call__(self, texto: str) -> None:
         if self.parar.is_set():
@@ -118,6 +121,7 @@ class Tarefa:
     def __init__(self, funcao, andamento: Andamento, **dados):
         self.andamento, self.dados = andamento, dados
         self.resultado, self.erro, self.interrompida = None, None, False
+        self.detalhe_do_erro = ""  # o traceback, para o registro de erros
         self.linha = threading.Thread(target=self._rodar, args=(funcao,), daemon=True)  # fechar o app encerra a coleta
         self.linha.start()
 
@@ -127,7 +131,7 @@ class Tarefa:
         except Interrompida:
             self.interrompida = True
         except Exception as e:  # navegador que não abriu, rede fora do ar: a tela mostra e deixa tentar de novo
-            self.erro = e
+            self.erro, self.detalhe_do_erro = e, traceback.format_exc()
 
     @property
     def viva(self) -> bool:

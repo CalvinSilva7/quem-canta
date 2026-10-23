@@ -47,6 +47,8 @@ O app roda no computador de quem usa (Windows, no escritório). Não há servido
 | `creditos/ecad.py`, `ubc.py` | Leitura do relatório em PDF e em planilha |
 | `creditos/filtro.py` | O filtro do que pode sair do computador |
 | `creditos/andamento.py` | Barra de progresso e a tarefa em segundo plano (uma por vez) |
+| `creditos/resultado.py` | A própria tarefa grava o resultado no disco ao terminar, ou o parcial se parar |
+| `creditos/disco.py` | Gravação de cache sem arquivo pela metade; cache ilegível é descartado e lido de novo |
 | `creditos/atualizacao.py`, `empacotar.py`, `versao-publicada.json` | A atualização dos apps instalados |
 | `creditos/replica.py` | Réplica: a janela do navegador do app numa linha própria, o cruzamento lista da petição × relatório, o PDF dos prints |
 | `creditos/ecadnet.py`, `iswc.py` | Réplica: endereço e conferência da página no Ecadnet; o Chrome do ISWC, o PDF da página e a junção dos PDFs |
@@ -56,6 +58,9 @@ Dados de quem usa: `Documentos\Quem Canta\casos\<compositor>\<plataforma>\` (lei
 `.png` com `.html` e `.json` ao lado). As sessões da Claro e da Deezer ficam em `Documentos\Quem Canta\perfil-claro`
 e `perfil-deezer`, fora dos casos; a do Ecadnet em `perfil-ecadnet` e o Chrome do ISWC em `perfil-iswc-chrome`.
 Os prints da réplica ficam em `casos\<compositor>\ecadnet\` e `iswc\`, e os PDFs únicos na pasta do caso.
+O resultado de cada rodada (planilha de intérpretes; planilha de obras e `.zip` das provas) fica em
+`casos\<compositor>\resultado\`, com data e hora no nome, e "PARCIAL" quando a rodada parou no meio. Erros das
+tarefas, com o traceback, vão para `Documentos\Quem Canta\erros.log`.
 Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do `cantor`, usado nos testes),
 `QUEMCANTA_DEV` (mostra o campo "quantas obras", só para teste).
 
@@ -337,6 +342,21 @@ Vale ler antes de mexer na plataforma correspondente.
   tudo. Solução: "Juntar planilhas de coletas feitas em separado" (`creditos/juntar.py`), que remonta a aba Obras a
   partir da aba Gravações de cada planilha, pela obra e pelo intérprete. Para conferir uma planilha suspeita: as
   plataformas da aba Gravações e o rodapé da aba Obras dizem o que o app de fato coletou.
+
+**Tarefa em segundo plano**
+- *ZIP que sumia (23/10/2026).* Quem deixava a coleta rodando e voltava depois não achava o resultado. O ZIP era
+  montado só na memória da aba do navegador (`st.session_state`): PC suspenso, aba congelada pelo Chrome ou página
+  recarregada levavam a sessão e o resultado junto. E, ao recarregar, a tela só reencontrava a coleta se ela ainda
+  estivesse rodando. Agora a própria tarefa grava o resultado em `casos\<compositor>\resultado\`
+  (`creditos/resultado.py`); ao parar (botão ou erro), grava o que as plataformas já terminadas deram, com
+  "PARCIAL" no nome; e recarregar a página pega também a coleta que terminou sem ninguém olhando. PC desligado ou
+  janela preta fechada no meio ainda perdem a rodada (as leituras e os prints ficam no cache).
+- *"JSONDecodeError: Expecting value: line 1 column 1 (char 0)" (23/10/2026).* A busca de intérpretes de um caso
+  de 501 obras parava com esse erro. O cache era gravado com `write_text`, que zera o arquivo antes de escrever: o
+  app fechado nessa hora deixava um `.json` vazio, e toda rodada seguinte quebrava ao ler o álbum. O `_buscas.json`
+  da Deezer, reescrito inteiro a cada busca, chega a 8 MB num caso grande. Agora a gravação é atômica
+  (`creditos/disco.py`) e cache ilegível é apagado e lido de novo. A causa exata daquele caso não foi confirmada (não
+  havia registro); daqui em diante o traceback vai para o `erros.log`.
 
 ## 6. O que foi tentado e não funciona
 

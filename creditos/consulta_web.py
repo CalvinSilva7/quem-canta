@@ -27,6 +27,7 @@ from cantor.matching import normalizar
 
 from . import captura, ecadnet, iswc
 from .replica import nomes_na_pagina
+from . import disco
 
 # offsetParent não serve: as janelas dos sites (verificação, detalhes) ficam em posição fixa na tela
 VISIVEL = ("const visivel = e => !!e && getComputedStyle(e).display !== 'none' && "
@@ -261,5 +262,5 @@ class ConsultaWeb:
             "tela_inteira": sobre_a_tela, "carimbo_no_print": False, "arquivos": arquivos,
             "sha256": {chave: captura.sha256((pasta / nome).read_bytes()) for chave, nome in arquivos.items()},
         }
-        (pasta / f"{base}.json").write_text(json.dumps(ficha, ensure_ascii=False, indent=1), encoding="utf-8")
+        disco.gravar_json((pasta / f"{base}.json"), ficha, indent=1)
         return {"ok": True, "ficha": ficha, "titular_na_pagina": bool(nomes_achados)}

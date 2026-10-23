@@ -27,6 +27,7 @@ from cantor.matching import normalizar
 
 from . import captura
 from .amazon import _TODOS, Candidato
+from . import disco
 
 PLATAFORMA = "AMAZON"
 PORTA = 9333
@@ -460,8 +461,9 @@ class AmazonApp:
     def ler(self, cand: Candidato, obra: str) -> Leitura:
         """Abre a faixa no aplicativo, fotografa o menu e a janela de créditos. Leitura completa fica guardada."""
         arquivo = self.cache / f"{cand.faixa}.json"
-        if arquivo.exists():
-            guardada = Leitura(**json.loads(arquivo.read_text(encoding="utf-8")))
+        dados = disco.ler_json(arquivo)
+        if isinstance(dados, dict):
+            guardada = Leitura(**dados)
             # print sem tela inteira é refeito; leitura feita no menu de um álbum (antes da correção) também
             menu_valido = not guardada.menu or interpretar_menu(guardada.menu) != "invalido"
             if (captura.serve(self.pasta, guardada.provas) or self.so_o_que_ja_foi_lido) and menu_valido:
@@ -485,7 +487,7 @@ class AmazonApp:
         self._registrar(f"fim: {leitura.coleta} {leitura.erro}".strip())
         if leitura.coleta == "ok":
             self.cache.mkdir(parents=True, exist_ok=True)
-            arquivo.write_text(json.dumps(asdict(leitura), ensure_ascii=False), encoding="utf-8")
+            disco.gravar_json(arquivo, asdict(leitura))
         return leitura
 
     def _abrir_o_menu(self, titulo: str = "") -> list[str]:
@@ -755,7 +757,7 @@ def diagnostico(destino=None, album="") -> Path:
                 pagina.wait_for_timeout(800)
                 return itens
 
-            (destino / "2-busca-retrato.json").write_text(json.dumps(pagina.evaluate(_RETRATO), ensure_ascii=False, indent=1), encoding="utf-8")
+            disco.gravar_json((destino / "2-busca-retrato.json"), pagina.evaluate(_RETRATO), indent=1)
             # 1. Uma música direto nos resultados da busca.
             musica = tentar('primeira música da seção "Músicas"', lambda: pagina.evaluate(_PRIMEIRO_DA_SECAO, "Músicas"))
             pagina.wait_for_timeout(800)
@@ -771,7 +773,7 @@ def diagnostico(destino=None, album="") -> Path:
                 pagina.wait_for_timeout(9000)
                 tentar("endereço do álbum (o formato que o aplicativo usa)", lambda: pagina.url)
                 tentar("texto do álbum", lambda: " | ".join(l for l in pagina.evaluate(_LER_TEXTO).split("\n") if l.strip())[:900])
-                (destino / "4-album-retrato.json").write_text(json.dumps(pagina.evaluate(_RETRATO), ensure_ascii=False, indent=1), encoding="utf-8")
+                disco.gravar_json((destino / "4-album-retrato.json"), pagina.evaluate(_RETRATO), indent=1)
                 guardar("4-album")
                 if tentar("achar uma linha de faixa no álbum", lambda: pagina.evaluate(_ACHAR_LINHA, "")):
                     pagina.wait_for_timeout(700)
