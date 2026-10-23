@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.67",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.67/quem-canta-0.5.67-windows.zip",
-  "sha256": "67a5c244c9975244f5acc2dd4fc34bdb6b941b3ee9753980c5dd076138ef17f9",
-  "notas": "Resultado salvo sozinho no disco: a planilha e o ZIP vão para casos\\<compositor>\\resultado ao terminar (ou o parcial, se parar). Corrige o JSONDecodeError na busca de intérpretes e o DadoSensivel: percentual com títulos que têm %."
+  "versao": "0.5.68",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.68/quem-canta-0.5.68-windows.zip",
+  "sha256": "8df60a031f98800e05a7076fa8a053f905fc3ab42678a447bb70feed1578f39a",
+  "notas": "Corrige o PermissionError (Acesso negado) ao gravar o cache e tira a regra do % do filtro."
 }
