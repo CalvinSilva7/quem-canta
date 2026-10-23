@@ -167,7 +167,7 @@ def test_filtro_bloqueia_dado_sensivel_e_libera_titulo_e_autores(rel):
     filtro = FiltroDeSaida(rel.termos_sensiveis(), liberados)
     for texto in ["https://api.exemplo/search?q=LIGUE O RADIO ZECA LIMA", "q=coisa feita Maria Aparecida Dias", "isrc:BRXXX2100001"]:
         assert filtro.motivo(texto) == ""
-    for texto in ["q=00111.22.33.44", "obra 12 codigo=3000", "q=Editora Inventada Ltda", "partes 50,00", "25 %", "cpf 123.456.789-09",
+    for texto in ["q=00111.22.33.44", "obra 12 codigo=3000", "q=Editora Inventada Ltda", "partes 50,00", "cpf 123.456.789-09",
                   "inclusao=10/06/2005", "contrato 05/03/21"]:
         assert filtro.motivo(texto), texto
     with pytest.raises(DadoSensivel):
@@ -743,8 +743,7 @@ def test_url_codificada_nao_e_confundida_com_percentual(rel):
 
     filtro = FiltroDeSaida(rel.termos_sensiveis())
     url = "https://music.youtube.com/search?q=" + quote("A DANÇA DA PANELA 3 Zeca Lima")
-    assert filtro.motivo(url) == "percentual"  # é por isso que o coletor confere o texto decodificado
-    assert filtro.motivo(unquote(url)) == ""
+    assert filtro.motivo(url) == "" and filtro.motivo(unquote(url)) == ""  # o "%" não é mais vigiado
 
 
 # --- Apple Music, Spotify, Tidal e Vagalume: interpretação sem rede ------------

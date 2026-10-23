@@ -1,4 +1,4 @@
-"""O "%" que faz parte de um título ou de um nome é público; percentual do cadastro continua sem sair."""
+"""O "%" não é vigiado pelo filtro (decisão do dono, 23/10/2026); percentual do cadastro continua sem sair."""
 
 import pytest
 
@@ -6,27 +6,24 @@ from creditos.filtro import DadoSensivel, FiltroDeSaida
 
 
 def _filtro():
-    return FiltroDeSaida(termos={"50,00", "12345.67.89.01"}, liberados=["100% VOCE", "Grupo 10 %", "Zeca Lima"])
+    return FiltroDeSaida(termos={"50,00", "12345.67.89.01"}, liberados=["100% VOCE", "Zeca Lima"])
 
 
-def test_percentual_do_titulo_ou_do_nome_pode_sair_em_qualquer_forma():
+def test_porcentagem_em_qualquer_texto_pode_sair():
     filtro = _filtro()
-    for texto in ("100% VOCE Zeca Lima", "100% você grupo 10%", "https://www.exemplo.com/search/100% VOCE/tracks", "100 % voce"):
+    for texto in ("100% VOCE Zeca Lima", "Grupo 10 %", "https://www.exemplo.com/search/100%25%20VOCE/tracks", "musica 100%", "25%"):
         assert filtro.motivo(texto) == "", texto
-    filtro.conferir("100% VOCE", "Grupo 10%")
+    filtro.conferir("100% VOCE", "Outro Grupo 100%")
 
 
-def test_outro_percentual_e_o_cadastro_continuam_barrados():
+def test_percentual_do_cadastro_e_codigos_continuam_barrados():
     filtro = _filtro()
-    assert filtro.motivo("100% VOCE 50%") == "percentual"  # o 50% não está em título nem nome
-    assert filtro.motivo("1100% VOCE") == "percentual"  # número diferente, mesmo fim
     assert filtro.motivo("100% VOCE 50,00") == "código, data ou percentual do cadastro"
-    assert FiltroDeSaida().motivo("musica 100%") == "percentual"  # sem título liberado, nada muda
     with pytest.raises(DadoSensivel):
-        filtro.conferir("Zeca Lima 25%")
+        filtro.conferir("Zeca Lima 12345.67.89.01")
 
 
-def test_busca_barrada_no_spotify_so_pula_aquela_busca(monkeypatch):
+def test_busca_barrada_no_spotify_so_pula_aquela_busca():
     from creditos import pipeline
     from creditos.classificador import Config
     from tests.test_creditos import relatorio_de_teste
@@ -36,8 +33,8 @@ def test_busca_barrada_no_spotify_so_pula_aquela_busca(monkeypatch):
         nav = type("Nav", (), {"navegacoes": 0})()
 
         def buscar(self, consulta):
-            raise DadoSensivel("percentual")
+            raise DadoSensivel("editora ou administradora")
 
     coleta = pipeline.coletar_spotify(relatorio_de_teste(), Config(nomes_confirmados=["ZECA LIMA"]), SpotifyQueBarra(),
                                       pares={"LIGUE O RADIO": ["Banda do Baile"]}, limite_de_obras=1)
-    assert not coleta.interrompida and any("o filtro de saída barrou (percentual)" in a for a in coleta.avisos)
+    assert not coleta.interrompida and any("o filtro de saída barrou (editora ou administradora)" in a for a in coleta.avisos)

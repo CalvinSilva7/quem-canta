@@ -359,10 +359,9 @@ Vale ler antes de mexer na plataforma correspondente.
   havia registro); daqui em diante o traceback vai para o `erros.log`.
 - *"A coleta não terminou: DadoSensivel: percentual" (23/10/2026).* O filtro de saída barra qualquer "número%" e
   barrava também o "%" do título de uma obra ou do nome de um intérprete (títulos como "100% ..."). E, no Spotify, na
-  Amazon, no Palco MP3 e no Tidal, a busca barrada derrubava a coleta inteira, em vez de só pular aquela busca. Agora
-  o "N%" que aparece num título do relatório, num nome ou num intérprete da planilha conferida pode sair (os
-  percentuais do cadastro, como "50,00", seguem barrados pelos códigos), e busca barrada vira aviso, como já era no
-  YouTube.
+  Amazon, no Palco MP3 e no Tidal, a busca barrada derrubava a coleta inteira, em vez de só pular aquela busca. Busca barrada agora
+  vira aviso, como já era no YouTube. E a regra do "%" foi tirada do filtro por completo (decisão do dono,
+  23/10/2026): o relatório não traz percentual com "%", e os do cadastro ("50,00") seguem barrados pelos códigos.
 
 ## 6. O que foi tentado e não funciona
 
