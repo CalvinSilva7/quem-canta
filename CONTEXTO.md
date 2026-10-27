@@ -369,6 +369,16 @@ Vale ler antes de mexer na plataforma correspondente.
   regravado a cada faixa, então caía nisso. Agora a troca é tentada de novo por até ~5 s; cache que mesmo assim não
   puder ser guardado não para a coleta; e cache preso na leitura não é apagado. Vale tirar a pasta
   `Documentos\Quem Canta` da sincronização.
+- *Coleta inteira derrubada por uma busca (27/10/2026).* "A coleta não terminou: Error: Page.goto: net::ERR_FAILED at
+  https://music.youtube.com/search?q=…": a página de UMA busca do YouTube Music não carregou e o erro derrubou a
+  coleta toda, inclusive as plataformas que ainda iam rodar. A leitura de cada faixa já tratava o erro técnico; a
+  busca, não. Pedido do dono: com erro, a coleta segue. Agora (`pipeline._buscar`), erro técnico na busca (do
+  navegador, tempo esgotado, conexão; `_erro_tecnico`) espera 15 s e tenta de novo uma vez; falhou de novo, a consulta
+  vai para o Resumo ("ERRO (não verificado)") e a obra fica **"verificar manualmente (a busca deu erro)"** naquela
+  plataforma (`Coleta.obras_com_erro`), nunca "N/A". Vale para YouTube, Spotify, Amazon site, Claro e Palco.
+  Bloqueio, página traduzida, falta de login e filtro de saída não são erro técnico: continuam parando a fila como
+  antes. E erro que a plataforma não previu para só ela (`_sem_derrubar_as_outras`): as outras seguem e as obras
+  dela saem "verificar manualmente". Testado só com navegador falso.
 
 ## 6. O que foi tentado e não funciona
 

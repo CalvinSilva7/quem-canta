@@ -30,6 +30,7 @@ ENCERRADAS = {"BRISA MUSIC", "NAPSTER"}
 SO_NO_APLICATIVO = {"AMAZON"}
 SEPARADOR = " -- "
 TEM_CREDITOS, NAO_ESTA, VERIFICAR = "tem créditos", "N/A", "verificar manualmente"
+BUSCA_COM_ERRO = "verificar manualmente (a busca deu erro)"
 NAO_COLETADO = "não coletado nesta versão"
 A_CONFIRMAR = "A CONFIRMAR (pode ser outra música): "
 
@@ -62,15 +63,27 @@ def linhas_por_obra(relatorio, coletas) -> list[dict]:
             par["grafias"][" ".join(g.interprete.split())] += 1
             par.setdefault(coleta.plataforma, []).append(g)
     coletadas = {coleta.plataforma for coleta in coletas}
+    # Obra cuja busca deu erro (ou cuja plataforma parou por erro): sem gravação lá, não dá para dizer "N/A"
+    com_erro = {}
+    for coleta in coletas:
+        com_erro.setdefault(coleta.plataforma, set()).update(normalizar(t) for t in coleta.obras_com_erro)
+
+    def vazia(plataforma, obra):
+        if plataforma not in coletadas:
+            return _nao_coletada(plataforma)
+        if any(normalizar(t) in com_erro.get(plataforma, ()) for t in obra.split("; ")):
+            return BUSCA_COM_ERRO, c.ERRO_TECNICO
+        return NAO_ESTA, ""
+
     linhas = []
     for (obra, _), par in pares.items():
-        celulas = {p: _celula(par.get(p, [])) if p in coletadas else _nao_coletada(p) for p in PLATAFORMAS}
+        celulas = {p: (_celula(par[p]) if par.get(p) else vazia(p, obra)) for p in PLATAFORMAS}
         # O nome que aparece: a grafia mais usada pelas plataformas (empate: a primeira lida)
         linhas.append({"obra": obra, "interprete": par["grafias"].most_common(1)[0][0], "celulas": celulas})
     com_gravacao = {normalizar(t) for linha in linhas for t in linha["obra"].split("; ")}
     for titulo in dict.fromkeys(o.titulo for o in relatorio.obras):
         if normalizar(titulo) not in com_gravacao:
-            vazias = {p: (NAO_ESTA, "") if p in coletadas else _nao_coletada(p) for p in PLATAFORMAS}
+            vazias = {p: vazia(p, titulo) for p in PLATAFORMAS}
             linhas.append({"obra": titulo, "interprete": "(nenhuma gravação encontrada)", "celulas": vazias})
     return sorted(linhas, key=lambda l: (normalizar(l["obra"]), normalizar(l["interprete"])))
 

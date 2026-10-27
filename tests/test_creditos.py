@@ -651,6 +651,82 @@ def test_youtube_bloqueio_para_a_fila_guarda_o_que_ja_leu_e_avisa(rel):
     assert len(coleta.gravacoes) == 1 and coleta.interrompida.startswith("Bloqueio") and "PAROU" in coleta.avisos[-1]
 
 
+class BuscaQueFalha(YouTubeFalso):
+    """A página da busca não carrega ("net::ERR_FAILED") nas primeiras `falhas` vezes daquela consulta."""
+
+    def __init__(self, buscas, leituras, falha_em, falhas, erro=None):
+        super().__init__(buscas, leituras)
+        self.falha_em, self.falhas, self.erro, self.tentativas = falha_em, falhas, erro, 0
+
+    def buscar(self, consulta, abas):
+        if consulta == self.falha_em:
+            self.tentativas += 1
+            if self.tentativas <= self.falhas:
+                from playwright.sync_api import Error
+
+                raise self.erro or Error(f"Page.goto: net::ERR_FAILED at https://music.youtube.com/search?q={consulta}")
+        return super().buscar(consulta, abas)
+
+
+BUSCAS_DAS_DUAS_OBRAS = {"LIGUE O RADIO Banda do Baile": [("v1", "Ligue o Rádio", "Banda do Baile", "", "Música")],
+                         "COISA FEITA Banda do Baile": [("v2", "Coisa Feita", "Banda do Baile", "", "Música")]}
+
+
+def _leituras_das_duas_obras():
+    return {"v1": _leitura("v1", "Ligue o Rádio", "Banda do Baile", MENU_SEM), "v2": _leitura("v2", "Coisa Feita", "Banda do Baile", MENU_SEM)}
+
+
+def test_busca_que_nao_carrega_e_tentada_de_novo_e_a_coleta_segue(rel, monkeypatch):
+    monkeypatch.setattr(pipeline, "ESPERA_ANTES_DE_TENTAR_DE_NOVO", 0)
+    ytm = BuscaQueFalha(BUSCAS_DAS_DUAS_OBRAS, _leituras_das_duas_obras(), "LIGUE O RADIO Banda do Baile", falhas=1)
+    coleta = _youtube(rel, ytm)
+    assert ytm.tentativas == 2 and ytm.lidos == ["v1", "v2"] and not coleta.obras_com_erro and not coleta.albuns_com_erro
+
+
+def test_busca_que_falha_duas_vezes_vira_verificar_manualmente_e_nao_para_a_coleta(rel, monkeypatch):
+    monkeypatch.setattr(pipeline, "ESPERA_ANTES_DE_TENTAR_DE_NOVO", 0)
+    ytm = BuscaQueFalha(BUSCAS_DAS_DUAS_OBRAS, _leituras_das_duas_obras(), "LIGUE O RADIO Banda do Baile", falhas=9)
+    coleta = _youtube(rel, ytm)
+    assert ytm.tentativas == 2 and ytm.lidos == ["v2"] and not coleta.interrompida  # a outra obra foi lida
+    assert coleta.obras_com_erro == {"LIGUE O RADIO"}
+    erro = "Error: Page.goto: net::ERR_FAILED at https://music.youtube.com/search?q=LIGUE O RADIO Banda do Baile"
+    assert coleta.albuns_com_erro == [('busca "LIGUE O RADIO Banda do Baile"', erro)]
+    celulas = {l["obra"]: l["celulas"]["YOUTUBE"] for l in saida.linhas_por_obra(rel, [coleta])}
+    # Nunca "N/A" (a obra não está lá): a busca não foi vista
+    assert celulas["LIGUE O RADIO"] == (saida.BUSCA_COM_ERRO, c.ERRO_TECNICO) and celulas["COISA FEITA"][0] != saida.NAO_ESTA
+    assert ("ERRO (não verificado)", f'busca "LIGUE O RADIO Banda do Baile": {erro}') in saida.contagens(rel, [coleta])
+
+
+def test_bloqueio_na_busca_nao_e_erro_tecnico_e_continua_parando_a_fila(rel, monkeypatch):
+    monkeypatch.setattr(pipeline, "ESPERA_ANTES_DE_TENTAR_DE_NOVO", 0)
+    ytm = BuscaQueFalha(BUSCAS_DAS_DUAS_OBRAS, _leituras_das_duas_obras(), "COISA FEITA Banda do Baile", falhas=9,
+                        erro=ytmusic.Bloqueio("a plataforma desviou para www.google.com"))
+    coleta = _youtube(rel, ytm)
+    assert ytm.tentativas == 1 and coleta.interrompida.startswith("Bloqueio") and not coleta.obras_com_erro
+
+
+def test_erro_que_a_plataforma_nao_previu_para_so_ela(rel):
+    from creditos.andamento import Interrompida
+
+    def quebra():
+        raise KeyError("campo que sumiu da página")
+    parada, = pipeline._sem_derrubar_as_outras("SPOTIFY", rel, quebra)
+    assert parada.plataforma == "SPOTIFY" and parada.interrompida.startswith("KeyError") and "PAROU" in parada.avisos[-1]
+    assert parada.obras_com_erro == {o.titulo for o in rel.obras}
+    celulas = [l["celulas"]["SPOTIFY"][0] for l in saida.linhas_por_obra(rel, [parada])]
+    assert celulas and set(celulas) == {saida.BUSCA_COM_ERRO}
+    # A Amazon tem duas colunas: as duas ficam paradas
+    assert [k.plataforma for k in pipeline._sem_derrubar_as_outras(("AMAZON", "AMAZON - SITE"), rel, quebra)] == ["AMAZON", "AMAZON - SITE"]
+    # Coleta que deu certo passa como veio; o botão "Parar coleta" (Interrompida) não é engolido
+    ok = pipeline.Coleta("SPOTIFY")
+    assert pipeline._sem_derrubar_as_outras("SPOTIFY", rel, lambda: ok) == [ok]
+
+    def parar():
+        raise Interrompida()
+    with pytest.raises(Interrompida):
+        pipeline._sem_derrubar_as_outras("SPOTIFY", rel, parar)
+
+
 # --- saídas para a petição ---------------------------------------------------
 
 

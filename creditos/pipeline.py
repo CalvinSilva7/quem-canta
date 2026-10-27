@@ -63,6 +63,7 @@ class Coleta:
     segundos: float = 0.0
     sem_vinculo_nao_abertos: int = 0  # resultados de busca com o título, de artista sem ligação com o titular
     interrompida: str = ""  # preenchido quando a fila parou antes do fim (captcha, login, bloqueio)
+    obras_com_erro: set[str] = field(default_factory=set)  # títulos cuja busca falhou: "verificar manualmente", nunca N/A
     clipes: list[dict] = field(default_factory=list)  # clipes (Tidal) para o print à mão: [{"obra", "titulo", "artistas", "link", "medley"}]
 
 
@@ -343,6 +344,58 @@ def _parar(coleta: Coleta, erro: Exception):
     )
 
 
+# Erro técnico numa busca (a página não carregou, a rede falhou: "net::ERR_FAILED", tempo esgotado): a busca é
+# tentada de novo uma vez, depois de uma pausa. Falhou de novo: a obra fica "verificar manualmente" naquela
+# plataforma e a coleta segue. Bloqueio, página traduzida, falta de login e filtro de saída não são erro técnico:
+# continuam parando a fila (ou pulando a consulta, no caso do filtro), como antes.
+ESPERA_ANTES_DE_TENTAR_DE_NOVO = 15
+
+
+def _erro_tecnico(erro: Exception) -> bool:
+    from .cdp import ErroDeConexao
+    from .claro import NaoCarregou
+
+    try:
+        from playwright.sync_api import Error as ErroDoNavegador
+    except ImportError:  # sem o Playwright instalado: nada vem dele
+        ErroDoNavegador = ()
+    return isinstance(erro, (ErroDoNavegador, TimeoutError, ConnectionError, ErroDeConexao, NaoCarregou))
+
+
+def _resumo_do_erro(erro: Exception) -> str:
+    return f"{type(erro).__name__}: {(str(erro).splitlines() or [''])[0][:160]}"
+
+
+def _buscar(coleta: Coleta, titulo: str, consulta: str, buscar, *args, **kwargs) -> list:
+    """`buscar(consulta, …)` com uma segunda chance para erro técnico. Na segunda falha devolve [] e registra."""
+    for tentativa in (1, 2):
+        try:
+            return buscar(consulta, *args, **kwargs)
+        except Exception as erro:
+            if not _erro_tecnico(erro):
+                raise
+            if tentativa == 1:
+                time.sleep(ESPERA_ANTES_DE_TENTAR_DE_NOVO)
+                continue
+            coleta.obras_com_erro.add(titulo)
+            coleta.albuns_com_erro.append((f'busca "{consulta}"', _resumo_do_erro(erro)))
+    return []
+
+
+def _sem_derrubar_as_outras(plataformas: str | tuple, relatorio: Relatorio, coletar) -> list[Coleta]:
+    """Roda a coleta de uma plataforma. Erro que ela não previu para só ela: as outras seguem, e as obras dela ficam
+    "verificar manualmente". `coletar()` devolve uma coleta ou uma lista delas (a Amazon tem duas colunas)."""
+    try:
+        resultado = coletar()
+        return resultado if isinstance(resultado, list) else [resultado]
+    except Exception as erro:
+        paradas = [Coleta(p) for p in ((plataformas,) if isinstance(plataformas, str) else plataformas)]
+        for parada in paradas:
+            _parar(parada, erro)
+            parada.obras_com_erro = {o.titulo for o in relatorio.obras}
+        return paradas
+
+
 def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(), pares=None, limite_de_obras=None,
                     por_interprete=4, por_obra=40, ao_avancar=None) -> Coleta:
     """Spotify: busca "título + intérprete" e abre a janela de créditos de cada faixa de quem tem ligação com o titular.
@@ -369,7 +422,7 @@ def coletar_spotify(relatorio: Relatorio, config: Config, spotify, recorrentes=(
             consultas = list(dict.fromkeys(q for consulta in consultas for q in (consulta, _consulta_enxuta(consulta))))
             for consulta in consultas:
                 try:
-                    achados = spotify.buscar(consulta)
+                    achados = _buscar(coleta, titulo, consulta, spotify.buscar)
                 except DadoSensivel as e:  # a consulta levaria dado sensível: não sai, fica registrado, e a coleta segue
                     coleta.avisos.append(f'busca "{consulta}" não foi feita: o filtro de saída barrou ({e})')
                     continue
@@ -439,7 +492,7 @@ def _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_ob
             if so_o_titulo and consulta != titulo and all(tuple(_palavras(n)) in por_nome for n in pares.get(titulo, [])):
                 continue
             try:
-                achados = amazon.buscar(consulta)
+                achados = _buscar(coleta, titulo, consulta, amazon.buscar)
             except DadoSensivel as e:  # a consulta levaria dado sensível: não sai, fica registrado, e a coleta segue
                 coleta.avisos.append(f'busca "{consulta}" não foi feita: o filtro de saída barrou ({e})')
                 continue
@@ -465,7 +518,7 @@ def _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_ob
                 mesmo = lambda exibido, n=n: (any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(exibido))
                                               or _nome_dentro(n, exibido) or _mesma_grafia(n, exibido))
                 da_obra = lambda exibido, ligados=ligados: _e_da_obra(_titulo_do_video(exibido, relatorio, ligados), titulo, relatorio) == "exato"
-                for cand in amazon.buscar_pelo_artista(n, mesmo, da_obra, no_maximo=por_interprete):
+                for cand in _buscar(coleta, titulo, n, amazon.buscar_pelo_artista, mesmo, da_obra, no_maximo=por_interprete):
                     if cand.faixa not in vistos:
                         vistos.add(cand.faixa)
                         por_nome.setdefault(tuple(_palavras(n)), []).append((cand, titulo, f"página do artista {n}"))
@@ -1398,7 +1451,7 @@ def coletar_youtube(relatorio: Relatorio, config: Config, ytm, recorrentes=(), p
             da_vez, sem_ligacao = [], []
             for consulta, abas in consultas:
                 try:
-                    achados = ytm.buscar(consulta, abas)
+                    achados = _buscar(coleta, titulo, consulta, ytm.buscar, abas)
                 except DadoSensivel as e:  # a consulta levaria dado sensível: não sai, e fica registrado
                     coleta.avisos.append(f'busca "{consulta}" não foi feita: o filtro de saída barrou ({e})')
                     continue
@@ -1620,24 +1673,30 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                                                 limite, ao_avancar=ao_avancar)))
     if "youtube" in pedidas:
         from .ytmusic import YouTubeMusic
-        with YouTubeMusic(pasta / "youtube", filtro=filtro, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
-                          visivel=not so_o_que_ja_foi_lido, so_o_que_ja_foi_lido=so_o_que_ja_foi_lido) as ytm:
-            coletas.append(coletar_youtube(relatorio, config, ytm, recorrentes, pares, por_obra, ao_avancar, limite,
-                                           so_os_pares=conferidos is not None))
+
+        def do_youtube():
+            with YouTubeMusic(pasta / "youtube", filtro=filtro, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
+                              visivel=not so_o_que_ja_foi_lido, so_o_que_ja_foi_lido=so_o_que_ja_foi_lido) as ytm:
+                return coletar_youtube(relatorio, config, ytm, recorrentes, pares, por_obra, ao_avancar, limite,
+                                       so_os_pares=conferidos is not None)
+        coletas += _sem_derrubar_as_outras("YOUTUBE", relatorio, do_youtube)
     if "claro" in pedidas:
         # A Claro Música só mostra o catálogo a quem está logado: usa um navegador à parte, com o perfil em que a
         # pessoa fez o login. As outras plataformas seguem no navegador limpo, sem sessão nenhuma.
         from .claro import Claro
         from .navegador import PerfilEmUso
-        try:
-            with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
-                           perfil=perfil_da_claro(pasta)) as nav_da_claro:
-                coletas.append(ajustar(coletar_claro(relatorio, config, Claro(nav_da_claro, pasta / "claro", so_o_que_ja_foi_lido),
-                                                     recorrentes, pares, limite, ao_avancar=ao_avancar)))
-        except PerfilEmUso as e:  # não derruba as outras plataformas: a Claro fica parada, com o motivo
-            parada = Coleta("CLARO")
-            _parar(parada, e)
-            coletas.append(parada)
+
+        def da_claro():
+            try:
+                with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador,
+                               perfil=perfil_da_claro(pasta)) as nav_da_claro:
+                    return ajustar(coletar_claro(relatorio, config, Claro(nav_da_claro, pasta / "claro", so_o_que_ja_foi_lido),
+                                                 recorrentes, pares, limite, ao_avancar=ao_avancar))
+            except PerfilEmUso as e:  # a Claro fica parada, com o motivo (o perfil aberto em outra janela não é erro dela)
+                parada = Coleta("CLARO")
+                _parar(parada, e)
+                return parada
+        coletas += _sem_derrubar_as_outras("CLARO", relatorio, da_claro)
     for coleta in coletas:  # o que já foi fotografado em outra rodada é reaproveitado
         if coleta.plataforma in ("DEEZER", "APPLE MUSIC", "VAGALUME"):
             reaproveitar_prints(coleta, pasta / coleta.plataforma.lower().replace(" ", "-"),
@@ -1661,8 +1720,9 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
         with Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar, escondido=not mostrar_navegador) as nav:
             if "spotify" in pedidas:
                 from .spotify import Spotify
-                coletas.append(ajustar(coletar_spotify(relatorio, config, Spotify(nav, pasta / "spotify", so_o_que_ja_foi_lido),
-                                                       recorrentes, pares, limite, ao_avancar=ao_avancar)))
+                coletas += _sem_derrubar_as_outras("SPOTIFY", relatorio, lambda: ajustar(coletar_spotify(
+                    relatorio, config, Spotify(nav, pasta / "spotify", so_o_que_ja_foi_lido), recorrentes, pares, limite,
+                    ao_avancar=ao_avancar)))
             if "tidal" in pedidas:
                 from .tidal import Tidal
                 from .tidal_api import TidalAPI, chaves as chaves_do_tidal
@@ -1673,23 +1733,26 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                 api = TidalAPI(chave, filtro=filtro, cache=pasta / "tidal" / "leituras") if chave and not so_o_que_ja_foi_lido else None
                 conhecidas = [(g.obra, g.interprete, g.isrc) for k in coletas if k.plataforma == "DEEZER" for g in k.gravacoes
                               if g.isrc and g.classificacao.status != c.HOMONIMA]
-                coletas.append(ajustar(coletar_tidal(relatorio, config, Tidal(nav, pasta / "tidal", so_o_que_ja_foi_lido),
-                                                     recorrentes, pares, limite, ao_avancar=ao_avancar,
-                                                     so_os_pares=conferidos is not None, api=api,
-                                                     deezer=Deezer(filtro=filtro, cache=pasta / "deezer") if api else None,
-                                                     conhecidas=conhecidas)))
+                coletas += _sem_derrubar_as_outras("TIDAL", relatorio, lambda: ajustar(coletar_tidal(
+                    relatorio, config, Tidal(nav, pasta / "tidal", so_o_que_ja_foi_lido), recorrentes, pares, limite,
+                    ao_avancar=ao_avancar, so_os_pares=conferidos is not None, api=api,
+                    deezer=Deezer(filtro=filtro, cache=pasta / "deezer") if api else None, conhecidas=conhecidas)))
             if "palco" in pedidas:
                 from .palco import Palco
-                coletas.append(ajustar(coletar_palco(relatorio, config, Palco(nav, pasta / "palco-mp3", so_o_que_ja_foi_lido),
-                                                     recorrentes, pares, limite, ao_avancar=ao_avancar)))
+                coletas += _sem_derrubar_as_outras("PALCO MP3", relatorio, lambda: ajustar(coletar_palco(
+                    relatorio, config, Palco(nav, pasta / "palco-mp3", so_o_que_ja_foi_lido), recorrentes, pares, limite,
+                    ao_avancar=ao_avancar)))
             if pedidas & {"amazon", "amazon_app"}:
                 # Uma Amazon só: primeiro o aplicativo de desktop, depois o site para as que vieram sem o titular.
                 from .amazon import AmazonWeb
                 from .amazon_app import AmazonApp
-                with AmazonApp(pasta / "amazon-app", ao_avancar, so_o_que_ja_foi_lido) as aplicativo:
-                    coletas += [ajustar(k) for k in coletar_amazon_completa(
-                        relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido), aplicativo,
-                        recorrentes, pares, limite, ao_avancar=ao_avancar)]
+
+                def da_amazon():
+                    with AmazonApp(pasta / "amazon-app", ao_avancar, so_o_que_ja_foi_lido) as aplicativo:
+                        return [ajustar(k) for k in coletar_amazon_completa(
+                            relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido), aplicativo,
+                            recorrentes, pares, limite, ao_avancar=ao_avancar)]
+                coletas += _sem_derrubar_as_outras(("AMAZON", "AMAZON - SITE"), relatorio, da_amazon)
             if falta_print:
                 preparos = {"VAGALUME": abrir_autoria_do_vagalume, "APPLE MUSIC": abrir_creditos_da_apple}
                 for coleta in coletas:
