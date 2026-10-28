@@ -715,6 +715,9 @@ def coletar_amazon_completa(relatorio: Relatorio, config: Config, amazon, aplica
                                        por_interprete, ao_avancar, abertas=abertas)
     negativas = {g.link for g in no_aplicativo.gravacoes if g.classificacao.status in c.NEGATIVOS}
     fila = [item for item in abertas if item[0].link in negativas]
+    if fila:
+        # A janela do aplicativo fica aberta e cobria o navegador: o print de tela inteira do site não achava a página
+        aplicativo.sair_da_frente()
     no_site = coletar_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_obras, por_interprete, ao_avancar, fila=fila)
     if no_aplicativo.interrompida:
         no_site.avisos.append("O aplicativo de desktop parou antes do fim: o site só fotografou as músicas que o aplicativo já "

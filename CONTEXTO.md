@@ -387,6 +387,13 @@ Vale ler antes de mexer na plataforma correspondente.
   90 s. Sem tocar nesse tempo, os prints saem mesmo assim (a prova do crédito não depende da música) e vira aviso no
   Resumo. O navegador do app já era mudo (`--mute-audio`): não sai som. O JSON de cada print guarda o que o tocador
   mostrava ("tocador"). Só na Deezer.
+- *Amazon pelo site sem tela inteira (28/10/2026).* Numa coleta real, os 133 prints do site saíram só com a captura
+  de página ("a janela do navegador não está à vista neste monitor"); em dois casos anteriores, o mesmo em parte. A
+  causa: a etapa do site vem logo depois da do aplicativo de desktop, e a janela do aplicativo fica aberta no mesmo
+  monitor, por cima do navegador. Agora, antes do site (só se há músicas para ele), o app minimiza a janela do
+  aplicativo (`AmazonApp.sair_da_frente`), que continua aberto e logado. A janela é achada pelo nome do programa
+  ("Amazon Music.exe"), não pela classe: a do aplicativo é igual à do Chrome. Minimizar testado no Windows com outro
+  programa; com o Amazon Music numa coleta, ainda não.
 
 ## 6. O que foi tentado e não funciona
 

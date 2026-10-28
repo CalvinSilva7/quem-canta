@@ -219,6 +219,35 @@ def _powershell(comando: str, com_erros=False) -> list[str]:
     return [linha.strip().strip('"') for linha in saida.splitlines() if linha.strip()]
 
 
+def _minimizar_janelas_do_processo(processo: str) -> int:
+    """Minimiza as janelas à vista do programa com este nome de arquivo. Pelo nome do programa, não pela classe da
+    janela: o aplicativo é feito com a mesma base do Chrome, e a classe das janelas dos dois é igual."""
+    if sys.platform != "win32":
+        return 0
+    import ctypes
+    from ctypes import wintypes
+
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    achadas = []
+
+    def olhar(hwnd, _):
+        if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            aberto = kernel32.OpenProcess(0x1000, False, pid.value)  # 0x1000: só consultar
+            if aberto:
+                nome, tamanho = ctypes.create_unicode_buffer(1024), wintypes.DWORD(1024)
+                if kernel32.QueryFullProcessImageNameW(aberto, 0, nome, ctypes.byref(tamanho)) and Path(nome.value).name.lower() == processo.lower():
+                    achadas.append(hwnd)
+                kernel32.CloseHandle(aberto)
+        return True
+
+    user32.EnumWindows(ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(olhar), 0)
+    for hwnd in achadas:
+        user32.ShowWindow(hwnd, 6)  # 6: minimizar
+    return len(achadas)
+
+
 def comando_da_loja(caminho, porta: int) -> str:
     """O comando que abre a versão da Microsoft Store com a porta de depuração.
 
@@ -365,6 +394,14 @@ class AmazonApp:
     def __exit__(self, *erro):
         if self._pagina is not None:
             self._pagina.fechar()  # só desfaz a conexão: o aplicativo continua aberto, com a conta logada
+
+    def sair_da_frente(self):
+        """Minimiza a janela do aplicativo (continua aberto e logado), para o navegador do site ficar à vista no print
+        de tela inteira. Nunca derruba a coleta: o que aconteceu fica no registro."""
+        try:
+            self._registrar(f"aplicativo minimizado para o site ({_minimizar_janelas_do_processo(PROCESSO)} janelas)")
+        except Exception as e:
+            self._registrar(f"não deu para minimizar o aplicativo ({type(e).__name__}: {e})")
 
     # --- conexão --------------------------------------------------------------
 

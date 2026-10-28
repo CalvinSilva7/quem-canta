@@ -1695,13 +1695,16 @@ class AppFalso:
     navegacoes = 0
 
     def __init__(self, leituras, falha=None):
-        self.leituras, self.falha, self.lidos = leituras, falha, []
+        self.leituras, self.falha, self.lidos, self.minimizado_antes = leituras, falha, [], None
 
     def ler(self, cand, obra):
         if self.falha:
             raise self.falha
         self.lidos.append(cand.faixa)
         return self.leituras[cand.faixa]
+
+    def sair_da_frente(self):
+        self.minimizado_antes = list(self.lidos)
 
 
 def test_amazon_app_classifica_pelos_compositores_e_guarda_os_dois_prints(rel):
@@ -1733,6 +1736,8 @@ def test_amazon_primeiro_o_aplicativo_depois_o_site_so_para_as_sem_o_titular(rel
     # no site, só as que o aplicativo mostrou sem o titular (crédito de outros e sem créditos), sem buscar de novo
     assert web.lidos == ["T3", "T2"] and sorted(g.link[-2:] for g in no_site.gravacoes) == ["T2", "T3"]
     assert all(g.provas == [f"prova-{g.link[-2:]}"] for g in no_site.gravacoes)
+    # a janela do aplicativo sai da frente depois de ler todas e antes do site (cobria o navegador no print de tela inteira)
+    assert app.minimizado_antes == ["T1", "T3", "T2"]
 
     # sem o aplicativo, o site não fotografa nada: não dá para saber quais músicas estão sem o titular
     web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original")]})
@@ -1740,6 +1745,7 @@ def test_amazon_primeiro_o_aplicativo_depois_o_site_so_para_as_sem_o_titular(rel
     no_app, no_site = pipeline.coletar_amazon_completa(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, app, [],
                                                        {"COISA FEITA": ["Cantora Original"]}, limite_de_obras=2)
     assert no_app.interrompida and web.lidos == [] and no_site.gravacoes == [] and "aplicativo de desktop parou" in no_site.avisos[-1]
+    assert app.minimizado_antes is None  # nada para o site: o aplicativo fica como está
     assert pipeline.estimar_minutos(10, ["amazon"]) > pipeline.estimar_minutos(10, []) + 5  # as duas etapas contam
 
 
