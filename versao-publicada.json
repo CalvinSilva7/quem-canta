@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.69",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.69/quem-canta-0.5.69-windows.zip",
-  "sha256": "49540428c8306e34789a49a373aa7e265d9f843880ffa050ca9a940c225c56b3",
-  "notas": "Uma busca que falha (página que não carrega, rede) não para mais a coleta: o app tenta de novo e, se não der, a obra fica verificar manualmente naquela plataforma e a coleta segue."
+  "versao": "0.5.70",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.70/quem-canta-0.5.70-windows.zip",
+  "sha256": "eb922acd8c9fee50ed5cb14743b6e37b85d14be8d53546cff5ba8dfb9d9d5bbd",
+  "notas": "Na Deezer, os prints (menu da faixa e tela de créditos) saem com a música tocando no tocador. Se tocar um anúncio antes, o app espera ele acabar. Não sai som."
 }
