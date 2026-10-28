@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.70",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.70/quem-canta-0.5.70-windows.zip",
-  "sha256": "eb922acd8c9fee50ed5cb14743b6e37b85d14be8d53546cff5ba8dfb9d9d5bbd",
-  "notas": "Na Deezer, os prints (menu da faixa e tela de créditos) saem com a música tocando no tocador. Se tocar um anúncio antes, o app espera ele acabar. Não sai som."
+  "versao": "0.5.71",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.71/quem-canta-0.5.71-windows.zip",
+  "sha256": "c094a0a80990035b85463e27136a4f0987bd5bb980449fa6147a75d8e69c2912",
+  "notas": "Amazon Music pelo site: os prints voltam a sair com a tela inteira (barra de endereço e relógio). A janela do aplicativo da Amazon era deixada por cima do navegador; agora ela é minimizada antes do site."
 }
