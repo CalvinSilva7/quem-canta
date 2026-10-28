@@ -1003,6 +1003,12 @@ def reaproveitar_prints(coleta: Coleta, pasta, endereco=None, etapas=None) -> No
 ETAPA_SEM_CREDITOS = "menu_sem_creditos"
 
 
+def _o_tocador(navegador) -> dict:
+    """Para o JSON do print: o que a barra do tocador mostrava (só quando a música foi posta para tocar)."""
+    tocador = getattr(navegador, "tocador", None)
+    return {"tocador": tocador} if tocador else {}
+
+
 def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar=None, endereco=None, reclassificar=None,
                      com_o_menu=False) -> None:
     """Print das gravações sem crédito ou com crédito errado de uma plataforma lida sem navegador (Deezer, Apple
@@ -1026,12 +1032,14 @@ def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar
         for i, g in enumerate(negativas, start=1):
             avisar(f"{coleta.plataforma.title()}: print {i}/{len(negativas)}")
             menu = []  # o print do menu desta gravação (só o último, se o menu foi aberto mais de uma vez)
+            navegador.tocador = None  # o que o tocador mostrava (Deezer logada: a música é posta para tocar)
 
             def fotografar_o_menu(g=g, menu=menu):
                 for base in menu:
                     captura.descartar(pasta, base)
                 exibido = {"titulo": g.titulo, "interprete": g.interprete, "creditos_lidos": g.creditos, "etapa": "menu",
-                           "constatacao": 'menu da faixa aberto, com o item "Consulte créditos musicais" destacado'}
+                           "constatacao": 'menu da faixa aberto, com o item "Consulte créditos musicais" destacado',
+                           **_o_tocador(navegador)}
                 menu[:] = [captura.capturar(navegador.pagina, pasta, g.obra, g.interprete, coleta.plataforma.lower(), exibido, "menu")["captura"]]
 
             try:
@@ -1057,11 +1065,14 @@ def capturar_paginas(coleta: Coleta, navegador, pasta, preparar=None, ao_avancar
                 if com_o_menu and not menu:
                     raise RuntimeError("o menu da faixa não foi fotografado antes de abrir os créditos")
                 exibido = {"titulo": g.titulo, "interprete": g.interprete, "creditos_lidos": g.creditos,
-                           "creditos_na_tela": na_tela, "constatacao": g.classificacao.fundamento}
+                           "creditos_na_tela": na_tela, "constatacao": g.classificacao.fundamento, **_o_tocador(navegador)}
                 if com_o_menu:
                     exibido["etapa"] = "creditos"
                 creditos = captura.capturar(navegador.pagina, pasta, g.obra, g.interprete, coleta.plataforma.lower(), exibido, "creditos")["captura"]
                 g.provas += menu + [creditos]
+                if getattr(navegador, "tocador", None) and not navegador.tocador["tocando"]:
+                    coleta.avisos.append(f'"{g.titulo}" ({g.interprete}): a música não começou a tocar em {ESPERA_PARA_TOCAR} s; '
+                                         "os prints foram tirados com o tocador parado")
             except MenuSemCreditos:
                 for base in menu:
                     captura.descartar(pasta, base)
@@ -1144,11 +1155,46 @@ def abrir_creditos_da_deezer(navegador, antes_do_clique=None):
 
 
 def abrir_creditos_da_deezer_logada(navegador, antes_do_clique=None):
-    """Como `abrir_creditos_da_deezer`, mas antes confere que o navegador está logado na conta da Deezer."""
+    """Como `abrir_creditos_da_deezer`, mas antes confere que o navegador está logado na conta da Deezer e põe a
+    música para tocar (pedido do dono, 27/10/2026): os prints saem com o tocador mostrando a faixa em andamento."""
     from .deezer import conferir_login
 
     conferir_login(navegador)
+    navegador.tocador = tocar_na_deezer(navegador)
     return abrir_creditos_da_deezer(navegador, antes_do_clique)
+
+
+# A barra do tocador da Deezer (embaixo da página): a música carregada, o tempo e se está tocando
+_TOCADOR_DA_DEEZER = """() => {
+  const texto = (id) => document.querySelector(`[data-testid="${id}"]`)?.textContent.trim() || '';
+  return {titulo: texto('item_title'), tempo: texto('elapsed_time'),
+          tocando: !!document.querySelector('[data-testid="play_button_pause"]')};
+}"""
+ESPERA_PARA_TOCAR = 90  # segundos: na conta gratuita, um anúncio pode tocar antes da música
+
+
+def tocar_na_deezer(navegador, espera=None) -> dict:
+    """Clica em "Ouvir" na página da faixa e espera a barra do tocador mostrar ESTA música tocando (o título da página
+    e o tempo andando). Anúncio antes: espera ele acabar. O navegador do app é mudo (`--mute-audio`): não sai som.
+    Devolve o que o tocador mostrava; sem tocar no tempo, "tocando" é False e os prints saem mesmo assim (a prova do
+    crédito não depende da música tocar), com o aviso."""
+    pagina = navegador.pagina
+    # O título da faixa é a 1ª linha do cabeçalho da página (título, artistas, duração). O da aba do navegador, não:
+    # ele acompanha o tocador, que abre com a música da sessão anterior.
+    pagina.wait_for_selector('[data-testid="masthead"]', timeout=15000)
+    titulo = pagina.evaluate("""() => (document.querySelector('[data-testid="masthead"]')?.innerText || '')
+      .split(String.fromCharCode(10)).map(l => l.trim()).filter(Boolean)[0] || ''""")
+    pagina.locator('[data-testid="track_mix-play-button"]').first.click()
+    limite, antes = time.monotonic() + (ESPERA_PARA_TOCAR if espera is None else espera), None
+    while True:
+        pagina.wait_for_timeout(1500)
+        agora = pagina.evaluate(_TOCADOR_DA_DEEZER)
+        certa = bool(titulo) and normalizar(agora["titulo"]) == normalizar(titulo)
+        if certa and agora["tocando"] and antes and agora["tempo"] not in ("", "00:00", antes["tempo"]):
+            return {**agora, "tocando": True}
+        antes = agora if certa else None
+        if time.monotonic() > limite:
+            return {**agora, "tocando": False, "esperado": titulo}
 
 
 def pagina_da_musica_na_apple(link: str) -> str:

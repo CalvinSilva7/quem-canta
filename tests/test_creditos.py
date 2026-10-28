@@ -2147,6 +2147,93 @@ def test_deezer_fotografa_o_menu_um_clique_antes_e_depois_os_creditos(tmp_path, 
     assert "DEEZER" in provas.TODOS_OS_PRINTS
 
 
+class _PaginaDaDeezerTocando:
+    """A página da faixa: o cabeçalho com o título e a barra do tocador, que muda a cada leitura (`estados`)."""
+
+    def __init__(self, titulo, estados):
+        self.titulo, self.estados, self.clicados, self.lidos = titulo, list(estados), [], 0
+
+    def wait_for_selector(self, seletor, timeout=None):
+        pass
+
+    def wait_for_timeout(self, ms):
+        pass
+
+    def locator(self, seletor):
+        pagina = self
+
+        class Alvo:
+            first = property(lambda alvo: alvo)
+
+            def click(alvo):
+                pagina.clicados.append(seletor)
+        return Alvo()
+
+    def evaluate(self, script, *args):
+        if script == pipeline._TOCADOR_DA_DEEZER:
+            estado = self.estados[min(self.lidos, len(self.estados) - 1)]
+            self.lidos += 1
+            return dict(zip(("titulo", "tempo", "tocando"), estado))
+        return self.titulo  # o título no cabeçalho da página
+
+
+def _tocar(titulo, estados, espera=None):
+    from types import SimpleNamespace
+    pagina = _PaginaDaDeezerTocando(titulo, estados)
+    return pipeline.tocar_na_deezer(SimpleNamespace(pagina=pagina), espera=espera), pagina
+
+
+def test_deezer_poe_a_musica_para_tocar_e_confere_que_e_a_certa():
+    """Pedido do dono (27/10/2026): os prints da Deezer saem com a música tocando. O tocador abre com a música da sessão
+    anterior: só vale quando ele mostra o título desta faixa, tocando, com o tempo andando."""
+    tocador, pagina = _tocar("Coisa Feita", [("Outra Música", "01:29", False), ("Coisa Feita", "00:00", True),
+                                              ("Coisa Feita", "00:01", True), ("Coisa Feita", "00:03", True)])
+    assert pagina.clicados == ['[data-testid="track_mix-play-button"]']
+    assert tocador == {"titulo": "Coisa Feita", "tempo": "00:01", "tocando": True}
+    # Anúncio antes da música: espera ele acabar
+    tocador, _ = _tocar("Coisa Feita", [("Publicidade", "00:05", True), ("Publicidade", "00:12", True),
+                                         ("Coisa Feita", "00:01", True), ("Coisa Feita", "00:02", True)])
+    assert tocador["titulo"] == "Coisa Feita" and tocador["tocando"]
+    # Outra música tocando (a página não trocou o tocador): não vale, mesmo andando
+    tocador, _ = _tocar("Coisa Feita", [("Outra Música", "00:01", True), ("Outra Música", "00:02", True)], espera=0)
+    assert (tocador["titulo"], tocador["tocando"], tocador["esperado"]) == ("Outra Música", False, "Coisa Feita")
+    # Parada em 00:00 (não começou): não vale
+    assert not _tocar("Coisa Feita", [("Coisa Feita", "00:00", False)], espera=0)[0]["tocando"]
+
+
+def test_deezer_print_guarda_o_tocador_e_avisa_quando_a_musica_nao_tocou(tmp_path, monkeypatch):
+    class NavegadorFalso:
+        class pagina:
+            url = "https://www.deezer.com/track/1"
+            wait_for_timeout = staticmethod(lambda ms: None)
+            evaluate = staticmethod(lambda *a: "")
+        def ir(self, url, pausa=None): pass
+        def conferir(self, texto=""): pass
+
+    exibidos = []
+    monkeypatch.setattr(captura, "capturar", lambda pagina, pasta, obra, interprete, plataforma, exibido, etapa="":
+                        exibidos.append(exibido) or {"captura": f"{etapa}-{len(exibidos)}"})
+    sem = pipeline.Gravacao(plataforma="DEEZER", link="https://www.deezer.com/track/1", titulo="Coisa Feita",
+                            interprete="Banda do Baile", obra="COISA FEITA", vinculo="x",
+                            classificacao=c.Classificacao(c.SEM_CREDITOS, "sem compositor"))
+
+    def tocando(como):
+        def preparar(navegador, antes_do_clique=None):
+            navegador.tocador = como
+            antes_do_clique()
+        return preparar
+
+    coleta = pipeline.Coleta("DEEZER", gravacoes=[sem])
+    pipeline.capturar_paginas(coleta, NavegadorFalso(), tmp_path, tocando({"titulo": "Coisa Feita", "tempo": "00:04", "tocando": True}),
+                              com_o_menu=True)
+    assert [e["tocador"]["tempo"] for e in exibidos] == ["00:04", "00:04"] and not coleta.avisos  # o menu e os créditos
+    exibidos.clear()
+    sem.provas = []
+    pipeline.capturar_paginas(coleta, NavegadorFalso(), tmp_path, tocando({"titulo": "Outra", "tempo": "00:00", "tocando": False}),
+                              com_o_menu=True)
+    assert len(sem.provas) == 2 and "não começou a tocar" in coleta.avisos[0]  # a prova do crédito sai mesmo assim
+
+
 def test_deezer_so_reaproveita_quando_tem_o_print_do_menu_e_o_dos_creditos(tmp_path, monkeypatch):
     fichas = [
         {"captura": "antigo", "url": "https://www.deezer.com/track/1", "capturado_em": "2026-10-01T10:00:00", "exibido": {"creditos_lidos": []}},

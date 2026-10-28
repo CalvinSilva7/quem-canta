@@ -96,7 +96,7 @@ Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do `cantor
 
 | Plataforma | Como acha a gravação | Print | Situação |
 |---|---|---|---|
-| Deezer | API pública, sem navegador | 2 por música, logado na conta (decisão do dono, 14/10/2026): o menu da faixa com "Consulte créditos musicais" destacado, um clique antes, e o painel de créditos | Leitura validada (sem login). Print corrigido na 0.5.18 e visto em 1 faixa, no Mac. **Print logado ainda não testado com conta real**: a sessão é reconhecida pelo cookie `arl`; visitante não o tem (conferido) |
+| Deezer | API pública, sem navegador | 2 por música, logado na conta (decisão do dono, 14/10/2026): o menu da faixa com "Consulte créditos musicais" destacado, um clique antes, e o painel de créditos; **com a música tocando** (pedido do dono, 27/10/2026) | Leitura validada (sem login). Print logado com a música tocando testado no Windows em 27/10/2026, conta real, 3 faixas: 6 prints certos, 38 s; de novo em 28/10/2026 (2 faixas, as duas tocando no print). Publicado na 0.5.70. A sessão é reconhecida pelo cookie `arl`; visitante não o tem (conferido) |
 | Apple Music | API do iTunes e página do álbum | Fora da coleta de prints (decisão do dono) | Só na busca de intérpretes. Recusa buscas (403/429) em relatório grande |
 | YouTube Music | Busca do site | Menu da faixa | Validado com três gabaritos (no terceiro, Mac, 0.5.38: 29 de 31 links; os 2 restantes saem "a confirmar" por grafia do título). Intérprete conferido vale com uma letra de diferença e, se a busca mostra os músicos no lugar da banda, o app consulta o canal do vídeo (oEmbed público, só o código do vídeo sai); tela inteira validada no Windows |
 | Spotify | Busca do site (cada consulta também na forma enxuta) | Janela "Créditos" | Validado no Mac e no Windows (0.5.36): 10 de 10 e 4 de 4. As leituras anteriores à 0.5.35 podiam trazer violação falsa |
@@ -379,6 +379,14 @@ Vale ler antes de mexer na plataforma correspondente.
   Bloqueio, página traduzida, falta de login e filtro de saída não são erro técnico: continuam parando a fila como
   antes. E erro que a plataforma não previu para só ela (`_sem_derrubar_as_outras`): as outras seguem e as obras
   dela saem "verificar manualmente". Testado só com navegador falso.
+- *Deezer: print com a música tocando (pedido do dono, 27/10/2026).* Antes dos dois prints (menu e créditos), o app
+  clica em "Ouvir" na página da faixa e espera a barra do tocador (embaixo) mostrar ESTA música tocando: o título do
+  tocador igual ao do cabeçalho da página e o tempo andando (`tocar_na_deezer`). Cuidado que custou um teste: o
+  tocador abre com a música da sessão anterior, e o título da aba do navegador acompanha o tocador, não a página; o
+  título certo é a 1ª linha do cabeçalho (`[data-testid="masthead"]`). Anúncio antes (conta gratuita): espera, até
+  90 s. Sem tocar nesse tempo, os prints saem mesmo assim (a prova do crédito não depende da música) e vira aviso no
+  Resumo. O navegador do app já era mudo (`--mute-audio`): não sai som. O JSON de cada print guarda o que o tocador
+  mostrava ("tocador"). Só na Deezer.
 
 ## 6. O que foi tentado e não funciona
 
