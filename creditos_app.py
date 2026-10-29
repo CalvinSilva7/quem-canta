@@ -22,7 +22,7 @@ from creditos.modelo import SITUACOES, Relatorio
 # Onde ficam os casos (o que já foi lido e os prints): fora da pasta do programa, para uma atualização nunca tocar neles.
 PASTA_DE_DADOS = Path(os.environ.get("QUEMCANTA_DADOS") or Path.home() / "Documents" / "Quem Canta")
 
-ETAPAS = ["Buscar intérpretes", "Coleta de prints", "Réplica (ECAD)", "Réplica (ISWC)"]  # as abas do app
+ETAPAS = ["Buscar intérpretes", "Coleta de prints", "Réplica (ECAD)", "Réplica (ISWC)", "Tabela de obras"]  # as abas do app
 
 
 @st.fragment(run_every=1)
@@ -155,6 +155,9 @@ st.caption(
     if etapa == ETAPAS[2] else
     "Os prints do ISWC Network para a réplica. O relatório é lido só neste computador. Quem busca no ISWC é você; o app "
     "abre a página, copia o ISWC e fotografa quando você pede."
+    if etapa == ETAPAS[3] else
+    "A tabela de obras: o relatório analítico, o ISWC e o Ecadnet de cada obra, lado a lado, no modelo do escritório. "
+    "Tudo é lido só neste computador; o app não acessa site nenhum nesta aba."
 )
 
 arquivo = st.file_uploader(
@@ -670,7 +673,114 @@ def aba_da_replica(site: str):
     else:
         lista_e_pdf(guardados, f"do {nome_do_site}", site, "pdf", _iswc.juntar_pdfs, "Juntar os PDFs", f"ISWC - {titular}.pdf")
 
-if etapa in ETAPAS[2:]:
+
+
+def aba_da_tabela():
+    """A tabela de obras a partir dos arquivos que o escritório já tem: o relatório (enviado lá em cima), os PDFs do
+    ISWC e os prints do Ecadnet. O app acha cada obra, recorta, mostra para conferir e monta o Word."""
+    from creditos import tabela_obras as _tabela
+
+    st.subheader("Tabela de obras")
+    st.caption("Uma linha por obra do ISWC, na ordem do relatório e com o título do relatório: o recorte do relatório "
+               "analítico, o do ISWC e o do Ecadnet. Obra sem print do Ecadnet fica com a célula vazia.")
+    if arquivo is None or not arquivo.name.lower().endswith(".pdf"):
+        st.warning("Para a tabela, envie lá em cima o **relatório analítico do ECAD em PDF**: é dele que sai a 2ª coluna.")
+        return
+    do_iswc = st.file_uploader("PDFs do ISWC: um PDF com todas as obras, vários PDFs, ou o .zip de um PDF por obra",
+                               type=["pdf", "zip"], accept_multiple_files=True, key="tabela_iswc")
+    do_ecadnet = st.file_uploader("Prints do Ecadnet: o Word ou o PDF com os prints de tela (ou as imagens, ou um .zip)",
+                                  type=["docx", "pdf", "png", "jpg", "jpeg", "zip"], accept_multiple_files=True,
+                                  key="tabela_ecadnet")
+    chave = (arquivo.file_id, tuple(f.file_id for f in do_iswc or []), tuple(f.file_id for f in do_ecadnet or []))
+    feito = st.session_state.get("tabela")
+    if feito and feito["chave"] != chave:
+        feito = None  # arquivos trocados: a tabela montada antes não vale mais
+    if st.button("Montar a tabela", type="primary", disabled=not do_iswc, key="tabela_montar"):
+        try:
+            with st.status("Montando a tabela…", expanded=True) as situacao:
+                st.write("Recortando o relatório e o ISWC…")
+                pdfs = [pdf for f in do_iswc for pdf in _tabela.pdfs_de(f.name, f.getvalue())]
+                linhas, obras, avisos = _tabela.preparar(arquivo.getvalue(), pdfs)
+                prints = []
+                if do_ecadnet:
+                    arquivos = [im for f in do_ecadnet for im in _tabela.imagens_de(f.name, f.getvalue())]
+                    barra = st.progress(0.0, text=f"Lendo os prints do Ecadnet (0 de {len(arquivos)})")
+                    prints = _tabela.ler_prints(arquivos, lambda feitos, total: barra.progress(
+                        feitos / total, text=f"Lendo os prints do Ecadnet ({feitos} de {total})"))
+                    _tabela.ligar_prints(prints, obras, {_tabela.digitos(linha.iswc) for linha in linhas})
+                situacao.update(label="Tabela montada: confira abaixo", state="complete", expanded=False)
+        except _tabela.LeitorIndisponivel as e:
+            st.error("O leitor de texto do Windows não respondeu, e é com ele que o app sabe de que obra é cada print do "
+                     f"Ecadnet ({e}). Monte a tabela sem os prints do Ecadnet, ou avise quem cuida do app.")
+            return
+        except Exception as e:  # arquivo de outro formato, PDF escaneado etc.
+            st.error(f"Não consegui montar a tabela: {type(e).__name__}: {e}")
+            return
+        feito = {"chave": chave, "linhas": linhas, "avisos": avisos, "prints": prints}
+        st.session_state.tabela = feito
+        st.session_state.pop("tabela_word", None)
+    if not feito:
+        return
+    linhas, prints = feito["linhas"], feito["prints"]
+    for aviso in feito["avisos"]:
+        st.warning(aviso)
+
+    # A ligação de cada print do Ecadnet: a pessoa pode trocar a obra (ou deixar o print de fora)
+    nomes = {_tabela.digitos(linha.iswc): f"{i + 1}. {linha.titulo} ({linha.iswc})" for i, linha in enumerate(linhas)}
+    opcoes = ["", *nomes]
+    if prints:
+        sem_obra = [p for p in prints if not p.obra]
+        with st.expander(f"Prints do Ecadnet: {len(prints)} lidos, {len(prints) - len(sem_obra)} na tabela, "
+                         f"{len(sem_obra)} de fora (obras que não estão no ISWC)"):
+            st.caption("Cada print, a obra a que o app o ligou e como: pelo código da obra no endereço, pelo ISWC, pelo "
+                       "título, ou como continuação (página rolada) do print anterior. Troque a obra se estiver errada.")
+            for n, p in enumerate(prints):
+                colunas = st.columns([2, 3])
+                if p.recorte:
+                    colunas[0].image(p.recorte, width=260)
+                rotulo = f"Print {n + 1}" + (f": {p.titulo}" if p.titulo else "") + (f" · código {p.codigo}" if p.codigo else "")
+                escolhida = colunas[1].selectbox(
+                    rotulo, opcoes, index=opcoes.index(p.obra) if p.obra in opcoes else 0, key=f"tabela_print_{n}",
+                    format_func=lambda o: nomes.get(o, "(fora da tabela)"))  # fmt: skip
+                colunas[1].caption(f"Ligado por: {p.como or 'nada (não reconhecido)'}")
+                if escolhida != p.obra:
+                    p.obra, p.como = escolhida, "pessoa"
+                    st.session_state.pop("tabela_word", None)
+    _tabela.preencher_ecadnet(linhas, prints)
+
+    com_ecadnet = sum(1 for linha in linhas if linha.ecadnet)
+    st.markdown(f"**{len(linhas)} obras na tabela**, {com_ecadnet} com Ecadnet e {len(linhas) - com_ecadnet} sem.")
+    with st.expander("Conferir obra por obra"):
+        for i, linha in enumerate(linhas):
+            colunas = st.columns([2, 3, 3, 4])
+            colunas[0].markdown(f"{i + 1}. **{linha.titulo}**")
+            for imagem in linha.relatorio:
+                colunas[1].image(imagem, use_container_width=True)
+            if linha.iswc_imagem:
+                colunas[2].image(linha.iswc_imagem, use_container_width=True)
+            for imagem in linha.ecadnet:
+                colunas[3].image(imagem, use_container_width=True)
+            if not linha.ecadnet:
+                colunas[3].caption("sem Ecadnet")
+    titular = relatorio.pseudonimo_titular or relatorio.nome_titular or "titular"
+    nome_do_word = f"Tabela de obras - {titular}.docx"
+    if st.button("Gerar a tabela (Word)", key="tabela_gerar"):
+        conteudo = _tabela.montar_docx(linhas)
+        pasta_do_caso.mkdir(parents=True, exist_ok=True)
+        (pasta_do_caso / nome_do_word).write_bytes(conteudo)
+        st.session_state.tabela_word = conteudo
+        st.success(f"Tabela gerada: `{(pasta_do_caso / nome_do_word).resolve()}`")
+    if st.session_state.get("tabela_word"):
+        st.download_button(f"Baixar {nome_do_word}", st.session_state.tabela_word, file_name=nome_do_word,
+                           mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="tabela_baixar")
+
+
+if etapa == ETAPAS[4]:
+    aba_da_tabela()
+    st.caption(f"Versão {VERSAO} · casos e prints em `{PASTA_DE_DADOS}`")
+    st.stop()
+
+if etapa in ETAPAS[2:4]:
     aba_da_replica("ecadnet" if etapa == ETAPAS[2] else "iswc")
     st.caption(f"Versão {VERSAO} · casos e prints em `{PASTA_DE_DADOS}`")
     st.stop()

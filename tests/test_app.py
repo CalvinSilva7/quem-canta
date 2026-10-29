@@ -494,10 +494,13 @@ def test_etapa_dos_prints_exige_a_planilha_conferida(tmp_path, monkeypatch):
 
 def test_as_abas_aparecem_antes_de_enviar_qualquer_arquivo():
     at = _tela_de_creditos().run()
-    assert not at.exception and at.button_group[0].options == [ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS, "Réplica (ECAD)", "Réplica (ISWC)"]
+    assert not at.exception and at.button_group[0].options == [ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS, "Réplica (ECAD)", "Réplica (ISWC)",
+                                                                "Tabela de obras"]
     assert at.button_group[0].value == ETAPA_DOS_INTERPRETES and any("planilha de intérpretes" in c.value for c in at.caption)
     at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
     assert any("lista da petição" in c.value for c in at.caption) and any("Envie o relatório" in i.value for i in at.info)
+    at.button_group[0].set_value("Tabela de obras").run()
+    assert not at.exception and any("tabela de obras" in c.value for c in at.caption)
 
 
 def test_botao_de_apagar_o_guardado_pede_confirmacao_e_limpa_so_o_marcado(tmp_path, monkeypatch):

@@ -224,6 +224,34 @@ Testado no Windows com o captcha resolvido à mão e 5 obras reais; posições d
 obra).zip` na pasta do caso, com as mesmas obras e a mesma ordem do PDF único (↑ ↓ valem), cada uma como
 `01 - TÍTULO (T-xxx.xxx.xxx-x).pdf`. O PDF entra como foi salvo (mesmo SHA-256 da ficha). Os dois botões ficam.
 
+### 4.2 Tabela de obras (29/10/2026, ainda não publicada)
+Aba **Tabela de obras** (`creditos/tabela_obras.py`): o Word que o escritório montava à mão, com uma linha por obra e
+4 colunas (obra, recorte do relatório analítico, do ISWC e do Ecadnet), no formato do modelo (A4 deitado, margens de
+1,27 cm, Bookman Old Style 10, larguras 2262/3355/4017/5989 dxa, cada recorte na largura útil da coluna). Entram o
+relatório (o PDF enviado lá em cima), os PDFs do ISWC (um, vários ou o .zip da Réplica ISWC) e os prints do Ecadnet
+(Word, PDF, imagens ou .zip). Decisões do dono: as linhas são as obras do ISWC, na ordem do relatório e **com o título
+do relatório**; obra sem print do Ecadnet fica com a célula vazia.
+- Relatório e ISWC são PDFs com texto: a obra é achada pelo ISWC e o recorte sai do próprio PDF (pypdfium2), em alta
+  resolução. No relatório: a linha da obra (Courier-Bold) e os nomes dos titulares (Courier-Oblique), da coluna ISWC
+  em diante, **até o nome do cliente** (a linha com o código do titular do cabeçalho; decisão do dono, como na
+  maioria das linhas feitas à mão); se o cliente está na página seguinte, ela entra num 2º recorte. No ISWC: o quadro do resultado, de
+  "ISWC:" até a divisória antes de "IP Name Number".
+- Ecadnet são prints de tela: o leitor de texto **do Windows** (Windows.Media.Ocr pelo PowerShell; nada instalado) lê
+  o alto do print ampliado 3x. O endereço `.../obras-musicais/<n>` traz o **CÓD. OBRA do relatório**: é a ligação
+  principal; depois o ISWC (1 dígito de tolerância) e o título. Print sem a barra azul = continuação (página rolada)
+  do anterior. Recorte: da barra azul até a última divisória cinza que tem branco logo embaixo (a barra de tarefas e o
+  fundo do site são cinza sem branco embaixo). A tela mostra cada print com a obra ligada, para trocar se precisar.
+- Teste com um caso real do escritório: 50 obras iguais às da tabela feita à mão, 59 prints ligados certo (41 obras
+  com Ecadnet, 9 sem, 6 continuações, 13 prints de obras fora do ISWC), leitura em ~45 s. Diferenças: o título (o
+  modelo usava a grafia do Ecadnet); recorte do relatório igual em 45 de 50 (em 4 a tabela à mão pegou todos os
+  titulares, fora do padrão, e em 1 colou o recorte de outra obra).
+- **Erros conhecidos (29/10/2026, achados no 2º caso real, de 75 obras; corrigir antes de publicar):**
+  1. Título longo sai cortado (ex.: "Na Cama Ela Quem Me Domina (primeiro A"): o título é lido só até a coluna
+     "ASS." e o que passa dela, ou quebra de linha, fica de fora. Ver como o relatório escreve esses títulos.
+  2. Prints do Ecadnet que não foram ligados à obra: 2 obras ficaram sem Ecadnet e 1 com um print a menos, que a
+     tabela feita à mão tinha. Ver o que o leitor leu nesses prints (código, ISWC, título).
+  3. A tabela à mão tinha 64 obras e o PDF do ISWC 75: perguntar ao escritório por que 11 ficaram de fora.
+
 ## 5. Erros que custaram tempo, e a causa de cada um
 
 Vale ler antes de mexer na plataforma correspondente.
