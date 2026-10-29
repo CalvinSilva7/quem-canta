@@ -220,6 +220,9 @@ nomes. Na hora de salvar, o app faz a página se comportar como numa janela de 1
 recente. A junção usa o `pypdfium2`, que vem com o pdfplumber: a atualização do app não instala biblioteca nova.
 Testado no Windows com o captcha resolvido à mão e 5 obras reais; posições do texto iguais às do PDF feito à mão
 (diferença menor que 1 pt).
+29/10/2026, pedido do dono: além do PDF único, **"Gerar o ZIP (um PDF por obra)"** → `ISWC - <titular> (um PDF por
+obra).zip` na pasta do caso, com as mesmas obras e a mesma ordem do PDF único (↑ ↓ valem), cada uma como
+`01 - TÍTULO (T-xxx.xxx.xxx-x).pdf`. O PDF entra como foi salvo (mesmo SHA-256 da ficha). Os dois botões ficam.
 
 ## 5. Erros que custaram tempo, e a causa de cada um
 

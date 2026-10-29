@@ -2488,6 +2488,22 @@ def test_iswc_guarda_o_pdf_confere_o_iswc_e_junta(tmp_path):
     assert len(pdfplumber.open(tmp_path / "junto.pdf").pages) == 2
 
 
+def test_iswc_zip_com_um_pdf_por_obra_na_ordem_da_lista(tmp_path):
+    import io
+    import zipfile
+
+    from creditos import iswc
+
+    _pdf_do_iswc(tmp_path / "a.pdf", "T-123.456.789-0")
+    _pdf_do_iswc(tmp_path / "b.pdf", "T-000.000.001-0")
+    pacote = zipfile.ZipFile(io.BytesIO(iswc.zip_por_obra([("ZÉ: A/B?", "T-000.000.001-0", tmp_path / "b.pdf"),
+                                                            ("COISA FEITA", "T-123.456.789-0", tmp_path / "a.pdf")])))
+    # na ordem dada (a da lista na tela), sem o que o Windows recusa em nome de arquivo, e o PDF igual ao salvo
+    assert pacote.namelist() == ["01 - ZÉ AB (T-000.000.001-0).pdf", "02 - COISA FEITA (T-123.456.789-0).pdf"]
+    assert pacote.read("02 - COISA FEITA (T-123.456.789-0).pdf") == (tmp_path / "a.pdf").read_bytes()
+    assert iswc.nome_no_zip(7, 120, "OBRA.", "") == "007 - OBRA.pdf"
+
+
 def test_ecadnet_junta_os_prints_da_ultima_rodada_de_cada_obra(tmp_path):
     from PIL import Image
     import pdfplumber

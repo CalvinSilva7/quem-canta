@@ -624,6 +624,7 @@ def aba_da_replica(site: str):
                 if colunas[5].button("✕", key=f"{prefixo}_tira_{captura_id}", help="Tirar este print da lista e do PDF"):
                     _replica.remover_print(pasta, captura_id)
                     st.session_state.pop(f"{prefixo}_junto", None)  # o PDF juntado antes ficou velho
+                    st.session_state.pop(f"{prefixo}_zip_feito", None)
                     st.rerun()
             deixados = len(validos) - len(escolhidos)
             if deixados:
@@ -645,6 +646,19 @@ def aba_da_replica(site: str):
         if st.session_state.get(f"{prefixo}_junto"):
             nome_do_junto, junto = st.session_state[f"{prefixo}_junto"]
             st.download_button(f"Baixar {nome_do_junto}", junto, file_name=nome_do_junto, mime="application/pdf", key=f"{prefixo}_baixar")
+        if do_ecadnet:
+            return
+        # ISWC: além do PDF único, um .zip com um PDF por obra, na mesma ordem (pedido do dono, 29/10/2026)
+        nome_do_zip = nome_do_pdf.removesuffix(".pdf") + " (um PDF por obra).zip"
+        if st.button("Gerar o ZIP (um PDF por obra)", disabled=not no_pdf, key=f"{prefixo}_zip"):
+            pacote = _iswc.zip_por_obra([(f.get("obra", ""), chave_da_obra(f), pasta / f["arquivos"][arquivo]) for f in no_pdf])
+            destino = pasta_do_caso / nome_do_zip
+            destino.write_bytes(pacote)
+            st.session_state[f"{prefixo}_zip_feito"] = pacote
+            st.success(f"ZIP gerado ({len(no_pdf)} PDFs, um por obra): `{destino.resolve()}`")
+        if st.session_state.get(f"{prefixo}_zip_feito"):
+            st.download_button(f"Baixar {nome_do_zip}", st.session_state[f"{prefixo}_zip_feito"], file_name=nome_do_zip,
+                               mime="application/zip", key=f"{prefixo}_baixar_zip")
 
     if do_ecadnet:
         associacoes = ("Socinpro", "UBC")  # as buscas alternativas: cada uma com lista e PDF próprios

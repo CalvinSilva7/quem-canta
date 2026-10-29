@@ -3,7 +3,7 @@
 Os Termos de Uso do ISWC-Net permitem só consultas manuais, e o "não sou um robô" recusa o navegador do app. Por
 isso o ISWC abre no Google Chrome da pessoa, com um perfil só dele: ela resolve o captcha; o app abre o link de
 resultado de cada obra (um por clique, na mesma aba) e salva a página em PDF, como o Ctrl+P do Chrome, quando ela
-pede. No fim, junta os PDFs num só."""
+pede. No fim, junta os PDFs num só ou faz um .zip com um PDF por obra."""
 
 import re
 from pathlib import Path
@@ -369,6 +369,28 @@ def juntar_pdfs(caminhos) -> bytes:
     saida = io.BytesIO()
     junto.save(saida)
     junto.close()
+    return saida.getvalue()
+
+
+PROIBIDOS_NO_NOME = set('<>:"/|?*' + chr(92))  # chr(92) é a barra invertida
+
+
+def nome_no_zip(posicao: int, total: int, obra: str, iswc: str) -> str:
+    """"01 - COISA FEITA (T-123.456.789-0).pdf": a posição na ordem da lista e o que o Windows aceita em nome de arquivo."""
+    titulo = "".join(c for c in obra or "" if c not in PROIBIDOS_NO_NOME and ord(c) >= 32).strip().rstrip(".")[:120] or "obra"
+    return f"{posicao:0{max(2, len(str(total)))}d} - {titulo}" + (f" ({iswc})" if iswc else "") + ".pdf"
+
+
+def zip_por_obra(itens) -> bytes:
+    """Um .zip com um PDF por obra, na ordem dada: itens = [(obra, iswc, caminho do PDF)]. Os PDFs entram como foram
+    salvos (o mesmo código de conferência da ficha)."""
+    import io
+    import zipfile
+
+    saida = io.BytesIO()
+    with zipfile.ZipFile(saida, "w", zipfile.ZIP_DEFLATED) as pacote:
+        for posicao, (obra, iswc, caminho) in enumerate(itens, 1):
+            pacote.write(caminho, nome_no_zip(posicao, len(itens), obra, iswc))
     return saida.getvalue()
 
 
