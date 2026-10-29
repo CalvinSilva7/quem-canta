@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.71",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.71/quem-canta-0.5.71-windows.zip",
-  "sha256": "c094a0a80990035b85463e27136a4f0987bd5bb980449fa6147a75d8e69c2912",
-  "notas": "Amazon Music pelo site: os prints voltam a sair com a tela inteira (barra de endereço e relógio). A janela do aplicativo da Amazon era deixada por cima do navegador; agora ela é minimizada antes do site."
+  "versao": "0.5.72",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.72/quem-canta-0.5.72-windows.zip",
+  "sha256": "292ec5beae9afa46860423ee996f97f45d813f37346b7cd5f1db6d1b7fb767ad",
+  "notas": "Réplica ISWC: novo botão \"Gerar o ZIP (um PDF por obra)\", ao lado do PDF único. O zip traz um PDF para cada obra, na ordem da lista, com o nome \"01 - TÍTULO (ISWC).pdf\"."
 }
