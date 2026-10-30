@@ -124,10 +124,15 @@ class PerfilEmUso(Exception):
 class Navegador:
     """Uso: `with Navegador(filtro) as nav: nav.ir(url); nav.pagina...`"""
 
-    def __init__(self, filtro=None, visivel=True, ao_avancar=None, escondido=False, perfil=None):
+    def __init__(self, filtro=None, visivel=True, ao_avancar=None, escondido=False, perfil=None, toca_musica=False):
         # `perfil`: pasta em que o navegador guarda a sessão de um site (o login que a pessoa fez nele). Sem isso,
         # cada coleta abre um navegador limpo, sem sessão nenhuma.
+        # `toca_musica` (Amazon pelo site, 30/10/2026): a música do site tem proteção contra cópia (Widevine), que o
+        # Chromium do app não tem. Abre o Google Chrome do computador sem a opção do Playwright que desliga os
+        # componentes do Chrome (a proteção é um deles). Sem o Chrome instalado, abre o Chromium e `self.chrome` fica
+        # False: a página não toca, e quem usa avisa.
         self.filtro, self.visivel, self.escondido, self.perfil = filtro, visivel, escondido, perfil
+        self.toca_musica, self.chrome = toca_musica, False
         self.avisar = ao_avancar or (lambda texto: None)
         self.navegacoes = 0
         self._ultima = 0.0
@@ -158,7 +163,16 @@ class Navegador:
                     raise PerfilEmUso("o navegador com a sessão guardada já está aberto em outra janela. Feche a janela de login "
                                       f"(e qualquer outra janela do navegador do app) e colete de novo [{type(e).__name__}]") from e
             else:
-                self._navegador = self._pw.chromium.launch(headless=not self.visivel, args=argumentos)
+                self._navegador = None
+                if self.toca_musica:
+                    try:
+                        self._navegador = self._pw.chromium.launch(channel="chrome", headless=not self.visivel, args=argumentos,
+                                                                   ignore_default_args=["--disable-component-update"])
+                        self.chrome = True
+                    except Exception:  # Google Chrome não instalado
+                        self._navegador = None
+                if self._navegador is None:
+                    self._navegador = self._pw.chromium.launch(headless=not self.visivel, args=argumentos)
                 contexto = self._navegador.new_context(**tamanho_da_pagina(), locale="pt-BR", timezone_id=captura.FUSO)
             contexto.add_init_script(f"({captura.TRAVA_DE_TRADUCAO})()")
             self._pagina = (contexto.pages[0] if self.perfil and contexto.pages else contexto.new_page())

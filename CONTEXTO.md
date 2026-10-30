@@ -102,7 +102,7 @@ Variáveis: `QUEMCANTA_DADOS` (pasta de dados), `QUEMCANTA_DB` (banco do `cantor
 | Spotify | Busca do site (cada consulta também na forma enxuta) | Janela "Créditos" | Validado no Mac e no Windows (0.5.36): 10 de 10 e 4 de 4. As leituras anteriores à 0.5.35 podiam trazer violação falsa |
 | Tidal | API oficial pelo ISRC da Deezer (0.5.51); sem as chaves, a busca do site (fraca) | Tocador com a aba "Créditos" (prévia de 30 s, sem login); clipes: lista para o print à mão (0.5.52) | Coleta real de um caso (Windows, 16/10/2026): 161 gravações, 154 álbuns, 10 de 10 prints, 16 min, sem bloqueio. Antes: 3 de 13 |
 | Amazon (aplicativo) | Busca do site, depois o aplicativo de desktop | 2 por música: menu com "Créditos" e janela de créditos | Validado no Windows: 9 de 9 e 5 de 5. Na 0.5.51, 10 de 10 refeitas certas (ver seção 5: o menu do álbum) |
-| Amazon (site) | As mesmas faixas do aplicativo, só as que vieram sem o titular nele | Menu da faixa, sem item de créditos | Funciona; a busca acha poucas faixas. Desde a 0.5.49 não roda sozinho (ver abaixo) |
+| Amazon (site) | As mesmas faixas do aplicativo, só as que vieram sem o titular nele | Menu da faixa, sem item de créditos, com a música tocando: o tocador, no pé da página, mostra a música e o cantor | Funciona; a busca acha poucas faixas. Desde a 0.5.49 não roda sozinho (ver abaixo) |
 
 **Amazon é uma escolha só** (decisão do dono em 15/10/2026, 0.5.49), como o escritório faz à mão: primeiro o
 aplicativo de desktop em todas as músicas; depois, só para as que vieram sem o titular no aplicativo (sem créditos
@@ -425,6 +425,30 @@ Vale ler antes de mexer na plataforma correspondente.
   aplicativo (`AmazonApp.sair_da_frente`), que continua aberto e logado. A janela é achada pelo nome do programa
   ("Amazon Music.exe"), não pela classe: a do aplicativo é igual à do Chrome. Minimizar testado no Windows com outro
   programa; com o Amazon Music numa coleta, ainda não.
+
+- *Amazon pelo site: print sem o cantor (30/10/2026, pedido do dono).* No álbum, o cantor só aparece no cabeçalho, lá
+  em cima; a linha da faixa só o mostra em participação ("feat."). Com a faixa mais para baixo, o print do menu saía
+  sem o cantor, o que a defesa pode usar. Agora, como na Deezer, a faixa é posta para tocar antes do print
+  (`AmazonWeb.tocar`): o app clica no tocar da linha e espera a barra do tocador (`#miniNPVTrackInfo`, no pé da
+  página) mostrar ESTA música, com o botão de pausa e o tempo andando; o print é um só, com o menu aberto e o tocador
+  mostrando música e cantor. Sem login, o site toca uma prévia de 30 s (o tempo da barra vai até 30), o bastante.
+  O JSON do print guarda o tocador ("tocador" e "tocador_no_print"). Sem tocar (sem o Chrome, ou a música não
+  começou em 25 s), o print sai mesmo assim e vira aviso no Resumo; leitura guardada sem a música tocando é
+  fotografada de novo (`Leitura.com_o_cantor`).
+  **Por que só no Google Chrome:** a música do site tem proteção contra cópia (Widevine). O Chromium do app não tem
+  esse componente, e o site responde "este navegador não é mais compatível". O Chrome tem, mas o Playwright o abre
+  com `--disable-component-update`, que impede o componente de carregar: foi isso que também deixou o clipe do Tidal
+  preto no Chrome automatizado (seção 6). A Amazon pelo site abre agora o Chrome do computador sem essa opção
+  (`Navegador(toca_musica=True)`, num navegador só dela); sem o Chrome instalado, abre o Chromium e avisa. Não é
+  contornar bloqueio: é o Chrome com o componente que ele tem em qualquer computador.
+  Tentado e descartado: diminuir o zoom (com 67% o cabeçalho continua fora e o menu abre deslocado; com 50% fica
+  ilegível, e num álbum de 100 faixas não há zoom que sirva); dois prints, topo do álbum e menu (recusado pelo dono:
+  tem de ser um print só); print na lista da busca, onde a linha mostra música e cantor (o dono preferiu o álbum).
+  Junto, corrigido o nome do álbum, que saía em branco: a página tem dois `music-detail-header`, e o primeiro é só a
+  moldura. Testado no site real, aqui (Windows, 1 monitor 1920x1080), com e sem tela inteira, num álbum de 15 faixas:
+  faixas 2, 13 e 15 tocaram e saíram com o tocador. Em tela inteira, a janela do app tem de ficar na frente: com o
+  Chrome da pessoa em uso por cima, o print de tela inteira falhou ("não está à vista"), como em qualquer
+  plataforma. Falta: o computador do escritório (tem o Chrome?) e uma coleta completa.
 
 ## 6. O que foi tentado e não funciona
 

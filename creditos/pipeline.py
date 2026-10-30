@@ -548,6 +548,10 @@ def coletar_amazon(relatorio: Relatorio, config: Config, amazon, recorrentes=(),
         for i, (cand, titulo, consulta) in enumerate(fila, start=1):
             avisar(f"Amazon Music: lendo faixa {i}/{len(fila)}")
             leitura = amazon.ler(cand, titulo)
+            if leitura.coleta == "ok" and leitura.provas and not leitura.com_o_cantor:
+                motivo = (leitura.tocador or {}).get("motivo") or "o tocador não mostrava esta música"
+                coleta.avisos.append(f'"{leitura.titulo or cand.titulo}" ({cand.interprete}): a música não tocou no site da Amazon '
+                                     f"({motivo}); o print saiu sem o tocador, e o cantor pode não aparecer nele")
             faixa = SimpleNamespace(
                 titulo=leitura.titulo or cand.titulo, interprete=cand.interprete, creditos=[], link=leitura.link or cand.link,
                 coleta=leitura.coleta, erro=leitura.erro, provas=leitura.provas,
@@ -1797,9 +1801,13 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
                 from .amazon_app import AmazonApp
 
                 def da_amazon():
-                    with AmazonApp(pasta / "amazon-app", ao_avancar, so_o_que_ja_foi_lido) as aplicativo:
+                    # O site tem navegador próprio: o Google Chrome, em que a música toca antes do print (o tocador
+                    # mostra o cantor). Ele só abre se houver música para o site.
+                    with AmazonApp(pasta / "amazon-app", ao_avancar, so_o_que_ja_foi_lido) as aplicativo, \
+                            Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar,
+                                      escondido=not mostrar_navegador, toca_musica=True) as do_site:
                         return [ajustar(k) for k in coletar_amazon_completa(
-                            relatorio, config, AmazonWeb(nav, pasta / "amazon-site", so_o_que_ja_foi_lido), aplicativo,
+                            relatorio, config, AmazonWeb(do_site, pasta / "amazon-site", so_o_que_ja_foi_lido), aplicativo,
                             recorrentes, pares, limite, ao_avancar=ao_avancar)]
                 coletas += _sem_derrubar_as_outras(("AMAZON", "AMAZON - SITE"), relatorio, da_amazon)
             if falta_print:

@@ -1661,6 +1661,70 @@ def test_amazon_site_leitura_que_falha_nunca_vira_sem_creditos(rel):
     assert [g.classificacao.status for g in coleta.gravacoes] == [c.ERRO_TECNICO]
 
 
+def test_amazon_site_leitura_guardada_sem_o_cantor_e_fotografada_de_novo(tmp_path, monkeypatch):
+    """Pedido do dono (30/10/2026): o print do site tem de mostrar quem canta. Leitura de antes disso, sem o cantor no
+    print, não é reaproveitada; a de depois, sim."""
+    from creditos import disco
+
+    lidas = []
+    monkeypatch.setattr(captura, "serve", lambda pasta, provas_: True)
+    monkeypatch.setattr(_amazon.AmazonWeb, "_ler", lambda self, leitura, cand, obra: lidas.append(cand.faixa))
+    web = _amazon.AmazonWeb(None, tmp_path)
+    for faixa, com_o_cantor in (("T1", False), ("T2", True)):
+        disco.gravar_json(web.cache / f"{faixa}.json", {"faixa": faixa, "provas": ["prova"], "com_o_cantor": com_o_cantor})
+    web.ler(_amazon.Candidato("A1", "T1", "Coisa Feita"), "COISA FEITA")
+    assert web.ler(_amazon.Candidato("A1", "T2", "Coisa Feita"), "COISA FEITA").provas == ["prova"]
+    assert lidas == ["T1"]
+    # Antigo, sem o campo: também é refeito
+    disco.gravar_json(web.cache / "T3.json", {"faixa": "T3", "provas": ["prova"]})
+    web.ler(_amazon.Candidato("A1", "T3", "Coisa Feita"), "COISA FEITA")
+    assert lidas == ["T1", "T3"]
+
+
+def _tocar_na_amazon(estados, chrome=True, botao=True):
+    """O tocador da Amazon pelo site, com a barra do pé mudando a cada leitura (`estados`: título, tempo, tocando)."""
+    from types import SimpleNamespace
+
+    leituras = iter(estados)
+
+    def evaluate(script, *argumentos):
+        if script == _amazon._TOCAR_A_FAIXA:
+            return botao
+        titulo, tempo, tocando = next(leituras)
+        return {"titulo": titulo, "cantor": "Banda do Baile", "tempo": tempo, "duracao": 30, "tocando": tocando}
+
+    pagina = SimpleNamespace(evaluate=evaluate, wait_for_timeout=lambda ms: None)
+    web = _amazon.AmazonWeb(SimpleNamespace(pagina=pagina, chrome=chrome), ".")
+    return web.tocar(_amazon.Candidato("A1", "T1", "Coisa Feita"), "Coisa Feita")
+
+
+def test_amazon_site_toca_a_musica_antes_do_print(monkeypatch):
+    """Pedido do dono (30/10/2026): o print do site mostra quem canta. No álbum, o cantor some quando a faixa está
+    mais abaixo; tocando, a barra do pé da página mostra a música e o cantor. Vale só ESTA música, com o tempo andando."""
+    tocador = _tocar_na_amazon([("Outra Música", 12, True), ("Coisa Feita", 0, True), ("Coisa Feita", 1, True), ("Coisa Feita", 2, True)])
+    assert (tocador["titulo"], tocador["cantor"], tocador["tocando"]) == ("Coisa Feita", "Banda do Baile", True)
+    # Outra música andando (o clique não trocou o tocador): não vale
+    monkeypatch.setattr(_amazon, "ESPERA_PARA_TOCAR", 0)
+    tocador = _tocar_na_amazon([("Outra Música", 1, True), ("Outra Música", 2, True)])
+    assert (tocador["tocando"], tocador["esperado"]) == (False, "Coisa Feita") and "não começou a tocar" in tocador["motivo"]
+    # Sem o Google Chrome, nem tenta: o site recusa o navegador do app ("não é mais compatível")
+    tocador = _tocar_na_amazon([], chrome=False)
+    assert not tocador["tocando"] and "Google Chrome" in tocador["motivo"]
+    assert "botão de tocar" in _tocar_na_amazon([], botao=False)["motivo"]
+
+
+def test_amazon_site_sem_tocar_o_print_sai_e_vira_aviso(rel):
+    """Sem tocar, o print sai mesmo assim (a prova de que não há créditos não depende da música), com o aviso."""
+    sem_tocar = _amazon.Leitura(faixa="T1", link="https://music.amazon.com.br/albums/A1?trackAsin=T1", titulo="Coisa Feita",
+                                provas=["prova-T1"], com_o_cantor=False,
+                                tocador={"tocando": False, "motivo": "o Google Chrome não está instalado neste computador"})
+    web = AmazonFalsa(buscas={"COISA FEITA": [("A1", "T1", "Coisa Feita", "Cantora Original")]}, leituras={"T1": sem_tocar})
+    coleta = pipeline.coletar_amazon(rel, Config(nomes_confirmados=["ZECA LIMA"]), web, [], {"COISA FEITA": ["Cantora Original"]}, limite_de_obras=2)
+    assert coleta.gravacoes[0].provas == ["prova-T1"]
+    assert any("não tocou no site da Amazon" in a and "Google Chrome" in a for a in coleta.avisos)
+    assert "AMAZON - SITE" not in provas.TODOS_OS_PRINTS  # um print só por música
+
+
 def test_planilha_tem_as_duas_colunas_da_amazon(rel):
     assert saida.PLATAFORMAS[saida.PLATAFORMAS.index("AMAZON") + 1] == "AMAZON - SITE"
     assert saida._nao_coletada("AMAZON")[0] == "não coletado: aplicativo de desktop (print manual)"

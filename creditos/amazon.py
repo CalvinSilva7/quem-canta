@@ -2,7 +2,14 @@
 
 O site abre sem login. A faixa é achada pela busca de músicas, aberta dentro do álbum, e o print é o do
 menu de ações da faixa ("..."): na web ele traz "Ver álbum", "Ver artista", "Compartilhar esta música" e
-"Reproduzir músicas semelhantes", e não tem item de créditos. É um print por música.
+"Reproduzir músicas semelhantes", e não tem item de créditos.
+
+O print tem de mostrar quem canta (pedido do dono, 30/10/2026: sem isso, a defesa pode dizer que não se sabe de
+quem é a gravação). No álbum, o cantor fica só no cabeçalho, lá em cima, e some quando a faixa está mais abaixo.
+Por isso, antes do print, a faixa é posta para tocar (como na Deezer): a barra do tocador, no pé da página, mostra o
+título e o cantor, em qualquer posição do álbum. Sem login, o site toca uma prévia de 30 s, o bastante para o print.
+A música tem proteção contra cópia: só toca no Google Chrome (ver `Navegador(toca_musica=True)`). Sem tocar, o print
+sai mesmo assim e vira aviso no Resumo.
 
 O aplicativo de desktop da Amazon Music é outra coisa: lá existe o item "Créditos", com os compositores.
 Ele não é um site e só funciona com a conta logada, então não é coletado aqui.
@@ -12,6 +19,7 @@ existe e devolve erro, para alguém olhar, em vez de afirmar que há ou que não
 """
 
 import json
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -35,11 +43,25 @@ _LER_RESULTADOS = _TODOS + """.filter(e => /trackAsin=/.test((e.getAttribute && 
               endereco: e.getAttribute('primary-href') || ''})); }"""
 _LER_MENU = _TODOS + """.filter(e => e.tagName.toLowerCase() === 'music-list-item')
   .map(e => e.getAttribute('primary-text') || (e.shadowRoot ? e.shadowRoot.textContent : e.textContent).trim()); }"""
-_LER_ALBUM = """() => { const topo = document.querySelector('music-detail-header');
+# A página tem dois `music-detail-header`: o primeiro é só a moldura, sem texto; o do álbum é o que tem o cantor.
+_LER_ALBUM = """() => { const topo = [...document.querySelectorAll('music-detail-header')].find(e => e.getAttribute('primary-text'));
   return {album: topo ? (topo.getAttribute('headline') || topo.getAttribute('primary-text') || '') : '',
           interprete: topo ? (topo.getAttribute('primary-text') || '') : '',
           detalhe: topo ? (topo.getAttribute('tertiary-text') || topo.getAttribute('secondary-text') || '') : '',
           faixas: [...document.querySelectorAll('music-text-row')].map(l => l.getAttribute('primary-href') || '')}; }"""
+# Leva a linha da faixa para o meio da tela (longe da faixa "Ouça Grátis" e do tocador, no pé) e clica no tocar dela.
+_TOCAR_A_FAIXA = """(faixa) => { const l = document.querySelector(`music-text-row[primary-href='/tracks/${faixa}']`);
+  if (!l) return false; l.scrollIntoView({block: 'center'});
+  const b = (l.shadowRoot || l).querySelector('[icon-name="play"]'); if (!b) return false; b.click(); return true; }"""
+# A barra do tocador (pé da página): título e cantor da música carregada, o tempo (segundos) e se está tocando.
+_TOCADOR = _TODOS.replace("return anda(document)", "const todos = anda(document)") + """;
+  const info = todos.find(e => e.id === 'miniNPVTrackInfo');
+  const baixo = todos.filter(e => { const b = e.getBoundingClientRect(); return b.height > 0 && b.top > innerHeight - 110; });
+  const tempo = baixo.find(e => e.getAttribute && e.getAttribute('aria-valuemax'));
+  return {titulo: info ? info.getAttribute('primary-text') || '' : '', cantor: info ? info.getAttribute('secondary-text') || '' : '',
+          tempo: tempo ? Number(tempo.getAttribute('aria-valuenow')) : null, duracao: tempo ? Number(tempo.getAttribute('aria-valuemax')) : null,
+          tocando: baixo.some(e => e.getAttribute && e.getAttribute('icon-name') === 'pause')}; }"""
+ESPERA_PARA_TOCAR = 25  # segundos; a prévia toca 30
 
 
 @dataclass
@@ -63,6 +85,9 @@ class Leitura:
     titulo: str = ""
     interprete: str = ""
     album: str = ""
+    cantor: str = ""  # o intérprete que o cabeçalho do álbum mostra
+    com_o_cantor: bool = False  # o print mostra o tocador com esta música e o cantor; sem isso, é fotografada de novo
+    tocador: dict = field(default_factory=dict)  # o que a barra do tocador mostrava quando a música começou a tocar
     menu: list[str] = field(default_factory=list)
     provas: list[str] = field(default_factory=list)
     lido_em: str = ""
@@ -122,7 +147,8 @@ class AmazonWeb:
         dados = disco.ler_json(arquivo)
         if isinstance(dados, dict):
             guardada = Leitura(**dados)
-            if captura.serve(self.pasta, guardada.provas) or self.so_o_que_ja_foi_lido:  # print sem tela inteira é refeito
+            # print sem tela inteira, ou sem a música tocando com o cantor (antes de 30/10/2026), é refeito
+            if (captura.serve(self.pasta, guardada.provas) and guardada.com_o_cantor) or self.so_o_que_ja_foi_lido:
                 return guardada
         leitura = Leitura(faixa=cand.faixa, link=cand.link, titulo=cand.titulo, interprete=cand.interprete,
                           lido_em=captura.agora().isoformat(timespec="seconds"))
@@ -154,7 +180,7 @@ class AmazonWeb:
             return
         pagina.wait_for_timeout(1500)
         album = pagina.evaluate(_LER_ALBUM)
-        leitura.album = album["album"]
+        leitura.album, leitura.cantor = album["album"], album["interprete"]
         linha = pagina.locator(f"music-text-row[primary-href='/tracks/{cand.faixa}']")
         if not linha.count():
             leitura.coleta, leitura.erro = "indisponivel", "a faixa não aparece na lista do álbum"
@@ -163,6 +189,10 @@ class AmazonWeb:
         if normalizar(exibido_na_linha) != normalizar(cand.titulo):
             leitura.coleta, leitura.erro = "erro", f'a linha da faixa mostra "{exibido_na_linha}", e não o título buscado'
             return
+        leitura.tocador = self.tocar(cand, exibido_na_linha)
+        if not leitura.tocador["tocando"]:
+            pagina.keyboard.press("Escape")  # um aviso do site por cima da página não pode sair no print
+            pagina.wait_for_timeout(500)
         linha.first.scroll_into_view_if_needed()
         pagina.wait_for_timeout(400)
         itens = None
@@ -183,7 +213,31 @@ class AmazonWeb:
             leitura.coleta = "erro"
             leitura.erro = "o menu da faixa na web tem um item de créditos, que esta versão do app não sabe ler: conferir à mão"
             return
-        exibido = {"titulo": exibido_na_linha, "interprete": cand.interprete, "album": leitura.album, "itens_do_menu": itens,
+        no_print = pagina.evaluate(_TOCADOR)  # o tocador no instante do print
+        leitura.com_o_cantor = bool(leitura.tocador["tocando"] and no_print["cantor"]
+                                    and normalizar(no_print["titulo"]) == normalizar(exibido_na_linha))
+        exibido = {"titulo": exibido_na_linha, "interprete": cand.interprete, "album": leitura.album, "cantor": leitura.cantor,
+                   "itens_do_menu": itens, "tocador": leitura.tocador, "tocador_no_print": no_print,
                    "constatacao": "o menu da faixa na versão web da Amazon Music não tem item de créditos"}
         leitura.provas.append(captura.capturar(pagina, self.pasta, obra, cand.interprete, "amazon-site", exibido, "menu")["captura"])
         pagina.keyboard.press("Escape")
+
+    def tocar(self, cand: Candidato, titulo: str) -> dict:
+        """Clica no tocar da faixa e espera a barra do tocador mostrar ESTA música tocando, com o tempo andando.
+        Devolve o que o tocador mostrava; sem tocar no tempo (ou sem o Google Chrome), "tocando" é False."""
+        if not getattr(self.nav, "chrome", False):
+            return {"tocando": False, "motivo": "o Google Chrome não está instalado neste computador: só nele a música do site toca"}
+        pagina = self.nav.pagina
+        if not pagina.evaluate(_TOCAR_A_FAIXA, cand.faixa):
+            return {"tocando": False, "motivo": "a linha da faixa não mostrou o botão de tocar"}
+        limite, antes = time.monotonic() + ESPERA_PARA_TOCAR, None
+        while True:
+            pagina.wait_for_timeout(1500)
+            agora = pagina.evaluate(_TOCADOR)
+            certa = bool(titulo) and normalizar(agora["titulo"]) == normalizar(titulo)
+            if certa and agora["tocando"] and antes and agora["tempo"] not in (None, 0, antes["tempo"]):
+                return {**agora, "tocando": True}
+            antes = agora if certa else None
+            if time.monotonic() > limite:
+                return {**agora, "tocando": False, "esperado": titulo,
+                        "motivo": f"a música não começou a tocar em {ESPERA_PARA_TOCAR} s"}
