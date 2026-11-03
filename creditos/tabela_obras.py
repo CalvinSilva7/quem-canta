@@ -45,6 +45,16 @@ def titulo_da_tabela(titulo: str) -> str:
     return " ".join(p[:1].upper() + p[1:].lower() for p in (titulo or "").split())
 
 
+def titulo_completo(do_relatorio: str, do_iswc: str) -> str:
+    """O relatório corta o título longo na coluna ("NA CAMA ELA QUEM ME DOMINA (PRIMEIRO A"): se o título do ISWC
+    começa igual e vai além, vale o do ISWC (sem acento, como o relatório). Senão, fica o do relatório."""
+    inteiro = _sem_acento(do_iswc or "").strip()
+    curto = _chave_do_titulo(do_relatorio)
+    if curto and len(_chave_do_titulo(inteiro)) > len(curto) and _chave_do_titulo(inteiro).startswith(curto):
+        return inteiro
+    return do_relatorio
+
+
 def _sem_acento(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", texto or "") if not unicodedata.combining(c))
 
@@ -154,9 +164,10 @@ def recortes_do_relatorio(conteudo: bytes, obra: ObraDoRelatorio) -> list:
 # ---------------------------------------------------------------- ISWC
 
 
-def recortes_do_iswc(conteudo: bytes) -> dict:
+def recortes_do_iswc(conteudo: bytes, titulos: dict | None = None) -> dict:
     """{dígitos do ISWC: imagem} de um PDF do ISWC Network (uma obra por página): o quadro do resultado, de "ISWC:"
-    até "Creator Name(s)" (sem o "IP Name Number" e o "View More"), como o escritório recorta."""
+    até "Creator Name(s)" (sem o "IP Name Number" e o "View More"), como o escritório recorta. Em `titulos`, se
+    vier, fica {dígitos do ISWC: "Original Title"}: o título inteiro, que o relatório corta na coluna."""
     import pdfplumber
     import pypdfium2 as pdfium
 
@@ -179,6 +190,12 @@ def recortes_do_iswc(conteudo: bytes) -> dict:
                     ip = next((p for p in palavras if p["text"] == "IP" and caixa["top"] < p["top"] < caixa["bottom"]
                                and abs(p["x0"] - rotulo["x0"]) < 5), None)  # fmt: skip
                     fim = caixa["bottom"]
+                    rotulo_do_titulo = next((p for p in palavras if p["text"] == "Title:" and caixa["top"] < p["top"] < caixa["bottom"]
+                                             and abs(p["x0"] - rotulo["x0"]) < 60), None)  # fmt: skip
+                    if titulos is not None and rotulo_do_titulo is not None:
+                        titulos.setdefault(digitos(valor["text"]), " ".join(
+                            p["text"] for p in sorted(palavras, key=lambda p: p["x0"])
+                            if abs(p["top"] - rotulo_do_titulo["top"]) < 4 and p["x0"] > rotulo_do_titulo["x1"]))
                     if ip is not None:
                         divisorias = [r["top"] for r in pagina.rects if r["bottom"] - r["top"] < 2
                                       and r["x1"] - r["x0"] > 0.8 * (caixa["x1"] - caixa["x0"]) and rotulo["top"] < r["top"] < ip["top"]]
@@ -475,9 +492,9 @@ def preparar(relatorio_pdf: bytes, iswc_pdfs: list[bytes]) -> tuple[list[LinhaDa
     obras = obras_do_relatorio(relatorio_pdf)
     if not obras:
         raise ValueError("não achei obras no relatório: ele precisa ser o relatório analítico do ECAD em PDF")
-    do_iswc = {}
+    do_iswc, titulos = {}, {}
     for conteudo in iswc_pdfs:
-        for numero, imagem in recortes_do_iswc(conteudo).items():
+        for numero, imagem in recortes_do_iswc(conteudo, titulos).items():
             do_iswc.setdefault(numero, imagem)
     vistas, linhas = set(), []
     for obra in obras:
@@ -485,7 +502,7 @@ def preparar(relatorio_pdf: bytes, iswc_pdfs: list[bytes]) -> tuple[list[LinhaDa
         if numero not in do_iswc or numero in vistas:
             continue
         vistas.add(numero)
-        linhas.append(LinhaDaTabela(titulo_da_tabela(obra.titulo), obra.iswc,
+        linhas.append(LinhaDaTabela(titulo_da_tabela(titulo_completo(obra.titulo, titulos.get(numero))), obra.iswc,
                                     [png(im) for im in recortes_do_relatorio(relatorio_pdf, obra)], png(do_iswc[numero])))
     avisos = [f"O ISWC T-{n[:3]}.{n[3:6]}.{n[6:9]}-{n[9:]} está no PDF do ISWC mas não no relatório: ficou fora da tabela."
               for n in sorted(do_iswc.keys() - vistas)]

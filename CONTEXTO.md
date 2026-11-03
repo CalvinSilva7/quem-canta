@@ -247,12 +247,19 @@ do relatório**; obra sem print do Ecadnet fica com a célula vazia.
   com Ecadnet, 9 sem, 6 continuações, 13 prints de obras fora do ISWC), leitura em ~45 s. Diferenças: o título (o
   modelo usava a grafia do Ecadnet); recorte do relatório igual em 45 de 50 (em 4 a tabela à mão pegou todos os
   titulares, fora do padrão, e em 1 colou o recorte de outra obra).
-- **Erros conhecidos (29/10/2026, achados no 2º caso real, de 75 obras; corrigir antes de publicar):**
-  1. Título longo sai cortado (ex.: "Na Cama Ela Quem Me Domina (primeiro A"): o título é lido só até a coluna
-     "ASS." e o que passa dela, ou quebra de linha, fica de fora. Ver como o relatório escreve esses títulos.
-  2. Prints do Ecadnet que não foram ligados à obra: 2 obras ficaram sem Ecadnet e 1 com um print a menos, que a
-     tabela feita à mão tinha. Ver o que o leitor leu nesses prints (código, ISWC, título).
-  3. A tabela à mão tinha 64 obras e o PDF do ISWC 75: perguntar ao escritório por que 11 ficaram de fora.
+- **Os 3 "erros conhecidos" de 29/10, revistos em 03/11/2026 com o gabarito do 2º caso (75 obras):**
+  1. Título longo cortado: era o próprio relatório, que corta o título na coluna. **Corrigido:** quando o título do
+     relatório é o começo do "Original Title" do ISWC, vale o do ISWC, sem acento (`titulo_completo`).
+  2. Ecadnet "não ligado": **não era erro.** Os prints eram de outras obras do relatório (outro código e outro ISWC,
+     título parecido: "Distribuidora De Bebida" x "...Bebidas"); a tabela à mão colou o print errado. O app liga pelo
+     código e deixa a célula vazia.
+  3. As 11 obras a mais: têm print no PDF do ISWC. Regra do dono (03/11): primeiro as obras do relatório, depois o
+     ISWC; **sem print do ISWC a obra sai da tabela**; sem Ecadnet fica vazia. Então as 11 entram.
+- Comparação com o gabarito (03/11): das 64 linhas da tabela à mão, 39 iguais, 19 com o mesmo conteúdo (a mão usou
+  um print do Ecadnet com a tela reduzida; o app, o print e o rolado), e 6 em que a tabela à mão errou (Ecadnet ou
+  relatório de outra obra, ISWC faltando, recorte passando do cliente). O recorte do relatório que corta letras do
+  pseudônimo é igual no gabarito: não mexer.
+- Falta para tirar a aba do esconderijo: o dono decidir publicar.
 
 ### 4.3 Desligar no fim da coleta e o registro da coleta (0.5.73, 03/11/2026)
 Pedido do dono: o pessoal deixa o computador ligado à noite para a coleta, e ele tem de desligar sozinho no fim.

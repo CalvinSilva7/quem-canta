@@ -114,6 +114,19 @@ def test_linhas_sao_as_obras_do_iswc_na_ordem_do_relatorio_com_o_titulo_do_relat
     assert len(avisos) == 1 and "T-555.555.555-5" in avisos[0]  # está no ISWC e não no relatório
 
 
+def test_titulo_cortado_pelo_relatorio_sai_inteiro_pelo_iswc():
+    """O relatório corta o título longo na coluna; o ISWC traz o título inteiro (achado num caso real de 75 obras)."""
+    titulos = {}
+    t.recortes_do_iswc(_iswc(("T-123.456.789-0", "OBRA UM COM O TITULO BEM COMPRIDO"), ("T-000.000.001-0", "OUTRA")), titulos)
+    assert titulos == {"1234567890": "OBRA UM COM O TITULO BEM COMPRIDO", "0000000010": "OUTRA"}
+    linhas, _, _ = t.preparar(_relatorio(), [_iswc(("T-123.456.789-0", "OBRA UM COM O TITULO BEM COMPRIDO"),
+                                                   ("T-000.000.001-0", "OUTRA OBRA"))])
+    # o do relatório é o começo do do ISWC: vale o inteiro; título diferente: fica o do relatório
+    assert [linha.titulo for linha in linhas] == ["Obra Um Com O Titulo Bem Comprido", "Obra Tres"]
+    assert t.titulo_completo("NA CAMA ELA (PRIMEIRO A", "NA CAMA ELA (PRIMEIRO A ROÇA)") == "NA CAMA ELA (PRIMEIRO A ROCA)"
+    assert t.titulo_completo("TEST DRIVE", "TEST DRIVE") == "TEST DRIVE" and t.titulo_completo("A CULPA", "") == "A CULPA"
+
+
 def _print(barra_em=150, rolado=False, linhas_da_tabela=(300, 400, 500), largura=1920, altura=1080):
     """Um print de tela do Ecadnet: fundo cinza, o quadro branco no meio, a barra azul, as divisórias e a barra de
     tarefas do Windows embaixo (cinza, com a caixa de busca branca)."""
