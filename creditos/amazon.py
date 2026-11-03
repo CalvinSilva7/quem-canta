@@ -238,6 +238,6 @@ class AmazonWeb:
             if certa and agora["tocando"] and antes and agora["tempo"] not in (None, 0, antes["tempo"]):
                 return {**agora, "tocando": True}
             antes = agora if certa else None
-            if time.monotonic() > limite:
+            if time.monotonic() >= limite:  # ">=": o relógio do Windows anda de ~15 ms em ~15 ms (com espera 0, ">" daria mais uma volta)
                 return {**agora, "tocando": False, "esperado": titulo,
                         "motivo": f"a música não começou a tocar em {ESPERA_PARA_TOCAR} s"}

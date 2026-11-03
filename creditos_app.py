@@ -14,7 +14,7 @@ import streamlit as st
 
 from cantor import planilha
 from cantor.matching import normalizar
-from creditos import andamento, atualizacao, ecad, resultado, ubc
+from creditos import andamento, atualizacao, desligamento, ecad, resultado, ubc
 from creditos.versao import VERSAO
 from creditos.captura import slug
 from creditos.modelo import SITUACOES, Relatorio
@@ -22,7 +22,11 @@ from creditos.modelo import SITUACOES, Relatorio
 # Onde ficam os casos (o que já foi lido e os prints): fora da pasta do programa, para uma atualização nunca tocar neles.
 PASTA_DE_DADOS = Path(os.environ.get("QUEMCANTA_DADOS") or Path.home() / "Documents" / "Quem Canta")
 
-ETAPAS = ["Buscar intérpretes", "Coleta de prints", "Réplica (ECAD)", "Réplica (ISWC)", "Tabela de obras"]  # as abas do app
+ETAPAS = ["Buscar intérpretes", "Coleta de prints", "Réplica (ECAD)", "Réplica (ISWC)"]  # as abas do app
+TABELA_DE_OBRAS = "Tabela de obras"
+# A Tabela de obras tem erros conhecidos (CONTEXTO, 4.2): até serem corrigidos, só aparece para quem desenvolve.
+if os.environ.get("QUEMCANTA_DEV"):
+    ETAPAS.append(TABELA_DE_OBRAS)
 
 
 @st.fragment(run_every=1)
@@ -73,6 +77,32 @@ def registrar_erro(tarefa):
                            f"{tarefa.detalhe_do_erro or repr(tarefa.erro)}\n")
     except OSError:
         pass
+
+
+def mostrar_o_desligamento():
+    """O desligamento pedido no fim da coleta (ver creditos.desligamento), com o botão de cancelar."""
+    estado = st.session_state.get("desligamento")
+    if not estado:
+        return
+    if estado["motivo"] is None:
+        pass  # não era para desligar: só o registro
+    elif estado.get("cancelado"):
+        st.info("Desligamento cancelado: o computador continua ligado.")
+    elif estado["motivo"]:
+        st.error(f"Pedi ao Windows para desligar o computador, mas ele não aceitou ({estado['motivo']}). O computador "
+                 "continua ligado.")
+    else:
+        st.warning("**O computador vai desligar em até 5 minutos** (a coleta terminou e o resultado está salvo). "
+                   "Os programas abertos serão fechados sem perguntar.")
+        if st.button("Cancelar o desligamento", type="primary", key="cancelar_desligamento"):
+            motivo = desligamento.cancelar()
+            if motivo:
+                st.error(f"Não consegui cancelar ({motivo}). Abra o menu Iniciar, digite `shutdown /a` e tecle Enter.")
+            else:
+                estado["cancelado"] = True
+                st.rerun()
+    if estado.get("registro"):
+        st.caption(f"O que aconteceu na coleta ficou em `{estado['registro']}`.")
 
 
 def mostrar_o_salvo(chave):
@@ -775,7 +805,7 @@ def aba_da_tabela():
                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="tabela_baixar")
 
 
-if etapa == ETAPAS[4]:
+if etapa == TABELA_DE_OBRAS:
     aba_da_tabela()
     st.caption(f"Versão {VERSAO} · casos e prints em `{PASTA_DE_DADOS}`")
     st.stop()
@@ -1009,6 +1039,18 @@ with area_da_coleta:
             "é o principal: trabalhe no principal. Com um monitor só, ele ocupa a tela toda. Não cubra nem minimize essa "
             "janela durante a coleta. Tudo o que estiver nesse monitor sai no print: feche ali o que não pode aparecer."
         )
+    desligar = st.checkbox(
+        "Desligar o computador quando a coleta terminar", value=False, key="desligar_no_fim",
+        help="Para deixar a coleta rodando e ir embora. Quando ela terminar, ou parar no meio, o resultado é gravado na "
+        "pasta do compositor e o computador desliga 5 minutos depois.",
+    )
+    if desligar:
+        st.warning(
+            "No fim da coleta (terminada ou parada no meio), o computador **desliga sozinho 5 minutos depois, forçado**: "
+            "os programas abertos são fechados sem perguntar. **Salve e feche o que estiver aberto** (Word, Excel) antes "
+            "de sair. Nos 5 minutos, dá para cancelar pelo botão que aparece aqui. O que aconteceu fica em "
+            f"`{desligamento.ARQUIVO}`, na pasta do resultado: em caso de problema, mande esse arquivo."
+        )
     titulos_do_relatorio = len(conferidos) if conferidos else len({o.titulo for o in relatorio.obras})
     limite = None
     if os.environ.get("QUEMCANTA_DEV"):
@@ -1058,6 +1100,8 @@ with area_da_coleta:
         """Pega o resultado da coleta que terminou (ou diz por que não terminou) e libera o botão de coletar."""
         andamento.encerrar()
         guardar_o_salvo(tarefa, "salvo_coleta")
+        if tarefa.desligamento is not None or tarefa.registro:
+            st.session_state.desligamento = {"motivo": tarefa.desligamento, "registro": tarefa.registro}
         if tarefa.erro is not None:  # navegador que não abriu, rede fora do ar: mostra e deixa tentar de novo
             st.error(f"A coleta não terminou: {type(tarefa.erro).__name__}: {tarefa.erro}")
         elif tarefa.interrompida:
@@ -1094,6 +1138,7 @@ with area_da_coleta:
         # intérpretes aparecem pela busca por título e pelos créditos que as plataformas mostram.
         coautores = st.session_state.config["nomes_dos_coautores"]
         st.session_state.pop("salvo_coleta", None)
+        st.session_state.pop("desligamento", None)
 
         def coletar(avisar, relatorio=relatorio, pasta=pasta_do_caso):
             # A própria coleta grava a planilha e o .zip no disco ao terminar, ou os parciais se parar: o resultado
@@ -1109,10 +1154,11 @@ with area_da_coleta:
             )
 
         # A coleta roda em outra linha de execução: o navegador automatizado não pode rodar na da tela.
+        # No fim, terminada ou parada: o registro da coleta e, se marcado, o desligamento (sem depender da tela)
         tarefa = andamento.iniciar(
             coletar,
-            andamento.Andamento(titulos_do_relatorio, escolhidas), tipo="coleta", relatorio=relatorio, pasta=str(pasta_do_caso),
-            conferidos=conferidos,
+            andamento.Andamento(titulos_do_relatorio, escolhidas), desligamento.ao_terminar(VERSAO, desligar),
+            tipo="coleta", relatorio=relatorio, pasta=str(pasta_do_caso), conferidos=conferidos,
         )
         tarefa.linha.join(0.3)  # o que já estava todo lido termina na hora, sem passar pela barra
         if tarefa.viva:
@@ -1121,6 +1167,9 @@ with area_da_coleta:
         tarefa = None
     if tarefa is not None:
         painel_do_andamento()
+        if tarefa.ao_terminar and st.session_state.get("desligar_no_fim"):
+            st.caption("Quando a coleta terminar, o computador desliga 5 minutos depois.")
+    mostrar_o_desligamento()
     mostrar_o_salvo("salvo_coleta")
 
     coletas = st.session_state.get("coletas")

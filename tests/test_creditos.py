@@ -3126,3 +3126,99 @@ def test_deezer_musica_sem_tela_de_creditos_tem_o_print_do_menu_como_prova(tmp_p
     assert g.provas == ["menu-1"] and coleta.avisos == []  # um print só: não existe a tela de créditos
     assert tirados[0]["etapa"] == pipeline.ETAPA_SEM_CREDITOS and "não oferece" in tirados[0]["constatacao"]
     assert "não oferece a tela de créditos" in g.classificacao.fundamento and g.classificacao.status == c.SEM_CREDITOS
+
+
+# --- desligar o computador no fim da coleta ----------------------------------------
+
+
+class _Windows:
+    """Faz as vezes do `shutdown` do Windows: guarda o que foi pedido e responde como mandarem."""
+
+    def __init__(self, codigo=0, saida=""):
+        self.pedidos, self.codigo, self.saida = [], codigo, saida
+
+    def __call__(self, argumentos, **_):
+        import subprocess
+        self.pedidos.append(argumentos)
+        return subprocess.CompletedProcess(argumentos, self.codigo, "", self.saida)
+
+
+def _relatorio_do_desligamento():
+    return Relatorio(nome_titular="FULANO DE TESTE", obras=[Obra(codigo="1", titulo="UMA"), Obra(codigo="2", titulo="DUAS")])
+
+
+@pytest.mark.parametrize("como", ["terminou", "parada", "erro"])
+def test_coleta_desliga_forcado_no_fim_mesmo_parando_no_meio_e_escreve_o_registro(tmp_path, monkeypatch, como):
+    from creditos import andamento as _andamento, desligamento
+    from creditos.pipeline import Coleta
+
+    monkeypatch.setattr(desligamento.sys, "platform", "win32")
+    windows = _Windows()
+    parcial = [Coleta("DEEZER", avisos=["um aviso da Deezer"])]
+
+    def coleta(andamento):
+        andamento.salvo = {"arquivos": [str(tmp_path / "resultado" / "Provas.zip")], "parcial": como != "terminou"}
+        if como == "parada":
+            raise _andamento.Interrompida()
+        if como == "erro":
+            erro = RuntimeError("navegador não abriu")
+            erro.coletas_parciais = parcial
+            raise erro
+        return parcial
+
+    tarefa = _andamento.Tarefa(coleta, _andamento.Andamento(2, ("deezer",)), desligamento.ao_terminar("9.9.9", True, windows),
+                               relatorio=_relatorio_do_desligamento(), pasta=str(tmp_path))
+    tarefa.linha.join(5)
+    assert windows.pedidos == [["shutdown", "/s", "/f", "/t", "300", "/c", desligamento.MENSAGEM]]
+    assert tarefa.desligamento == ""  # o Windows aceitou
+    registro = (tmp_path / "resultado" / desligamento.ARQUIVO).read_text(encoding="utf-8")
+    assert tarefa.registro == tmp_path / "resultado" / desligamento.ARQUIVO
+    assert "versão 9.9.9" in registro and "FULANO DE TESTE" in registro and "Títulos a verificar: 2" in registro
+    assert "Provas.zip" in registro and "(forçado)" in registro
+    if como == "terminou":
+        assert "Situação: terminou" in registro and "um aviso da Deezer" in registro
+    elif como == "parada":
+        assert "PAROU NO MEIO (pedido de parada)" in registro and "Onde parou:" in registro
+    else:
+        assert "navegador não abriu" in registro and "Traceback" in registro and "um aviso da Deezer" in registro
+
+
+def test_sem_a_caixinha_nao_desliga_mas_registra_e_o_registro_acumula(tmp_path):
+    from creditos import andamento as _andamento, desligamento
+
+    windows = _Windows()
+    for _ in range(2):
+        tarefa = _andamento.Tarefa(lambda andamento: [], _andamento.Andamento(2, ("deezer",)),
+                                   desligamento.ao_terminar("9.9.9", False, windows), relatorio=_relatorio_do_desligamento(),
+                                   pasta=str(tmp_path))
+        tarefa.linha.join(5)
+    assert windows.pedidos == [] and tarefa.desligamento is None
+    registro = (tmp_path / "resultado" / desligamento.ARQUIVO).read_text(encoding="utf-8")
+    assert registro.count("Coleta de ") == 2 and "não marcado" in registro and "Resultado gravado: nenhum" in registro
+
+
+def test_windows_que_recusa_o_desligamento_fica_no_registro_e_cancelar_usa_shutdown_a(tmp_path, monkeypatch):
+    from creditos import andamento as _andamento, desligamento
+
+    monkeypatch.setattr(desligamento.sys, "platform", "win32")
+    recusa = _Windows(codigo=1190, saida="Já existe um desligamento agendado.")
+    tarefa = _andamento.Tarefa(lambda andamento: [], _andamento.Andamento(2, ("deezer",)),
+                               desligamento.ao_terminar("9.9.9", True, recusa), relatorio=_relatorio_do_desligamento(),
+                               pasta=str(tmp_path))
+    tarefa.linha.join(5)
+    assert tarefa.desligamento == "Já existe um desligamento agendado."
+    assert "o Windows NÃO aceitou" in (tmp_path / "resultado" / desligamento.ARQUIVO).read_text(encoding="utf-8")
+    windows = _Windows()
+    assert desligamento.cancelar(windows) == "" and windows.pedidos == [["shutdown", "/a"]]
+
+
+def test_registro_que_falha_nao_derruba_o_resultado_da_coleta(tmp_path):
+    from creditos import andamento as _andamento, desligamento
+
+    arquivo = tmp_path / "um arquivo"
+    arquivo.write_text("x")  # a "pasta do caso" é um arquivo: não dá para criar a pasta do resultado
+    tarefa = _andamento.Tarefa(lambda andamento: ["feito"], _andamento.Andamento(2, ("deezer",)),
+                               desligamento.ao_terminar("9.9.9", False, _Windows()), relatorio=_relatorio_do_desligamento(),
+                               pasta=str(arquivo))
+    tarefa.linha.join(5)
+    assert tarefa.resultado == ["feito"] and tarefa.erro is None and tarefa.registro is None

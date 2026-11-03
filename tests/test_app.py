@@ -492,10 +492,13 @@ def test_etapa_dos_prints_exige_a_planilha_conferida(tmp_path, monkeypatch):
     assert recebidos == [CONFERIDOS]
 
 
-def test_as_abas_aparecem_antes_de_enviar_qualquer_arquivo():
+def test_as_abas_aparecem_antes_de_enviar_qualquer_arquivo(monkeypatch):
+    monkeypatch.delenv("QUEMCANTA_DEV", raising=False)
+    abas = [ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS, "Réplica (ECAD)", "Réplica (ISWC)"]
+    assert _tela_de_creditos().run().button_group[0].options == abas  # instalação normal: a Tabela de obras fica escondida
+    monkeypatch.setenv("QUEMCANTA_DEV", "1")
     at = _tela_de_creditos().run()
-    assert not at.exception and at.button_group[0].options == [ETAPA_DOS_INTERPRETES, ETAPA_DOS_PRINTS, "Réplica (ECAD)", "Réplica (ISWC)",
-                                                                "Tabela de obras"]
+    assert not at.exception and at.button_group[0].options == [*abas, "Tabela de obras"]
     assert at.button_group[0].value == ETAPA_DOS_INTERPRETES and any("planilha de intérpretes" in c.value for c in at.caption)
     at.button_group[0].set_value(ETAPA_DOS_PRINTS).run()
     assert any("lista da petição" in c.value for c in at.caption) and any("Envie o relatório" in i.value for i in at.info)

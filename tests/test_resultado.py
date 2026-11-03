@@ -45,7 +45,12 @@ def _esperar(at):
 
 
 def _salvos(tmp_path):
-    return sorted(p.name for p in (tmp_path / "dados").glob("casos/*/resultado/*"))
+    """A planilha e o .zip gravados pela coleta (o registro da coleta, que fica junto, à parte: ver _registro)."""
+    return sorted(p.name for p in (tmp_path / "dados").glob("casos/*/resultado/*") if p.name != "Registro da coleta.txt")
+
+
+def _registro(tmp_path):
+    return "".join(p.read_text(encoding="utf-8") for p in (tmp_path / "dados").glob("casos/*/resultado/Registro da coleta.txt"))
 
 
 def _coleta_do_spotify():
@@ -203,6 +208,7 @@ def test_coleta_que_terminou_sem_ninguem_olhando_aparece_ao_recarregar(tmp_path,
     solta.set()  # a coleta termina enquanto a aba está fechada (nenhuma sessão olhando)
     tarefa.linha.join(5)
     assert len(_salvos(tmp_path)) == 2  # já está no disco, antes de qualquer tela abrir
+    assert "Situação: terminou" in _registro(tmp_path) and "não marcado" in _registro(tmp_path)
     outra = _tela().run()  # a aba é aberta de novo: sessão nova, sem relatório
     assert not outra.exception
     assert outra.session_state["coletas"] and "Resultado" in [s.value for s in outra.subheader]

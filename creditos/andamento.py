@@ -10,6 +10,7 @@ import re
 import threading
 import time
 import traceback
+from datetime import datetime
 
 from . import pipeline
 
@@ -118,20 +119,30 @@ class Andamento:
 class Tarefa:
     """Uma coleta rodando em segundo plano. Guarda o resultado, o erro ou o fato de ter sido interrompida."""
 
-    def __init__(self, funcao, andamento: Andamento, **dados):
+    def __init__(self, funcao, andamento: Andamento, ao_terminar=None, **dados):
         self.andamento, self.dados = andamento, dados
         self.resultado, self.erro, self.interrompida = None, None, False
         self.detalhe_do_erro = ""  # o traceback, para o registro de erros
+        self.parciais = None  # as plataformas que terminaram, quando a coleta parou no meio
+        self.comecou = datetime.now()
+        # `ao_terminar(tarefa)` roda na própria linha da coleta, terminada ou parada (ver creditos.desligamento)
+        self.ao_terminar, self.desligamento, self.registro = ao_terminar, None, None
         self.linha = threading.Thread(target=self._rodar, args=(funcao,), daemon=True)  # fechar o app encerra a coleta
         self.linha.start()
 
     def _rodar(self, funcao):
         try:
             self.resultado = funcao(self.andamento)
-        except Interrompida:
-            self.interrompida = True
+        except Interrompida as e:
+            self.interrompida, self.parciais = True, getattr(e, "coletas_parciais", None)
         except Exception as e:  # navegador que não abriu, rede fora do ar: a tela mostra e deixa tentar de novo
             self.erro, self.detalhe_do_erro = e, traceback.format_exc()
+            self.parciais = getattr(e, "coletas_parciais", None)
+        if self.ao_terminar is not None:
+            try:
+                self.ao_terminar(self)
+            except Exception:  # o registro e o desligamento nunca derrubam o resultado
+                pass
 
     @property
     def viva(self) -> bool:
@@ -149,11 +160,11 @@ def atual() -> Tarefa | None:
     return _ATUAL
 
 
-def iniciar(funcao, andamento: Andamento, **dados) -> Tarefa:
+def iniciar(funcao, andamento: Andamento, ao_terminar=None, **dados) -> Tarefa:
     global _ATUAL
     if _ATUAL is not None and _ATUAL.viva:
         return _ATUAL
-    _ATUAL = Tarefa(funcao, andamento, **dados)
+    _ATUAL = Tarefa(funcao, andamento, ao_terminar, **dados)
     return _ATUAL
 
 

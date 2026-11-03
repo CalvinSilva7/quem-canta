@@ -224,7 +224,9 @@ Testado no Windows com o captcha resolvido à mão e 5 obras reais; posições d
 obra).zip` na pasta do caso, com as mesmas obras e a mesma ordem do PDF único (↑ ↓ valem), cada uma como
 `01 - TÍTULO (T-xxx.xxx.xxx-x).pdf`. O PDF entra como foi salvo (mesmo SHA-256 da ficha). Os dois botões ficam.
 
-### 4.2 Tabela de obras (29/10/2026, ainda não publicada)
+### 4.2 Tabela de obras (29/10/2026, escondida na instalação)
+A aba só aparece com `QUEMCANTA_DEV` (`TABELA_DE_OBRAS` em `creditos_app.py`): foi publicada escondida na 0.5.73, por
+causa dos erros conhecidos abaixo. Corrigidos, é só tirar o `if` e pôr a aba de volta em `ETAPAS`.
 Aba **Tabela de obras** (`creditos/tabela_obras.py`): o Word que o escritório montava à mão, com uma linha por obra e
 4 colunas (obra, recorte do relatório analítico, do ISWC e do Ecadnet), no formato do modelo (A4 deitado, margens de
 1,27 cm, Bookman Old Style 10, larguras 2262/3355/4017/5989 dxa, cada recorte na largura útil da coluna). Entram o
@@ -251,6 +253,28 @@ do relatório**; obra sem print do Ecadnet fica com a célula vazia.
   2. Prints do Ecadnet que não foram ligados à obra: 2 obras ficaram sem Ecadnet e 1 com um print a menos, que a
      tabela feita à mão tinha. Ver o que o leitor leu nesses prints (código, ISWC, título).
   3. A tabela à mão tinha 64 obras e o PDF do ISWC 75: perguntar ao escritório por que 11 ficaram de fora.
+
+### 4.3 Desligar no fim da coleta e o registro da coleta (0.5.73, 03/11/2026)
+Pedido do dono: o pessoal deixa o computador ligado à noite para a coleta, e ele tem de desligar sozinho no fim.
+`creditos/desligamento.py`, ligado pela caixinha **Desligar o computador quando a coleta terminar** (Coleta de prints).
+- Desliga **também quando a coleta para no meio** (erro, captcha, pedido de parada): decisão do dono. Antes de pedir, a
+  coleta já gravou o resultado (completo ou parcial) na pasta `resultado` do compositor.
+- **Forçado** (decisão do dono): `shutdown /s /f /t 300`. Com `/t` maior que 0 o Windows já força; o `/f` explícito só
+  deixa claro. Um Word sem salvar é fechado sem perguntar: por isso o aviso amarelo ao marcar a caixinha. No modo
+  normal, um programa com algo sem salvar seguraria o PC ligado na tela "este programa está impedindo o desligamento".
+- 5 minutos para cancelar: botão **Cancelar o desligamento** na tela (`shutdown /a`) ou o próprio aviso do Windows.
+- O pedido sai da **linha da coleta** (`Tarefa.ao_terminar`, em `andamento.py`), não da tela: funciona com a aba do
+  navegador fechada.
+- Toda coleta (com ou sem a caixinha) acrescenta um bloco a `resultado/Registro da coleta.txt`: horário, versão,
+  plataformas, situação, onde parou, arquivos gravados, avisos de cada plataforma, traceback do erro e se o Windows
+  aceitou o desligamento. É o arquivo que a pessoa manda quando algo dá errado. A busca de intérpretes não registra
+  nem desliga.
+- O `shutdown` responde na página de código do console: lido com `encoding="oem"`, senão os acentos saem trocados.
+- Testado no computador de desenvolvimento: uma coleta de 2 músicas com a caixinha marcada gravou a planilha e o
+  .zip, escreveu o registro e pediu o desligamento (aceito pelo Windows); depois, cancelado com `shutdown /a`.
+- Também na 0.5.73: o teste do tocador da Amazon pelo site falhava de vez em quando no Windows. Com a espera zerada
+  no teste, `time.monotonic() > limite` às vezes ainda era falso (o relógio do Windows anda de ~15 ms em ~15 ms) e o
+  laço pedia mais uma leitura do tocador; agora é `>=`.
 
 ## 5. Erros que custaram tempo, e a causa de cada um
 
