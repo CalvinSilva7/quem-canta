@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.73",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.73/quem-canta-0.5.73-windows.zip",
-  "sha256": "c0947e8c72ed4e550b92e67a532bb50a0ec94c053856f9f18b4cb7b5652c68b2",
-  "notas": "Coleta de prints: nova caixinha \"Desligar o computador quando a coleta terminar\". No fim da coleta (ou se ela parar no meio), o resultado fica salvo na pasta do compositor e o computador desliga 5 minutos depois, fechando os programas abertos: salve e feche o que estiver aberto antes. Dá para cancelar pelo botão na tela. Cada coleta agora escreve o arquivo \"Registro da coleta.txt\" na pasta do resultado: em caso de problema, mande esse arquivo. Amazon pelo site: o print sai com a música tocando, mostrando o cantor (precisa do Google Chrome)."
+  "versao": "0.5.74",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.74/quem-canta-0.5.74-windows.zip",
+  "sha256": "f0365c570a64adea205d0d3120c26ec5e7a6828afcaa271f311a3e556dd20b66",
+  "notas": "Nova aba Tabela de obras: monta o Word da tabela de obras a partir do relatório analítico, do ISWC e dos prints do Ecadnet."
 }
