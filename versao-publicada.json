@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.72",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.72/quem-canta-0.5.72-windows.zip",
-  "sha256": "292ec5beae9afa46860423ee996f97f45d813f37346b7cd5f1db6d1b7fb767ad",
-  "notas": "Réplica ISWC: novo botão \"Gerar o ZIP (um PDF por obra)\", ao lado do PDF único. O zip traz um PDF para cada obra, na ordem da lista, com o nome \"01 - TÍTULO (ISWC).pdf\"."
+  "versao": "0.5.73",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.73/quem-canta-0.5.73-windows.zip",
+  "sha256": "c0947e8c72ed4e550b92e67a532bb50a0ec94c053856f9f18b4cb7b5652c68b2",
+  "notas": "Coleta de prints: nova caixinha \"Desligar o computador quando a coleta terminar\". No fim da coleta (ou se ela parar no meio), o resultado fica salvo na pasta do compositor e o computador desliga 5 minutos depois, fechando os programas abertos: salve e feche o que estiver aberto antes. Dá para cancelar pelo botão na tela. Cada coleta agora escreve o arquivo \"Registro da coleta.txt\" na pasta do resultado: em caso de problema, mande esse arquivo. Amazon pelo site: o print sai com a música tocando, mostrando o cantor (precisa do Google Chrome)."
 }
