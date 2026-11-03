@@ -224,9 +224,9 @@ Testado no Windows com o captcha resolvido à mão e 5 obras reais; posições d
 obra).zip` na pasta do caso, com as mesmas obras e a mesma ordem do PDF único (↑ ↓ valem), cada uma como
 `01 - TÍTULO (T-xxx.xxx.xxx-x).pdf`. O PDF entra como foi salvo (mesmo SHA-256 da ficha). Os dois botões ficam.
 
-### 4.2 Tabela de obras (29/10/2026, escondida na instalação)
-A aba só aparece com `QUEMCANTA_DEV` (`TABELA_DE_OBRAS` em `creditos_app.py`): foi publicada escondida na 0.5.73, por
-causa dos erros conhecidos abaixo. Corrigidos, é só tirar o `if` e pôr a aba de volta em `ETAPAS`.
+### 4.2 Tabela de obras (29/10/2026; liberada para todos na 0.5.74, 03/11/2026)
+Foi publicada escondida na 0.5.73 (só com `QUEMCANTA_DEV`), por causa dos erros conhecidos abaixo. Revistos, o dono
+mandou liberar: na 0.5.74 a aba está em `ETAPAS` para todos.
 Aba **Tabela de obras** (`creditos/tabela_obras.py`): o Word que o escritório montava à mão, com uma linha por obra e
 4 colunas (obra, recorte do relatório analítico, do ISWC e do Ecadnet), no formato do modelo (A4 deitado, margens de
 1,27 cm, Bookman Old Style 10, larguras 2262/3355/4017/5989 dxa, cada recorte na largura útil da coluna). Entram o
@@ -259,7 +259,7 @@ do relatório**; obra sem print do Ecadnet fica com a célula vazia.
   um print do Ecadnet com a tela reduzida; o app, o print e o rolado), e 6 em que a tabela à mão errou (Ecadnet ou
   relatório de outra obra, ISWC faltando, recorte passando do cliente). O recorte do relatório que corta letras do
   pseudônimo é igual no gabarito: não mexer.
-- Falta para tirar a aba do esconderijo: o dono decidir publicar.
+- Liberada na 0.5.74 (03/11/2026), por decisão do dono.
 
 ### 4.3 Desligar no fim da coleta e o registro da coleta (0.5.73, 03/11/2026)
 Pedido do dono: o pessoal deixa o computador ligado à noite para a coleta, e ele tem de desligar sozinho no fim.

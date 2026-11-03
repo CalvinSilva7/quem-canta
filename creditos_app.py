@@ -22,11 +22,8 @@ from creditos.modelo import SITUACOES, Relatorio
 # Onde ficam os casos (o que já foi lido e os prints): fora da pasta do programa, para uma atualização nunca tocar neles.
 PASTA_DE_DADOS = Path(os.environ.get("QUEMCANTA_DADOS") or Path.home() / "Documents" / "Quem Canta")
 
-ETAPAS = ["Buscar intérpretes", "Coleta de prints", "Réplica (ECAD)", "Réplica (ISWC)"]  # as abas do app
 TABELA_DE_OBRAS = "Tabela de obras"
-# A Tabela de obras tem erros conhecidos (CONTEXTO, 4.2): até serem corrigidos, só aparece para quem desenvolve.
-if os.environ.get("QUEMCANTA_DEV"):
-    ETAPAS.append(TABELA_DE_OBRAS)
+ETAPAS = ["Buscar intérpretes", "Coleta de prints", "Réplica (ECAD)", "Réplica (ISWC)", TABELA_DE_OBRAS]  # as abas do app
 
 
 @st.fragment(run_every=1)
