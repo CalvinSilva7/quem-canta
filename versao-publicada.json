@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.74",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.74/quem-canta-0.5.74-windows.zip",
-  "sha256": "f0365c570a64adea205d0d3120c26ec5e7a6828afcaa271f311a3e556dd20b66",
-  "notas": "Nova aba Tabela de obras: monta o Word da tabela de obras a partir do relatório analítico, do ISWC e dos prints do Ecadnet."
+  "versao": "0.5.75",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.75/quem-canta-0.5.75-windows.zip",
+  "sha256": "bdf8418dad7363c51a3d6c00e9259eea1c07266b916eaedce216d81ba1d5ba13",
+  "notas": "Corrige a Amazon, que saía vazia nas coletas com outras plataformas (Spotify, Tidal, Palco MP3) desde a 0.5.73. Quem coletou a Amazon desde segunda deve refazer só a Amazon."
 }
