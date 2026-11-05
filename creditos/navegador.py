@@ -124,15 +124,20 @@ class PerfilEmUso(Exception):
 class Navegador:
     """Uso: `with Navegador(filtro) as nav: nav.ir(url); nav.pagina...`"""
 
-    def __init__(self, filtro=None, visivel=True, ao_avancar=None, escondido=False, perfil=None, toca_musica=False):
+    def __init__(self, filtro=None, visivel=True, ao_avancar=None, escondido=False, perfil=None, toca_musica=False,
+                 junto_de=None):
         # `perfil`: pasta em que o navegador guarda a sessão de um site (o login que a pessoa fez nele). Sem isso,
         # cada coleta abre um navegador limpo, sem sessão nenhuma.
         # `toca_musica` (Amazon pelo site, 30/10/2026): a música do site tem proteção contra cópia (Widevine), que o
         # Chromium do app não tem. Abre o Google Chrome do computador sem a opção do Playwright que desliga os
         # componentes do Chrome (a proteção é um deles). Sem o Chrome instalado, abre o Chromium e `self.chrome` fica
         # False: a página não toca, e quem usa avisa.
+        # `junto_de` (05/11/2026): outro Navegador ainda aberto na mesma linha de execução. O Playwright só aceita um
+        # por linha: um segundo `sync_playwright().start()` com o primeiro aberto falha ("Playwright Sync API inside
+        # the asyncio loop"), e foi isso que deixou a Amazon sem nenhuma leitura nas coletas completas da 0.5.73 e da
+        # 0.5.74. Com `junto_de`, este navegador abre a janela dele pelo Playwright do outro.
         self.filtro, self.visivel, self.escondido, self.perfil = filtro, visivel, escondido, perfil
-        self.toca_musica, self.chrome = toca_musica, False
+        self.toca_musica, self.chrome, self.junto_de = toca_musica, False, junto_de
         self.avisar = ao_avancar or (lambda texto: None)
         self.navegacoes = 0
         self._ultima = 0.0
@@ -141,38 +146,51 @@ class Navegador:
         self._pw = self._navegador = self._pagina = None
         return self
 
-    @property
-    def pagina(self):
-        """A janela só abre na primeira vez em que é preciso navegar: com tudo já lido, não abre nenhuma."""
-        if self._pagina is None:
+    def playwright(self):
+        """O Playwright desta linha de execução: o do navegador `junto_de`, se houver, ou um próprio (aberto uma vez)."""
+        if self.junto_de is not None:
+            return self.junto_de.playwright()
+        if self._pw is None:
             from playwright.sync_api import sync_playwright
 
             preparar_asyncio()
             self._pw = sync_playwright().start()
+        return self._pw
+
+    def _parar_o_playwright(self):
+        """Só para o Playwright próprio: o do `junto_de` continua servindo o outro navegador."""
+        if self._pw:
+            self._pw.stop()
+            self._pw = None
+
+    @property
+    def pagina(self):
+        """A janela só abre na primeira vez em que é preciso navegar: com tudo já lido, não abre nenhuma."""
+        if self._pagina is None:
+            pw = self.playwright()
             argumentos = (["--lang=pt-BR", "--disable-features=Translate", "--mute-audio"] + tamanho_da_janela()
                           + ([FORA_DA_TELA] if self.escondido else []))
             if self.perfil:
                 try:
-                    contexto = self._navegador = self._pw.chromium.launch_persistent_context(
+                    contexto = self._navegador = pw.chromium.launch_persistent_context(
                         str(self.perfil), headless=not self.visivel, args=argumentos, **tamanho_da_pagina(), locale="pt-BR",
                         timezone_id=captura.FUSO)
                 except Exception as e:
                     # O perfil só pode estar aberto em uma janela por vez: o caso comum é a janela de login ainda aberta.
-                    self._pw.stop()
-                    self._pw = None
+                    self._parar_o_playwright()
                     raise PerfilEmUso("o navegador com a sessão guardada já está aberto em outra janela. Feche a janela de login "
                                       f"(e qualquer outra janela do navegador do app) e colete de novo [{type(e).__name__}]") from e
             else:
                 self._navegador = None
                 if self.toca_musica:
                     try:
-                        self._navegador = self._pw.chromium.launch(channel="chrome", headless=not self.visivel, args=argumentos,
-                                                                   ignore_default_args=["--disable-component-update"])
+                        self._navegador = pw.chromium.launch(channel="chrome", headless=not self.visivel, args=argumentos,
+                                                             ignore_default_args=["--disable-component-update"])
                         self.chrome = True
                     except Exception:  # Google Chrome não instalado
                         self._navegador = None
                 if self._navegador is None:
-                    self._navegador = self._pw.chromium.launch(headless=not self.visivel, args=argumentos)
+                    self._navegador = pw.chromium.launch(headless=not self.visivel, args=argumentos)
                 contexto = self._navegador.new_context(**tamanho_da_pagina(), locale="pt-BR", timezone_id=captura.FUSO)
             contexto.add_init_script(f"({captura.TRAVA_DE_TRADUCAO})()")
             self._pagina = (contexto.pages[0] if self.perfil and contexto.pages else contexto.new_page())
@@ -182,8 +200,7 @@ class Navegador:
     def __exit__(self, *erro):
         if self._navegador:
             self._navegador.close()
-        if self._pw:
-            self._pw.stop()
+        self._parar_o_playwright()
 
     def ir(self, url, pausa=(2, 4)):
         """Abre a URL respeitando o intervalo mínimo entre páginas. Levanta Bloqueio se a plataforma desviar."""

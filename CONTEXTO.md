@@ -375,6 +375,15 @@ Vale ler antes de mexer na plataforma correspondente.
   duplicou 230 linhas da tela. Conferir o `git diff --stat` depois de edição grande.
 - *Perfil em uso.* A janela de login da Claro aberta impede a coleta de abrir o mesmo perfil. Vira aviso
   (`PerfilEmUso`) e só a Claro para. Vale igual para a Deezer: só os prints dela param.
+- *Amazon vazia em toda coleta completa* (0.5.73 e 0.5.74; corrigido na 0.5.75, 05/11/2026). O navegador da Amazon
+  pelo site (o Chrome, para a música tocar) abria um segundo `sync_playwright()` com o navegador comum (Spotify,
+  Tidal, Palco MP3) ainda aberto, na mesma linha de execução. O Playwright recusa ("It looks like you are using
+  Playwright Sync API inside the asyncio loop") e todas as buscas falharam: numa coleta real, 515 buscas e 0
+  gravações, no aplicativo e no site (os dois usam a busca do site). O teste de sexta (30/10) rodou só a Amazon, com
+  3 faixas, e o navegador comum nem abriu. Regra: um Playwright por linha de execução; outro navegador aberto ao
+  mesmo tempo usa `Navegador(junto_de=...)`. `tests/test_navegador.py` abre os dois de verdade (invisíveis) e
+  reproduz o erro. Conferido numa coleta real, Spotify + Amazon (2 obras): 12 + 5 + 2 gravações, prints do site com
+  a música tocando.
 - *Coleta "que não rodou".* Várias vezes o zip recebido era o da rodada anterior: o app não tinha sido fechado e
   aberto depois da atualização, ou reaproveitou leituras. Conferir a hora dos arquivos dentro do zip.
 - *Aviso de atualização.* O `versao-publicada.json` passa por um cache de cerca de 5 minutos no GitHub.
@@ -470,7 +479,8 @@ Vale ler antes de mexer na plataforma correspondente.
   esse componente, e o site responde "este navegador não é mais compatível". O Chrome tem, mas o Playwright o abre
   com `--disable-component-update`, que impede o componente de carregar: foi isso que também deixou o clipe do Tidal
   preto no Chrome automatizado (seção 6). A Amazon pelo site abre agora o Chrome do computador sem essa opção
-  (`Navegador(toca_musica=True)`, num navegador só dela); sem o Chrome instalado, abre o Chromium e avisa. Não é
+  (`Navegador(toca_musica=True)`, num navegador só dela, aberto pelo Playwright do navegador comum: `junto_de=nav`,
+  0.5.75, ver seção 5); sem o Chrome instalado, abre o Chromium e avisa. Não é
   contornar bloqueio: é o Chrome com o componente que ele tem em qualquer computador.
   Tentado e descartado: diminuir o zoom (com 67% o cabeçalho continua fora e o menu abre deslocado; com 50% fica
   ilegível, e num álbum de 100 faixas não há zoom que sirva); dois prints, topo do álbum e menu (recusado pelo dono:

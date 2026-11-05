@@ -1802,10 +1802,11 @@ def _executar(relatorio, config, pasta, nomes_dos_coautores, youtube, limite_you
 
                 def da_amazon():
                     # O site tem navegador próprio: o Google Chrome, em que a música toca antes do print (o tocador
-                    # mostra o cantor). Ele só abre se houver música para o site.
+                    # mostra o cantor). Ele só abre se houver música para o site, pelo Playwright do `nav`, que
+                    # continua aberto (dois Playwright na mesma linha de execução derrubavam a Amazon inteira).
                     with AmazonApp(pasta / "amazon-app", ao_avancar, so_o_que_ja_foi_lido) as aplicativo, \
                             Navegador(filtro=filtro, visivel=not so_o_que_ja_foi_lido, ao_avancar=ao_avancar,
-                                      escondido=not mostrar_navegador, toca_musica=True) as do_site:
+                                      escondido=not mostrar_navegador, toca_musica=True, junto_de=nav) as do_site:
                         return [ajustar(k) for k in coletar_amazon_completa(
                             relatorio, config, AmazonWeb(do_site, pasta / "amazon-site", so_o_que_ja_foi_lido), aplicativo,
                             recorrentes, pares, limite, ao_avancar=ao_avancar)]
