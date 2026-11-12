@@ -2091,13 +2091,40 @@ def test_claro_deixa_de_lado_a_pagina_de_artista_que_so_mostra_albuns_de_outros(
     claro._lista = lista
     achados = claro.buscar_pelo_artista("Banda do Baile", lambda n: n == "Banda do Baile", lambda t: t == "Coisa Feita")
     assert abertos[:3] == ["100", "101", "102"] and "103" not in abertos  # 3 álbuns de outros: a página é deixada de lado
-    assert abertos[3:] == [str(n) for n in range(200, 210)]  # no cadastro certo, no máximo 10 álbuns
+    assert abertos[3:] == [str(n) for n in range(200, 204)]  # no cadastro certo, no máximo 4 álbuns
     assert achados == []  # a faixa estava no 16º álbum: fora do limite
+    assert claro.albuns_cortados == [("Banda do Baile", 26)]  # vira aviso: 26 álbuns do cadastro certo ficaram sem abrir
 
     abertos.clear()
     paginas[("_albuns_do_artista", "2")] = [["215", "Disco 215"]] + [[str(n), f"Disco {n}"] for n in range(200, 210)]
     (achado,) = claro.buscar_pelo_artista("Banda do Baile", lambda n: n == "Banda do Baile", lambda t: t == "Coisa Feita")
     assert achado.titulo == "Coisa Feita" and achado.album == "215"
+    assert abertos == ["100", "101", "102", "215"]  # achou no primeiro álbum do cadastro certo: para ali
+    assert len(claro.albuns_cortados) == 1  # achado não vira aviso
+
+
+def test_claro_avisa_quando_o_ultimo_recurso_para_no_limite_de_albuns(rel):
+    from types import SimpleNamespace
+    from creditos import claro as _claro
+
+    class ClaroFalsa:
+        nav = SimpleNamespace(navegacoes=0)
+        def __init__(self):
+            self.albuns_cortados, self.pedidos = [], []
+        def buscar(self, consulta):
+            return []
+        def buscar_pelo_artista(self, nome, mesmo_artista, e_da_obra, no_maximo=2):
+            self.pedidos.append(no_maximo)
+            self.albuns_cortados.append((nome, 7))
+            return []
+        def ler(self, cand, obra):
+            raise AssertionError("nada para ler")
+
+    falsa = ClaroFalsa()
+    coleta = pipeline.coletar_claro(rel, Config(nomes_confirmados=["ZECA LIMA"]), falsa, pares={"COISA FEITA": ["Banda do Baile"]})
+    assert falsa.pedidos == [1]  # uma faixa basta no último recurso
+    assert any('"COISA FEITA"' in a and "Banda do Baile" in a and "7 álbuns ficaram sem abrir" in a and "Confira à mão" in a
+               for a in coleta.avisos)
 
 
 def test_claro_procura_pela_pagina_do_artista_quando_a_busca_nao_traz_a_faixa(rel):

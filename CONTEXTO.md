@@ -352,6 +352,19 @@ Vale ler antes de mexer na plataforma correspondente.
 - *Limite de nomes.* A Tidal procurava só os 8 primeiros nomes, começando pelos do próprio compositor.
 - *Título comum demais.* A busca devolve 200 músicas e a do intérprete não está entre elas (Claro). Último recurso:
   a página do artista.
+- *Claro lenta (12/11/2026, decisão do dono; versão 0.5.76).* Medido em 4 casos guardados no computador de
+  desenvolvimento: o último recurso abria mais da metade das páginas da coleta (no maior caso, 2.647 páginas para
+  134 faixas; num caso médio, 1.112 páginas para 61 faixas, cerca de 2 horas). Agora abre no máximo 4 álbuns por
+  artista (antes 10), os com o nome da música primeiro, e para na primeira faixa achada (antes 2 por intérprete).
+  Nos casos medidos, 70% das faixas achadas por esse caminho estavam nos 4 primeiros álbuns; as páginas de álbum
+  caem para menos da metade. Quando não acha e sobram álbuns sem abrir, a coleta avisa "Confira à mão" (nunca vira
+  "sem créditos"). Testado só em teste automático; falta conferir o tempo numa coleta real no Windows.
+- *Claro: ler direto na lista da busca (12/11/2026, recusado pelo dono).* A lista da busca tem o mesmo menu da
+  faixa com "Informações e créditos", e o cartão abre por cima dela (visto no site logado: cerca de 4 s por faixa,
+  sem abrir a página do álbum, contra 9,9 s mais uma página). Cortaria uma página por faixa, mas o print sairia
+  com a lista da busca atrás, e não a página do álbum. O dono decidiu manter o print do álbum.
+- *Pausa da Claro (pendente).* Entre páginas é de 4 a 7 s, abaixo da regra de 5 a 10 s. Corrigir deixa a coleta
+  mais lenta; espera decisão do dono.
 - *Endereço de álbum.* O álbum achado no site da Amazon nem sempre abre no aplicativo; aí o app usa a busca do
   próprio aplicativo. Os endereços de álbum do site deixam a tela do aplicativo vazia: não usar.
 

@@ -518,10 +518,17 @@ def _filas_da_amazon(relatorio, config, amazon, recorrentes, pares, limite_de_ob
                 mesmo = lambda exibido, n=n: (any(c.mesmo_artista(parte, n) for parte in c.partes_do_interprete(exibido))
                                               or _nome_dentro(n, exibido) or _mesma_grafia(n, exibido))
                 da_obra = lambda exibido, ligados=ligados: _e_da_obra(_titulo_do_video(exibido, relatorio, ligados), titulo, relatorio) == "exato"
-                for cand in _buscar(coleta, titulo, n, amazon.buscar_pelo_artista, mesmo, da_obra, no_maximo=por_interprete):
+                # uma faixa basta: abrir álbum atrás de álbum era a maior parte do tempo da Claro
+                cortados = getattr(amazon, "albuns_cortados", [])
+                antes = len(cortados)
+                for cand in _buscar(coleta, titulo, n, amazon.buscar_pelo_artista, mesmo, da_obra, no_maximo=1):
                     if cand.faixa not in vistos:
                         vistos.add(cand.faixa)
                         por_nome.setdefault(tuple(_palavras(n)), []).append((cand, titulo, f"página do artista {n}"))
+                for _, deixados in cortados[antes:]:
+                    coleta.avisos.append(
+                        f'"{titulo}": {nome} não achou a faixa de {n} nos primeiros álbuns da página do artista; '
+                        f"{deixados} {'álbum ficou' if deixados == 1 else 'álbuns ficaram'} sem abrir. Confira à mão.")
         if cortadas:
             coleta.avisos.append(
                 f'"{titulo}": {_faixas_nao_abertas(sum(cortadas.values()))} de {nome} pelo limite de {por_interprete} por '

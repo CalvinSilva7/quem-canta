@@ -198,6 +198,7 @@ class Claro:
         self.so_o_que_ja_foi_lido = so_o_que_ja_foi_lido
         self._conferido = False
         self.nao_carregaram = []  # as buscas e listas que não abriram: viram aviso na coleta, e não resultado
+        self.albuns_cortados = []  # (intérprete, álbuns não abertos): o último recurso não achou e parou no limite
 
     def _abrir(self, endereco: str, descricao: str):
         """Abre a página; se o site demorar demais ou a rede falhar, tenta mais uma vez. Na segunda falha, anota e
@@ -285,7 +286,7 @@ class Claro:
             self._guardar(nome_do_cache, guardado)
         return itens
 
-    def buscar_pelo_artista(self, nome: str, mesmo_artista, e_da_obra, albuns_no_maximo=10, no_maximo=2,
+    def buscar_pelo_artista(self, nome: str, mesmo_artista, e_da_obra, albuns_no_maximo=4, no_maximo=1,
                             estranhos_no_maximo=3) -> list[Candidato]:
         """Quando a busca por título não traz a faixa do intérprete (título comum demais): acha o artista pelo nome,
         abre os álbuns que a página dele mostra e procura neles a faixa da obra.
@@ -296,13 +297,17 @@ class Claro:
         Página de artista sem discografia (um cadastro duplicado, vazio) mostra álbuns de outros artistas como
         sugestão. Depois de `estranhos_no_maximo` álbuns seguidos sem nenhuma faixa do intérprete, a página é deixada
         de lado e o robô passa ao artista seguinte.
+
+        Este caminho era o mais caro da Claro (mais da metade das páginas de uma coleta, medido em 4 casos). Por isso
+        abre no máximo `albuns_no_maximo` álbuns por artista e para no primeiro achado. Se nada for achado e sobrarem
+        álbuns sem abrir pelo limite, o intérprete vai para `albuns_cortados` (vira aviso de conferir à mão).
         """
-        achados = []
+        achados, deixados = [], 0
         artistas = [(codigo, exibido) for codigo, exibido in self._lista("_artistas", nome, SITE + "predictiveDetail/artists/" + quote(nome, safe=""),
                                                                          'td[id^="artist-"]', _LER_ARTISTAS) if mesmo_artista(exibido)]
         for codigo, exibido in artistas[:2]:
-            albuns = self._lista("_albuns_do_artista", codigo, f"{SITE}artist/{codigo}/BR", 'a[href*="/album/"]', _LER_ALBUNS)
-            albuns = sorted(albuns, key=lambda a: not e_da_obra(a[1]))[:albuns_no_maximo]  # primeiro os que levam o nome da obra
+            todos = self._lista("_albuns_do_artista", codigo, f"{SITE}artist/{codigo}/BR", 'a[href*="/album/"]', _LER_ALBUNS)
+            albuns = sorted(todos, key=lambda a: not e_da_obra(a[1]))[:albuns_no_maximo]  # primeiro os que levam o nome da obra
             estranhos = 0
             for album, nome_do_album in albuns:
                 faixas = self._lista("_faixas_do_album", album, f"{SITE}album/{album}/BR", ".list-content-row", _LER_FAIXAS)
@@ -317,6 +322,10 @@ class Claro:
                     estranhos = 0 if any(mesmo_artista(n) for n in nomes) else estranhos + 1
                 if estranhos >= estranhos_no_maximo:
                     break  # não é a discografia dele
+            else:  # a página era dele: o que passou do limite ficou sem abrir
+                deixados += max(0, len(todos) - albuns_no_maximo)
+        if not achados and deixados:
+            self.albuns_cortados.append((nome, deixados))
         return achados
 
     def ler(self, cand: Candidato, obra: str) -> Leitura:
