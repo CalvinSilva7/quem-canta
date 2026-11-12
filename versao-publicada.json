@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.75",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.75/quem-canta-0.5.75-windows.zip",
-  "sha256": "bdf8418dad7363c51a3d6c00e9259eea1c07266b916eaedce216d81ba1d5ba13",
-  "notas": "Corrige a Amazon, que saía vazia nas coletas com outras plataformas (Spotify, Tidal, Palco MP3) desde a 0.5.73. Quem coletou a Amazon desde segunda deve refazer só a Amazon."
+  "versao": "0.5.76",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.76/quem-canta-0.5.76-windows.zip",
+  "sha256": "953cbf2540fd902e40da794bb642bfe2725179e3604a967333bfc2218066c323",
+  "notas": "Claro Música mais rápida: quando a busca não acha a faixa, o app abre no máximo 4 álbuns da página do artista (antes 10) e para na primeira faixa achada. Se sobrarem álbuns sem abrir, o Resumo pede para conferir à mão."
 }
