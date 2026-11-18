@@ -1,6 +1,6 @@
 """Tabela de obras: o Word com uma linha por obra e os recortes do relatório analítico, do ISWC e do Ecadnet.
 
-Entra o que o escritório já tem do caso: o relatório analítico do ECAD (PDF), os PDFs do ISWC (um só, vários ou o .zip
+Entra o que o escritório já tem do caso: o relatório analítico do ECAD ou da UBC (PDF), os PDFs do ISWC (um só, vários ou o .zip
 de um por obra) e os prints do Ecadnet (Word ou PDF com os prints de tela). As linhas da tabela são as obras do ISWC,
 na ordem do relatório, com o título do relatório.
 
@@ -73,6 +73,7 @@ class Trecho:
     top: float
     x1: float
     bottom: float
+    junto_ao_anterior: bool = False  # vira uma imagem só com o recorte anterior (relatório da UBC: obra + nomes)
 
 
 @dataclass
@@ -82,6 +83,7 @@ class ObraDoRelatorio:
     titulo: str
     trechos: list[Trecho] = field(default_factory=list)
     ate_o_cliente: bool = False  # já chegou na linha do titular do relatório: os nomes de depois não entram
+    mesma_largura: bool = False  # relatório da UBC: os recortes da obra saem com a mesma largura (e a mesma escala no Word)
 
 
 def _linhas(palavras, tolerancia=3):
@@ -103,6 +105,8 @@ def obras_do_relatorio(conteudo: bytes) -> list[ObraDoRelatorio]:
     obras: list[ObraDoRelatorio] = []
     colunas, cliente = {}, ""
     with pdfplumber.open(io.BytesIO(conteudo)) as pdf:
+        if _e_da_ubc(pdf):
+            return _obras_da_ubc(pdf)
         for n, pagina in enumerate(pdf.pages):
             palavras = pagina.extract_words(x_tolerance=1.5, extra_attrs=["fontname"])  # ISWC e título não se juntam
             for p in palavras:
@@ -143,6 +147,119 @@ def obras_do_relatorio(conteudo: bytes) -> list[ObraDoRelatorio]:
     return obras
 
 
+# O "Relatório Analítico de Obras" da UBC: cada obra é uma linha (códigos UBC e ECAD, ISWC, título centralizado, data,
+# nacional, situação), seguida do seu cabeçalho de titulares e de uma linha por titular (códigos, nome, território,
+# categoria, contrato, participação, link). Tudo na mesma fonte: as linhas são separadas pelo formato, não pelo negrito.
+_ISWC_DA_UBC = re.compile(r"T-?(\d{3})\.?(\d{3})\.?(\d{3})-?(\d)")
+_PERCENTUAL = re.compile(r"\d+(?:[.,]\d+)?%")
+_DATA = re.compile(r"\d{2}/\d{2}/\d{4}")
+
+
+def _e_da_ubc(pdf) -> bool:
+    """O cabeçalho das obras começa por "UBC ECAD ISWC"."""
+    palavras = pdf.pages[0].extract_words(x_tolerance=1.5) if pdf.pages else []
+    return any([p["text"] for p in linha[:3]] == ["UBC", "ECAD", "ISWC"] for linha in _linhas(palavras))
+
+
+def _mais_perto(palavras, x_ubc: float, x_ecad: float) -> dict:
+    """{"UBC": palavra, "ECAD": palavra}: cada código vai para a coluna cujo rótulo está mais perto."""
+    codigos = {}
+    for p in palavras:
+        codigos.setdefault("UBC" if abs(p["x0"] - x_ubc) <= abs(p["x0"] - x_ecad) else "ECAD", p)
+    return codigos
+
+
+def _obras_da_ubc(pdf) -> list[ObraDoRelatorio]:
+    """Como no relatório do ECAD: a linha da obra (ISWC e título) e, logo embaixo, os nomes dos titulares até o do
+    cliente (pelo código ECAD dele, no topo do relatório). Na mesma página, os dois recortes viram uma imagem só (os
+    códigos que ficam entre eles não entram); se os nomes passam para a página seguinte, ela entra também."""
+    obras: list[ObraDoRelatorio] = []
+    obras_col, titulares_col, cliente = {}, {}, ""
+    for n, pagina in enumerate(pdf.pages):
+        nomes = None  # o recorte dos nomes da obra atual nesta página
+        for linha in _linhas(pagina.extract_words(x_tolerance=1.5)):
+            textos = [p["text"] for p in linha]
+            if textos[:3] == ["UBC", "ECAD", "ISWC"]:
+                obras_col = {}
+                for p in linha:
+                    obras_col.setdefault(p["text"], p["x0"])
+                continue
+            if textos[:3] == ["UBC", "ECAD", "TITULAR"]:
+                titulares_col = {}
+                for p in linha:
+                    titulares_col.setdefault(p["text"], p["x0"])
+                continue
+            topo = re.search(r"ECAD:\s*(\d+)\s*TITULAR:", " ".join(textos))  # "UBC: 900001 ECAD: 1000 TITULAR: …"
+            if topo:
+                cliente = cliente or topo.group(1)
+                continue
+            if not textos[0].isdigit() or "ISWC" not in obras_col:
+                continue
+            if any(_PERCENTUAL.fullmatch(t) for t in textos):  # linha de titular
+                if not obras or obras[-1].ate_o_cliente or "TITULAR" not in titulares_col:
+                    continue
+                obra, x_nome = obras[-1], titulares_col["TITULAR"]
+                x_fim = titulares_col.get("TERRITÓRIO", titulares_col.get("TERRITORIO", 1e9))
+                nome = [p for p in linha if x_nome - 4 <= p["x0"] < x_fim - 4]
+                if not nome:
+                    continue
+                if nomes is None:
+                    nomes = Trecho(n, x_nome - 2, min(p["top"] for p in nome) - 2, x_nome, 0,
+                                   junto_ao_anterior=bool(obra.trechos) and obra.trechos[-1].pagina == n)
+                    obra.trechos.append(nomes)
+                nomes.x1 = max(nomes.x1, max(p["x1"] for p in nome) + 2)
+                nomes.bottom = max(nomes.bottom, max(p["bottom"] for p in nome) + 2)
+                codigos = _mais_perto([p for p in linha if p["text"].isdigit() and p["x0"] < x_nome - 4],
+                                      titulares_col.get("UBC", 0), titulares_col.get("ECAD", 0))
+                if cliente and "ECAD" in codigos and codigos["ECAD"]["text"] == cliente:
+                    obra.ate_o_cliente = True
+                continue
+            palavras = list(linha)  # linha da obra
+            codigos = []
+            while palavras and palavras[0]["text"].isdigit() and palavras[0]["x0"] < obras_col["ISWC"] - 8:
+                codigos.append(palavras.pop(0))
+            iswc = palavras.pop(0) if palavras and _ISWC_DA_UBC.fullmatch(palavras[0]["text"]) else None
+            data = next((p for p in palavras if _DATA.fullmatch(p["text"])), None)
+            fim = data["x0"] if data else obras_col.get("DATA", 1e9) - 10
+            titulo = [p for p in palavras if p["x1"] <= fim]
+            if not codigos or not titulo:
+                continue
+            codigo = _mais_perto(codigos, obras_col.get("UBC", 0), obras_col.get("ECAD", 0))
+            obra = ObraDoRelatorio(
+                codigo["ECAD"]["text"] if "ECAD" in codigo else f"UBC {codigo['UBC']['text']}",
+                "T-{}.{}.{}-{}".format(*_ISWC_DA_UBC.fullmatch(iswc["text"]).groups()) if iswc else "",
+                " ".join(p["text"] for p in titulo),
+                mesma_largura=True,
+            )
+            partes = ([iswc] if iswc else []) + titulo
+            obra.trechos.append(Trecho(n, min(p["x0"] for p in partes) - 2, min(p["top"] for p in partes) - 2,
+                                       max(p["x1"] for p in partes) + 2, max(p["bottom"] for p in partes) + 2))
+            obras.append(obra)
+            nomes = None
+    return obras
+
+
+def _empilhar(cima, baixo):
+    """Uma imagem só, alinhada à esquerda, com `baixo` logo embaixo de `cima`."""
+    from PIL import Image
+
+    junta = Image.new("RGB", (max(cima.width, baixo.width), cima.height + baixo.height), "white")
+    junta.paste(cima, (0, 0))
+    junta.paste(baixo, (0, cima.height))
+    return junta
+
+
+def _alargar(imagem, largura: int):
+    """A mesma imagem, completada com branco à direita até `largura`."""
+    from PIL import Image
+
+    if imagem.width >= largura:
+        return imagem
+    larga = Image.new("RGB", (largura, imagem.height), "white")
+    larga.paste(imagem, (0, 0))
+    return larga
+
+
 def _recortar_pdf(documento, numero, x0, top, x1, bottom, escala):
     pagina = documento[numero]
     largura, altura = pagina.get_size()
@@ -156,7 +273,17 @@ def recortes_do_relatorio(conteudo: bytes, obra: ObraDoRelatorio) -> list:
 
     documento = pdfium.PdfDocument(conteudo)
     try:
-        return [_recortar_pdf(documento, t.pagina, t.x0, t.top, t.x1, t.bottom, ESCALA_DO_RELATORIO) for t in obra.trechos]
+        imagens = []
+        for t in obra.trechos:
+            imagem = _recortar_pdf(documento, t.pagina, t.x0, t.top, t.x1, t.bottom, ESCALA_DO_RELATORIO)
+            if t.junto_ao_anterior and imagens:
+                imagens[-1] = _empilhar(imagens[-1], imagem)
+            else:
+                imagens.append(imagem)
+        if obra.mesma_largura:  # no Word, cada recorte ocupa a largura da coluna: o mais estreito sairia ampliado
+            largura = max(im.width for im in imagens)
+            imagens = [_alargar(im, largura) for im in imagens]
+        return imagens
     finally:
         documento.close()
 
@@ -491,7 +618,7 @@ def preparar(relatorio_pdf: bytes, iswc_pdfs: list[bytes]) -> tuple[list[LinhaDa
     e os avisos do que não foi achado."""
     obras = obras_do_relatorio(relatorio_pdf)
     if not obras:
-        raise ValueError("não achei obras no relatório: ele precisa ser o relatório analítico do ECAD em PDF")
+        raise ValueError("não achei obras no relatório: ele precisa ser o relatório analítico do ECAD ou da UBC em PDF")
     do_iswc, titulos = {}, {}
     for conteudo in iswc_pdfs:
         for numero, imagem in recortes_do_iswc(conteudo, titulos).items():

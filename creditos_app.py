@@ -711,7 +711,7 @@ def aba_da_tabela():
     st.caption("Uma linha por obra do ISWC, na ordem do relatório e com o título do relatório: o recorte do relatório "
                "analítico, o do ISWC e o do Ecadnet. Obra sem print do Ecadnet fica com a célula vazia.")
     if arquivo is None or not arquivo.name.lower().endswith(".pdf"):
-        st.warning("Para a tabela, envie lá em cima o **relatório analítico do ECAD em PDF**: é dele que sai a 2ª coluna.")
+        st.warning("Para a tabela, envie lá em cima o **relatório analítico do ECAD ou da UBC em PDF**: é dele que sai a 2ª coluna.")
         return
     do_iswc = st.file_uploader("PDFs do ISWC: um PDF com todas as obras, vários PDFs, ou o .zip de um PDF por obra",
                                type=["pdf", "zip"], accept_multiple_files=True, key="tabela_iswc")

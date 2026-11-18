@@ -252,3 +252,68 @@ def test_prints_do_ecadnet_em_pdf(tmp_path):
     imagens = [Image.open(io.BytesIO(p)) for p in prints]
     assert [im.size for im in imagens] == [(1920, 1080), (1920, 1080)]
     assert [im.convert("RGB").getpixel((5, 5)) for im in imagens] == [(255, 0, 0), (0, 0, 255)]
+
+
+def _relatorio_da_ubc() -> bytes:
+    """Duas páginas no jeito do "Relatório Analítico de Obras" da UBC do titular de código ECAD 1000: tudo na mesma
+    fonte, o título centralizado, um cabeçalho de titulares por obra; a 2ª obra começa no pé da 1ª página e os nomes
+    continuam na 2ª, onde está o cliente."""
+    from reportlab.pdfgen import canvas
+
+    saida = io.BytesIO()
+    folha = canvas.Canvas(saida, pagesize=(612, 792))
+
+    def escrever(y, *pares, tamanho=8):
+        folha.setFont("Helvetica", tamanho)
+        for x, texto in pares:
+            folha.drawString(x, 792 - y, texto)
+
+    def cabecalho_das_obras(y):
+        escrever(y, (78, "UBC"), (118, "ECAD"), (165, "ISWC"), (264, "TITULO"), (295, "DA"), (308, "OBRA"), (404, "DATA"),
+                 (440, "NACIONAL"), (502, "SITUACAO"))
+
+    def obra(y, ubc, ecad, iswc, titulo):
+        escrever(y, (68, ubc), (112, ecad), *([(153, iswc)] if iswc else []), (260, titulo), (396, "11/02/2022"),
+                 (454, "SIM"), (504, "LIBERADA"))
+        escrever(y + 12, (70, "UBC"), (115, "ECAD"), (160, "TITULAR"), (280, "TERRITÓRIO"), (338, "CATEGORIA"),
+                 (428, "DT."), (439, "CONTRATO"), (495, "PARTIC."), (535, "LINK"), tamanho=6)
+
+    def titular(y, ubc, ecad, nome, categoria="COMPOSITOR/AUTOR", pct="50.00%"):
+        escrever(y, (70, ubc), (115, ecad), (160, nome), (280, "BRAZIL"), (338, categoria), (495, pct), (535, "1"), tamanho=6)
+
+    escrever(132, (65, "UBC:"), (90, "900001"), (239, "ECAD:1000"), (407, "TITULAR:"), (447, "FULANO DE TAL"))
+    cabecalho_das_obras(147)
+    obra(159, "900011", "111", "T1234567890", "OBRA UM")
+    titular(183, "900002", "2000", "BELTRANO DA SILVA")
+    titular(195, "900001", "1000", "FULANO DE TAL")
+    titular(207, "900003", "3000", "EDITORA INVENTADA LTDA", "EDITOR", "0.00%")  # depois do cliente: não entra
+    obra(700, "900022", "222", "", "OBRA SEM ISWC")
+    titular(724, "900004", "4000", "AAA PRIMEIRO")
+    escrever(760, (22, "Data de Emissão: 18/09/2026"), (528, "Página 1 de 2"), tamanho=10)
+    folha.showPage()
+    cabecalho_das_obras(147)
+    titular(160, "900001", "1000", "FULANO DE TAL")
+    titular(172, "900005", "5000", "ZZZ DEPOIS DO CLIENTE")
+    escrever(200, (466, "Total de registros: 2"))
+    folha.save()
+    return saida.getvalue()
+
+
+def test_relatorio_da_ubc_acha_cada_obra_com_os_titulares_mesmo_na_pagina_seguinte():
+    conteudo = _relatorio_da_ubc()
+    obras = t.obras_do_relatorio(conteudo)
+    assert [(o.codigo, o.iswc, o.titulo) for o in obras] == [("111", "T-123.456.789-0", "OBRA UM"), ("222", "", "OBRA SEM ISWC")]
+    um, dois = obras
+    # a linha da obra (do ISWC ao fim do título, sem os códigos) e, junto com ela, os nomes até o do cliente
+    linha_da_obra, nomes = um.trechos
+    assert 150 < linha_da_obra.x0 < 153 and linha_da_obra.x1 < 396 and not linha_da_obra.junto_ao_anterior
+    assert nomes.junto_ao_anterior and 156 < nomes.x0 < 160 and nomes.x1 < 280 and 195 < nomes.bottom < 207
+    # os nomes que passam para a página 2 entram até o cliente; o que vem depois dele fica de fora
+    assert [(tr.pagina, tr.junto_ao_anterior) for tr in dois.trechos] == [(0, False), (0, True), (1, False)]
+    assert 160 < dois.trechos[2].bottom < 172
+    imagens = t.recortes_do_relatorio(conteudo, um)
+    assert len(imagens) == 1 and imagens[0].height > 2 * (linha_da_obra.bottom - linha_da_obra.top) * t.ESCALA_DO_RELATORIO
+    larguras = {im.width for im in t.recortes_do_relatorio(conteudo, dois)}
+    assert len(larguras) == 1  # mesma largura: no Word, a continuação não sai ampliada
+    linhas, _, avisos = t.preparar(conteudo, [_iswc(("T-123.456.789-0", "OBRA UM"))])
+    assert [(l.titulo, l.iswc, len(l.relatorio)) for l in linhas] == [("Obra Um", "T-123.456.789-0", 1)] and not avisos
