@@ -174,7 +174,12 @@ def _conferir(relatorio: Relatorio, ignoradas: int):
 
 
 def ler_pdf(caminho) -> Relatorio:
-    return interpretar(linhas_do_pdf(caminho))
+    """Relatório analítico do ECAD ou o "Relatório Analítico de Obras" da UBC: o leitor certo é escolhido pelo
+    cabeçalho das obras."""
+    from . import ubc_pdf  # importado aqui: ubc_pdf usa funções deste módulo
+
+    linhas = linhas_do_pdf(caminho)
+    return ubc_pdf.interpretar(linhas) if ubc_pdf.e_relatorio_da_ubc(linhas) else interpretar(linhas)
 
 
 def main():

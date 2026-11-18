@@ -44,7 +44,7 @@ O app roda no computador de quem usa (Windows, no escritório). Não há servido
 | `creditos/navegador.py` | O Chromium do app (Playwright): ritmo, sinais de bloqueio, perfil com sessão guardada |
 | `creditos/deezer.py`, `apple.py`, `ytmusic.py`, `spotify.py`, `tidal.py` (com `tidal_api.py`), `amazon.py`, `amazon_app.py`, `claro.py`, `palco.py`, `vagalume.py` | Um coletor por plataforma |
 | `creditos/cdp.py` | Conversa direta com a porta de depuração do aplicativo da Amazon (o Playwright não conecta nele) |
-| `creditos/ecad.py`, `ubc.py` | Leitura do relatório em PDF e em planilha |
+| `creditos/ecad.py`, `ubc_pdf.py`, `ubc.py` | Leitura do relatório: do ECAD em PDF, da UBC em PDF (o `ecad.ler_pdf` escolhe pelo cabeçalho das obras) e em planilha |
 | `creditos/filtro.py` | O filtro do que pode sair do computador |
 | `creditos/andamento.py` | Barra de progresso e a tarefa em segundo plano (uma por vez) |
 | `creditos/resultado.py` | A própria tarefa grava o resultado no disco ao terminar, ou o parcial se parar |

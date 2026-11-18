@@ -188,7 +188,7 @@ st.caption(
 )
 
 arquivo = st.file_uploader(
-    "Relatório analítico do ECAD (PDF) ou relatório de obras em planilha (.xlsx ou .csv)", type=["pdf", "xlsx", "csv"]
+    "Relatório analítico do ECAD ou da UBC (PDF), ou relatório de obras em planilha (.xlsx ou .csv)", type=["pdf", "xlsx", "csv"]
 )
 if arquivo is not None and st.session_state.get("arquivo_id") != arquivo.file_id:
     try:
