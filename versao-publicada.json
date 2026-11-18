@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.77",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.77/quem-canta-0.5.77-windows.zip",
-  "sha256": "13a3f57136a5de4d2342fe1cbed3e7b2f1146749c10e4c1d72b974d18f2a6787",
-  "notas": "O app agora aceita o Relatório Analítico de Obras da UBC em PDF, no mesmo lugar onde se envia o relatório do ECAD: ele reconhece sozinho qual dos dois é. A aba Tabela de obras continua pedindo o PDF do ECAD."
+  "versao": "0.5.78",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.78/quem-canta-0.5.78-windows.zip",
+  "sha256": "6144de77515c13d2e6786127e7a2c03dd80ae650abe8715b3282acf138d67720",
+  "notas": "A aba Tabela de obras agora aceita o Relatório Analítico de Obras da UBC em PDF: as obras são achadas e recortadas (ISWC, título e nomes até o cliente) como no relatório do ECAD."
 }
