@@ -260,6 +260,12 @@ do relatório**; obra sem print do Ecadnet fica com a célula vazia.
   relatório de outra obra, ISWC faltando, recorte passando do cliente). O recorte do relatório que corta letras do
   pseudônimo é igual no gabarito: não mexer.
 - Liberada na 0.5.74 (03/11/2026), por decisão do dono.
+- **Lista da petição (26/11/2026, decisão do dono):** campo opcional na aba. Com a lista, só as obras dela entram,
+  **na ordem do relatório**; o cruzamento é o da Réplica (`replica.cruzar`, pelo título). Avisa o título da lista que
+  o relatório não tem, a obra da lista sem ISWC ou sem o PDF do ISWC (fica fora) e o título ligado por aproximação.
+  A leitura da lista (`replica.titulos_da_lista`) passou a aceitar também a tabela à mão **sem a coluna do número**
+  ("obra / intérprete(s) | link(s)"), que antes dava 0 obras. Testado com uma lista real de 85 obras (85 lidas); o
+  filtro, só com dados inventados (sem o relatório e o ISWC daquele caso).
 
 ### 4.3 Desligar no fim da coleta e o registro da coleta (0.5.73, 03/11/2026)
 Pedido do dono: o pessoal deixa o computador ligado à noite para a coleta, e ele tem de desligar sozinho no fim.

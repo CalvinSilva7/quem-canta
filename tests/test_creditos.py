@@ -2769,6 +2769,32 @@ def test_replica_le_a_tabela_feita_a_mao_no_word():
     assert replica.titulos_da_lista(_docx(montar)) == ["Coisa Feita", "Outra Toada"]
 
 
+def test_replica_le_a_tabela_feita_a_mao_sem_o_numero():
+    """Obra e intérprete(s) na 1ª coluna, link(s) na 2ª, cabeçalho sem link e sem a coluna do número."""
+    from creditos import replica
+
+    def montar(doc):
+        tabela = doc.add_table(rows=1, cols=2)
+        tabela.rows[0].cells[0].text, tabela.rows[0].cells[1].text = "OBRA INTELECTUAL / INTÉRPRETE", "LINK YOUTUBE MUSIC"
+        linha = tabela.add_row().cells
+        linha[0].text = "220 COISA FEITA"  # título que começa com número
+        linha[0].add_paragraph("Zeca Lima")
+        linha[1].text = "https://music.youtube.com/watch?v=1"
+        linha = tabela.add_row().cells
+        linha[0].text = "OUTRA TOADA"
+        linha[0].add_paragraph("Dupla Tal")
+        linha[0].add_paragraph("Banda do Baile")
+        linha[1].text = "https://music.youtube.com/watch?v=2"
+        linha[1].add_paragraph("https://music.youtube.com/watch?v=3")
+        linha = tabela.add_row().cells
+        corrida = linha[0].paragraphs[0].add_run("TERCEIRA")
+        corrida.add_break()  # intérprete no mesmo parágrafo, depois de Shift+Enter
+        linha[0].paragraphs[0].add_run("Zeca Lima")
+        linha[1].text = "https://music.youtube.com/watch?v=4"
+
+    assert replica.titulos_da_lista(_docx(montar)) == ["220 COISA FEITA", "OUTRA TOADA", "TERCEIRA"]
+
+
 @pytest.mark.parametrize(("medidas", "largura_do_print"), [
     ([100, 80, 1100, 750, 1084, 655, 1.0], 1084),   # zoom 100%
     ([100, 80, 1100, 750, 1355, 818, 0.8], 1084),   # zoom 80% (a pessoa diminuiu para caber mais)

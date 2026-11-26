@@ -709,7 +709,8 @@ def aba_da_tabela():
 
     st.subheader("Tabela de obras")
     st.caption("Uma linha por obra do ISWC, na ordem do relatório e com o título do relatório: o recorte do relatório "
-               "analítico, o do ISWC e o do Ecadnet. Obra sem print do Ecadnet fica com a célula vazia.")
+               "analítico, o do ISWC e o do Ecadnet. Obra sem print do Ecadnet fica com a célula vazia. Com a lista "
+               "da petição, só as obras dela.")
     if arquivo is None or not arquivo.name.lower().endswith(".pdf"):
         st.warning("Para a tabela, envie lá em cima o **relatório analítico do ECAD ou da UBC em PDF**: é dele que sai a 2ª coluna.")
         return
@@ -718,7 +719,12 @@ def aba_da_tabela():
     do_ecadnet = st.file_uploader("Prints do Ecadnet: o Word ou o PDF com os prints de tela (ou as imagens, ou um .zip)",
                                   type=["docx", "pdf", "png", "jpg", "jpeg", "zip"], accept_multiple_files=True,
                                   key="tabela_ecadnet")
-    chave = (arquivo.file_id, tuple(f.file_id for f in do_iswc or []), tuple(f.file_id for f in do_ecadnet or []))
+    listas = st.file_uploader("Lista(s) da petição (.docx), opcional: só as obras dela entram na tabela", type=["docx"],
+                              accept_multiple_files=True, key="tabela_listas",
+                              help="A lista que a coleta gera ou a tabela feita à mão no Word (com ou sem a coluna do "
+                              "número). Sem lista, entram todas as obras do ISWC. A ordem continua a do relatório.")
+    chave = (arquivo.file_id, tuple(f.file_id for f in do_iswc or []), tuple(f.file_id for f in do_ecadnet or []),
+             tuple(f.file_id for f in listas or []))
     feito = st.session_state.get("tabela")
     if feito and feito["chave"] != chave:
         feito = None  # arquivos trocados: a tabela montada antes não vale mais
@@ -728,6 +734,15 @@ def aba_da_tabela():
                 st.write("Recortando o relatório e o ISWC…")
                 pdfs = [pdf for f in do_iswc for pdf in _tabela.pdfs_de(f.name, f.getvalue())]
                 linhas, obras, avisos = _tabela.preparar(arquivo.getvalue(), pdfs)
+                if listas:
+                    from creditos import replica as _replica
+
+                    titulos = list(dict.fromkeys(t for f in listas for t in _replica.titulos_da_lista(f.getvalue())))
+                    if not titulos:
+                        raise ValueError("não achei obras na lista da petição enviada")
+                    # Com a lista, o ISWC de obra fora da petição é esperado: o aviso de "fora do relatório" não serve
+                    linhas, avisos = _tabela.filtrar_pela_lista(linhas, obras, titulos)
+                    st.write(f"Lista da petição: {len(titulos)} obras, {len(linhas)} na tabela.")
                 prints = []
                 if do_ecadnet:
                     arquivos = [im for f in do_ecadnet for im in _tabela.imagens_de(f.name, f.getvalue())]

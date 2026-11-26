@@ -114,6 +114,20 @@ def test_linhas_sao_as_obras_do_iswc_na_ordem_do_relatorio_com_o_titulo_do_relat
     assert len(avisos) == 1 and "T-555.555.555-5" in avisos[0]  # está no ISWC e não no relatório
 
 
+def test_lista_da_peticao_deixa_so_as_obras_dela_na_ordem_do_relatorio():
+    linhas, obras, _ = t.preparar(_relatorio(), [_iswc(("T-000.000.001-0", "X"), ("T-123.456.789-0", "Y"))])
+    # na ordem da lista, não do relatório; uma sem ISWC, uma sem o PDF do ISWC, uma fora do relatório
+    filtradas, avisos = t.filtrar_pela_lista(linhas, obras, ["Obra Tres", "Obra Sem Iswc", "OBRA QUATRO", "COISA FEITA"])
+    assert [linha.titulo for linha in filtradas] == ["Obra Tres"]
+    assert any("não no relatório" in a and "COISA FEITA" in a for a in avisos)
+    assert any("sem ISWC no relatório" in a and "OBRA SEM ISWC" in a for a in avisos)
+    assert any("sem o PDF do ISWC" in a and "OBRA QUATRO" in a for a in avisos)
+    assert not any("OBRA UM" in a for a in avisos)  # fora da lista: nem entra, nem avisa
+    # as duas da lista que têm ISWC saem na ordem do relatório
+    filtradas, _ = t.filtrar_pela_lista(linhas, obras, ["obra tres", "obra um"])
+    assert [linha.titulo for linha in filtradas] == ["Obra Um", "Obra Tres"]
+
+
 def test_titulo_cortado_pelo_relatorio_sai_inteiro_pelo_iswc():
     """O relatório corta o título longo na coluna; o ISWC traz o título inteiro (achado num caso real de 75 obras)."""
     titulos = {}

@@ -636,6 +636,30 @@ def preparar(relatorio_pdf: bytes, iswc_pdfs: list[bytes]) -> tuple[list[LinhaDa
     return linhas, obras, avisos
 
 
+def filtrar_pela_lista(linhas: list[LinhaDaTabela], obras: list[ObraDoRelatorio], titulos: list[str]) -> tuple[list[LinhaDaTabela], list[str]]:
+    """Só as linhas das obras da lista da petição, na ordem do relatório (decisão do dono, 26/11/2026). O cruzamento
+    lista x relatório é o mesmo da Réplica (`replica.cruzar`: pelo título, aceitando grafia diferente). Devolve as
+    linhas e os avisos: título da lista que o relatório não tem, obra da lista sem o PDF do ISWC (fora da tabela,
+    pela regra de 03/11) e título que só bateu escrito de outro jeito (para conferir)."""
+    from types import SimpleNamespace
+
+    from .replica import cruzar
+
+    escolhidas, fora, aproximados = cruzar(titulos, SimpleNamespace(obras=obras))
+    da_lista = {digitos(o.iswc) for o in escolhidas if digitos(o.iswc)}
+    filtradas = [linha for linha in linhas if digitos(linha.iswc) in da_lista]
+    na_tabela = {digitos(linha.iswc) for linha in filtradas}
+    avisos = [f"Na lista mas não no relatório: {titulo}." for titulo in fora]
+    for obra in escolhidas:
+        if not digitos(obra.iswc):
+            avisos.append(f"Na lista, mas sem ISWC no relatório: {obra.titulo}. Ficou fora da tabela.")
+        elif digitos(obra.iswc) not in na_tabela:
+            avisos.append(f"Na lista, mas sem o PDF do ISWC: {obra.titulo} ({obra.iswc}). Ficou fora da tabela.")
+    avisos += [f"Confira: \"{titulo}\" da lista foi ligado a {', '.join(dict.fromkeys(achados))} do relatório "
+               "(título escrito de outro jeito)." for titulo, achados in aproximados.items()]
+    return filtradas, list(dict.fromkeys(avisos))
+
+
 def preencher_ecadnet(linhas: list[LinhaDaTabela], prints: list[PrintDoEcadnet]):
     """Põe em cada linha os recortes dos prints ligados a ela, na ordem dos prints."""
     por_iswc = {digitos(l.iswc): l for l in linhas}

@@ -154,11 +154,13 @@ class Janela:
 
 def titulos_da_lista(conteudo: bytes) -> list[str]:
     """Os títulos das obras de uma lista da petição (.docx). A parte "A confirmar antes de usar" fica de fora: ela
-    não entra na petição. Dois formatos:
+    não entra na petição. Três formatos:
 
     - o que o app gera: linhas "N-Música: TÍTULO";
     - a tabela feita à mão no Word: "Nº | obra (e, na linha de baixo da mesma célula, o intérprete) | link".
-      Vale a primeira linha da segunda coluna das linhas cuja primeira coluna é só o número."""
+      Vale a primeira linha da segunda coluna das linhas cuja primeira coluna é só o número;
+    - a tabela feita à mão sem o número: "obra (e, embaixo, o(s) intérprete(s)) | link(s)". Vale a primeira linha da
+      primeira coluna das linhas que têm link noutra coluna (o cabeçalho, sem link, fica de fora)."""
     import io
     import re
 
@@ -179,6 +181,11 @@ def titulos_da_lista(conteudo: bytes) -> list[str]:
                 titulo = next((linha for linha in map(texto_de, celulas[1].iter(qn("w:p"))) if linha), "")
                 if titulo and not re.match(r"^\d+\s*-\s*M[uú]sica:", titulo):
                     titulos.append(titulo)
+            elif len(celulas) >= 2 and any("http" in texto_de(c) for c in celulas[1:]):
+                titulo = _primeira_linha(celulas[0], qn)
+                # "N-Música: TÍTULO" (a lista que o app gera) já é lida pelos parágrafos, logo abaixo
+                if titulo and not re.search(r"M[uú]sica:", titulo) and "http" not in titulo:
+                    titulos.append(titulo)
             continue
         texto = texto_de(elemento)
         if normalizar(texto).startswith("a confirmar antes de usar"):
@@ -187,6 +194,24 @@ def titulos_da_lista(conteudo: bytes) -> list[str]:
         if achado:
             titulos += [t.strip() for t in achado[1].split("; ") if t.strip()]  # medley: "OBRA A; OBRA B"
     return list(dict.fromkeys(titulos))
+
+
+def _primeira_linha(celula, qn) -> str:
+    """A primeira linha com texto de uma célula do Word: o 1º parágrafo com texto, cortado na quebra de linha
+    (Shift+Enter) se o intérprete vier no mesmo parágrafo."""
+    for paragrafo in celula.iter(qn("w:p")):
+        pedacos, atual = [], []
+        for no in paragrafo.iter(qn("w:t"), qn("w:br"), qn("w:cr")):
+            if no.tag == qn("w:t"):
+                atual.append(no.text or "")
+            else:
+                pedacos.append("".join(atual))
+                atual = []
+        pedacos.append("".join(atual))
+        linha = next((p.strip() for p in pedacos if p.strip()), "")
+        if linha:
+            return linha
+    return ""
 
 
 _ARTIGO_OU_MONTAGEM = re.compile(r"^(?:o|a|os|as|mtg|montagem)\s+")
