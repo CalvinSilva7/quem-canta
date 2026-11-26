@@ -557,6 +557,12 @@ def test_captcha_login_e_consentimento_param_a_fila():
     assert ytmusic.sinal_de_bloqueio("https://accounts.google.com/ServiceLogin")
     assert ytmusic.sinal_de_bloqueio("https://music.youtube.com/watch?v=x", "Faça login para confirmar que você não é um robô")
     assert ytmusic.sinal_de_bloqueio("https://music.youtube.com/watch?v=x", "Banda do Baile · Compartilhar") == ""
+    # vídeo para maiores: o aviso é do vídeo, não da coleta (parava sempre no mesmo vídeo, caso real de 25/11/2026)
+    idade = "Fazer login\nFaça login para confirmar sua idade\nEste vídeo pode ser impróprio para alguns usuários."
+    assert ytmusic.sinal_de_bloqueio("https://music.youtube.com/watch?v=x", idade) == ""
+    assert ytmusic.restrita_por_idade(idade)
+    assert not ytmusic.restrita_por_idade("Faça login para confirmar que você não é um robô")
+    assert ytmusic.sinal_de_bloqueio("https://music.youtube.com/watch?v=x", idade + "\nFaça login para confirmar que você não é um robô")
 
 
 def test_nome_do_arquivo_e_carimbo_da_captura():

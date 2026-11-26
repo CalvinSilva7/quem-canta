@@ -36,6 +36,7 @@ ROTULOS_DE_AUTOR = ("composicao de", "letra de", "composicao e letra", "escrita 
 ROTULO_DE_FORNECEDOR = "metadados de musica fornecidos por"
 _BLOQUEIO_NA_URL = ("accounts.google.com", "google.com/sorry", "consent.youtube.com", "consent.google.com")
 _BLOQUEIO_NO_TEXTO = ("nao e um robo", "trafego incomum", "unusual traffic", "faca login para confirmar")
+_RESTRICAO_DE_IDADE = "faca login para confirmar sua idade"
 
 _LER_PLAYER = """() => {
   const barra = document.querySelector('ytmusic-player-bar');
@@ -118,11 +119,17 @@ class Leitura:
 # --- interpretação (sem navegador: é o que os testes cobrem) -------------------
 
 
+def restrita_por_idade(texto: str) -> bool:
+    """Vídeo marcado como impróprio para menores: o YouTube só o mostra a quem faz login. É deste vídeo, não um bloqueio."""
+    return _RESTRICAO_DE_IDADE in normalizar(texto)
+
+
 def sinal_de_bloqueio(url: str, texto: str = "") -> str:
     if any(parte in url for parte in _BLOQUEIO_NA_URL):
         return f"a plataforma desviou para {url.split('/')[2]}"
     from . import navegador
-    limpo = navegador.sem_o_que_e_do_caso(normalizar(texto))
+    # "Faça login para confirmar sua idade" contém "faça login para confirmar", mas fala de um vídeo só: não para a coleta.
+    limpo = navegador.sem_o_que_e_do_caso(normalizar(texto)).replace(_RESTRICAO_DE_IDADE, "")
     return next((f'a página pede verificação humana ("{sinal}")' for sinal in _BLOQUEIO_NO_TEXTO if sinal in limpo), "")
 
 
@@ -238,9 +245,20 @@ class YouTubeMusic:
     def _conferir_pagina(self, estado):
         motivo = sinal_de_bloqueio(self.pagina.url, estado.get("texto", ""))
         if motivo:
-            raise Bloqueio(motivo)
+            raise Bloqueio(f"{motivo} em {self.pagina.url}{self._guardar_bloqueio(estado.get('texto', ''))}")
         if self.pagina.evaluate(captura._TRADUZIDA):
             raise captura.PaginaTraduzida(self.pagina.url)
+
+    def _guardar_bloqueio(self, texto: str) -> str:
+        """Guarda print e texto da página que pareceu bloqueio, para se poder conferir depois o que ela mostrava."""
+        try:
+            base = self.pasta / f"bloqueio_{captura.agora().strftime('%Y-%m-%d_%Hh%Mm%S')}"
+            self.pasta.mkdir(parents=True, exist_ok=True)
+            base.with_suffix(".txt").write_text(f"{self.pagina.url}\n\n{texto}", encoding="utf-8")
+            self.pagina.screenshot(path=str(base.with_suffix(".png")))
+            return f" (print em {base.name}.png)"
+        except Exception:
+            return ""
 
     # --- busca ---------------------------------------------------------------
 
@@ -311,6 +329,10 @@ class YouTubeMusic:
         pagina.wait_for_selector("ytmusic-player-bar", state="attached", timeout=30000)
         estado = self._esperar_a_faixa(leitura.video)
         self._conferir_pagina(estado)
+        if restrita_por_idade(estado.get("texto", "")):
+            leitura.coleta = "indisponivel"
+            leitura.erro = "vídeo com restrição de idade: o YouTube só o mostra a quem faz login, e o app não faz login"
+            return
         if not estado["titulo"]:
             leitura.coleta = "indisponivel"
             leitura.erro = estado["indisponivel"] or "a faixa não carregou no player"
