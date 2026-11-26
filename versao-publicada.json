@@ -1,6 +1,6 @@
 {
-  "versao": "0.5.78",
-  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.78/quem-canta-0.5.78-windows.zip",
-  "sha256": "6144de77515c13d2e6786127e7a2c03dd80ae650abe8715b3282acf138d67720",
-  "notas": "A aba Tabela de obras agora aceita o Relatório Analítico de Obras da UBC em PDF: as obras são achadas e recortadas (ISWC, título e nomes até o cliente) como no relatório do ECAD."
+  "versao": "0.5.79",
+  "url": "https://github.com/CalvinSilva7/quem-canta/releases/download/v0.5.79/quem-canta-0.5.79-windows.zip",
+  "sha256": "14a63aaf48a9a1667f8ea01fed38d60ddba1a2c843401fbfbb7866b20fcb7780",
+  "notas": "O YouTube Music não para mais a coleta num vídeo com restrição de idade: ele sai como indisponível e a fila segue. A aba Tabela de obras aceita a lista da petição (também a tabela feita à mão sem a coluna do número) e fica só com as obras dela, na ordem do relatório."
 }
